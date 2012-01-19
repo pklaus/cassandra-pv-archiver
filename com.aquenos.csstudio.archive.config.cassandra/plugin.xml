@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+   <extension
+         point="org.csstudio.archive.config.ArchiveConfig">
+      <ArchiveConfig
+            class="com.aquenos.csstudio.archive.config.cassandra.internal.DefaultCassandraArchiveConfig">
+      </ArchiveConfig>
+   </extension>
+
+   <extension
+         id="configToolApp"
+         point="org.eclipse.core.runtime.applications">
+      <application
+            cardinality="singleton-global"
+            thread="main"
+            visible="true">
+         <run
+               class="com.aquenos.csstudio.archive.config.cassandra.ArchiveConfigApplication">
+         </run>
+      </application>
+   </extension>
+
+   <extension
+         id="configToolProduct"
+         point="org.eclipse.core.runtime.products">
+      <product
+            application="com.aquenos.csstudio.archive.config.cassandra.configToolApp"
+            name="ArchiveConfigTool">
+         <property
+               name="appName"
+               value="ArchiveConfigTool">
+         </property>
+      </product>
+   </extension>
+</plugin>

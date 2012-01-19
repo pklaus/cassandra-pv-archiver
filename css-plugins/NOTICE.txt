@@ -1,0 +1,5 @@
+This directory contains builds of the CSS plugins needed to build and run the
+Cassandra Archiver. They have been built from the sources available in the
+Control System Studio Mercurial repository 
+(http://cs-studio.hg.sourceforge.net:8000/hgroot/cs-studio/cs-studio) without
+any modifications.

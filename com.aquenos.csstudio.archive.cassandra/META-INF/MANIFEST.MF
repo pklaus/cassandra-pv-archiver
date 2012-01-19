@@ -1,0 +1,20 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Common Code for Archive Support for Cassandra
+Bundle-Description: Code shared by the various bundles that provide archive support for the Apache Cassandra distributed database system
+Bundle-SymbolicName: com.aquenos.csstudio.archive.cassandra;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-Vendor: aquenos GmbH
+Require-Bundle: org.eclipse.core.runtime;bundle-version="3.6.0"
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+Export-Package: com.aquenos.csstudio.archive.cassandra,
+ com.aquenos.csstudio.archive.cassandra.util
+Import-Package: me.prettyprint.cassandra.model,
+ me.prettyprint.cassandra.serializers,
+ me.prettyprint.cassandra.service,
+ me.prettyprint.hector.api,
+ me.prettyprint.hector.api.beans,
+ me.prettyprint.hector.api.factory,
+ me.prettyprint.hector.api.mutation,
+ me.prettyprint.hector.api.query,
+ org.csstudio.data.values
