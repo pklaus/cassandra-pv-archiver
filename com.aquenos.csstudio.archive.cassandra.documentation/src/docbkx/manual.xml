@@ -1,0 +1,1058 @@
+<?xml version="1.0"?>
+<book version="5.0" xmlns="http://docbook.org/ns/docbook" xmlns:xlink="http://www.w3.org/1999/xlink"
+  xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://docbook.org/ns/docbook http://www.docbook.org/xml/5.0CR7/xsd/docbook.xsd"
+>
+  <info>
+    <title>Cassandra Archiver Manual</title>
+    <copyright>
+      <year>2012</year>
+      <holder>aquenos GmbH</holder>
+    </copyright>
+    <author>
+      <personname>
+        <firstname>Sebastian</firstname>
+        <surname>Marsching</surname>
+      </personname>
+      <affiliation>
+        <orgname>aquenos GmbH</orgname>
+      </affiliation>
+    </author>
+  </info>
+  
+  <chapter xml:id="introduction">
+    <title>Introduction</title>
+    <para>
+      This manual is divided in four chapters (not counting this introduction).
+      The <link linkend="concept">first chapter</link> introduces the concepts 
+      of Apache Cassandra in general and the Cassandra Archiver in particular.
+      The <link linkend="gettingstarted">second chapter</link> describes the
+      few steps needed to setup a basic installation of the Cassandra Archiver.
+      The <link linkend="installation">third chapter</link> gives more detailed
+      instructions on how to install the Cassandra Archiver.
+      Finally, the <link linkend="configuration">fourth chapter</link> explains
+      how to configure the archiver.
+    </para>
+  </chapter>
+  
+  <chapter xml:id="concept">
+    <title>Concept</title>
+    <para>
+      This chapter introduces the concepts behind the Cassandra Archiver and
+      and Apache Cassandra. First column-oriented database systems and 
+      Apache Cassanra are presented shortly. Subsequently, the Cassandra
+      Archiver for Control System Studio is introduced. Finally, the structure
+      of the keyspace storing data for the Cassandra Archiver is explained. You
+      might want to skip this last section if you are reading this manual for 
+      the first time and just interested in getting started with the Cassandra
+      Archiver.
+    </para>
+    <section>
+      <title>Apache Cassandra</title>
+      <para>
+        Apache Cassandra is a 
+        <link xlink:href="http://en.wikipedia.org/wiki/Column-oriented_DBMS">column-oriented database management system</link>
+        (<abbrev>CDBMS</abbrev>),
+        which is optimized for storing large amounts
+        (tera- or even petabytes) of data grouped in column-families. It is a
+        a special form of a
+        <link xlink:href="http://en.wikipedia.org/wiki/Key-value_store">key-value store</link>.
+        Unlike a relational database management system (<abbrev>RDBMS</abbrev>)
+        it is not optimized for storing relational data or
+        modifying data in a transactional way. The main advantages of a
+        <abbrev>CDBMS</abbrev> compared to a <abbrev>RDBMS</abbrev> are superior
+        read-write performance, linear scalability and high availability at low
+        operation costs.
+      </para>
+      <para>
+        In a <abbrev>CDBMS</abbrev> data is stored in column families. Each
+        column family contains an arbitrary number of rows, which (for a
+        multi-node setup) are distributed over all cluster nodes. Each row is
+        identified by a unique row key. Each row contains one or more
+        columns. Each column is identified by a column name, that must be unique 
+        for the respective row. Each column can but does not have to store a
+        value. Row keys, column names and column values are stored as array of
+        bytes. The meaning of the bytes depend on the application accessing the
+        database. Therefore, data-types are completely transparent to the
+        <abbrev>CDBMS</abbrev>.
+      </para>
+      <para>
+        In a multi-node setup, data is distributed across the nodes, so that
+        the amount of data stored is not limited by the disk-space of a single
+        computer. Typically, low-price servers which are not fault-tolerant are
+        used and the same data is stored on multiple nodes (typically three).
+        The database clients and servers have built-in facilities, that
+        automatically switch to a different node, if the first node fails.
+        Therefore, the database cluster is fault-tolerant and highly availabe,
+        although cheap, unreliable computers are used.
+      </para>
+      <para>
+        This document does not provide a detailed introduction into
+        column-oriented database management systems or Apache Cassandra.
+        For understanding the concepts of a CDBMS, the original paper about
+        <link xlink:href="http://research.google.com/archive/bigtable.html">Google Bigtable</link>
+        by Chang et al. is a good starting point.
+      </para>
+      <para>
+        If you want to setup a cluster of Cassandra servers or are interested in
+        advanced configuration options and performance tuning, you should read
+        the
+        <link xlink:href="http://www.datastax.com/docs/1.0/index">Apache Cassandra Documentation</link>
+        provided by DataStax. However, this manual describes the basic steps
+        needed to setup a single-node Cassandra cluster for getting started with
+        the Cassandra Archiver.
+      </para>
+    </section>
+    <section>
+      <title>Cassandra Archiver for Control System Studio</title>
+      <para>
+        The Cassandra Archiver for 
+        <link xlink:href="http://cs-studio.sourceforge.net/">Control System Studio</link> 
+        is a set of plugins that extend the existing archive reader and writer
+        architecture so that a database hosted by
+        <link xlink:href="http://cassandra.apache.org/">Apache Cassandra</link>
+        can be used instead of a traditional <abbrev>RDBMS</abbrev> like MySQL 
+        or Oracle.
+      </para>
+      <para>
+        By using a column-oriented database management system, huge amounts of
+        channel samples can be archived. The Cassandra Archiver uses one
+        column family for storing all channel samples. Each row stores one
+        sample and is identified by a key that aggregates the channel name, the
+        time-stamp of the sample and the
+        <link linkend="configuration.compressionlevels">compression-level name</link>.
+        The columns of each row store the sample's value and meta-data
+        (e.g. alarm severity). As the data in the samples column-family is
+        compressed before being written to disk, the space requirements of the
+        database are reduced. Due to the way Cassandra stores data, the
+        read and write perfomance of the database is not reduced by using
+        compression. In fact, using compression can even
+        <link xlink:href="http://www.datastax.com/dev/blog/whats-new-in-cassandra-1-0-compression">slightly increase the data throughput</link>.
+      </para>
+      <para>
+        The Cassandra Archiver can be regarded as a hybrid between the 
+        <link xlink:href="http://sourceforge.net/apps/trac/cs-studio/wiki/RDBArchive">RDB Archiver</link>
+        and the
+        <link xlink:href="http://sourceforge.net/apps/trac/cs-studio/wiki/ChannelArchiver">Channel Archiver</link>.
+        Like the RDB Archiver, the Cassandra Archiver uses an existing,
+        well-tested database management system for storing data. However, like
+        the Channel Archiver, the Cassandra Archiver uses a storage format that
+        is more optimized for storing channel samples and can provide high
+        write and read rate.
+      </para>
+      <para>
+        The <link xlink:href="http://www.lnl.infn.it/~epics/joomla/archiver.html">HyperArchiver</link>
+        uses a similar concept as the Channel Archiver. However, it uses
+        <link xlink:href="http://hypertable.org/">Hypertable</link> to store the
+        samples and MySQL to store the configuration, while the Cassandra
+        Archiver stores the configuration and the samples in the same database,
+        simplifying installation and maintenance. For a HyperArchiver setup, 
+        where the Hypertable server is not running on the same node as the 
+        archive engine, the source code of the HyperArchiver has to be modified,
+        because important configuration values are hard-coded. Unlike Apache
+        Cassandra, which does not have a single-point of failure, Hypertable has
+        a master server, which, when down, causes the whole cluster to fail.
+        Besides, Cassandra is implemented as pure Java and thus 100 percent 
+        platform independent, while Hypertable needs to be compiled for each
+        supported platform.
+        In summary, the Cassandra Archiver is easier to setup and maintain and
+        more reliable than the HyperArchiver, making it the better choice for
+        most scenarios. 
+      </para>
+    </section>
+    <section>
+      <title>Database Structure</title>
+      <para>
+        This section explains the various column families which are used to
+        store the configuration and samples. If you are not interested in the
+        details, you can simply skip this section and read on at 
+        <link linkend="gettingstarted">the next chapter</link>. The information 
+        in this section is not needed for setting up the Cassandra Archiver. 
+      </para>
+      <para>
+        For row keys which have several parts, the various parts are seperated 
+        by a null byte. All row-keys are prepended by a (binary) MD5 hash
+        followed by a null byte in order to make sure that they are evenly
+        distributed across the cluster nodes. The MD5 hash is calculated by
+        appending the constituent byte arrays of the key (without a separating
+        null byte) and then caclulating the MD5 hash of the result byte array.
+      </para>
+      <section>
+        <title>Column Family <literal>engineConfiguration</literal></title>
+        <para>
+          The <literal>engineConfiguration</literal> column family stores
+          information about archive engines. The engine name, which must be
+          unique, is used as the row key. Each row has columns with the names
+          <literal>url</literal> and <literal>description</literal> storing
+          the URL and the description of the respective archive engine.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>engineConfigurationToGroups</literal></title>
+        <para>
+          The <literal>engineConfigurationToGroups</literal> column family
+          maps engines to their respective archive groups. The engine name is
+          used as the row key. A column exists for each group in the archive
+          engine, using the name of the group as the column name.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>groupConfiguration</literal></title>
+        <para>
+          The <literal>groupConfiguration</literal> column family
+          stores the configuration for each group. The row key is a combination
+          of the engine name and the group name. The column
+          <literal>enablingChannel</literal> stores the name of the channel that
+          enables or disables the group.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>groupConfigurationToChannels</literal></title>
+        <para>
+          The <literal>groupConfigurationToChannels</literal> column family
+          maps archive groups to the channels they contain. The row key is the
+          same as used for the <literal>groupConfiguration</literal> column
+          family. A column exists for each channel in the archive group, using 
+          the name of the channel as the column name.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>channelConfiguration</literal></title>
+        <para>
+          The <literal>channelConfiguration</literal> column family stores
+          information about channels. The channel name, which must be
+          unique, is used as the row key. Each row has columns with the names
+          <literal>engine</literal>, <literal>group</literal>,
+          <literal>sampleMode</literal>, <literal>samplePeriod</literal>,
+          <literal>sampleDelta</literal> and <literal>lastSampleTime</literal>
+          storing the engine and group, each channel is associated with, the
+          sampling options and the time of the last raw sample that has been
+          written for the channel.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>channelConfigurationToCompressionLevels</literal></title>
+        <para>
+          The <literal>channelConfigurationToCompressionLevels</literal> column 
+          family maps channels to their respective compression levels. The 
+          channel name is used as the row key. A column exists for each 
+          compression-level that is configured for the respective channel.
+          However, the special "raw" compression level always exists, even if 
+          there is no column.
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>compressionLevelConfiguration</literal></title>
+        <para>
+          The <literal>compressionLevelConfiguration</literal> column family
+          stores the configuration for each compression level of a channel. The 
+          row key is a combination of the channel name and the compression-level
+          name. The columns <literal>compressionPeriod</literal>,
+          <literal>retentionPeriod</literal>,
+          <literal>lastSavedSampleTime</literal> and
+          <literal>nextSampleTime</literal> store the period between samples
+          (not for the "raw" compression level), the time after which samples
+          are deleted, the time-stamp of the latest sample and the time-stamp
+          of the next sample to be calculated (not for the "raw" compression
+          level).
+        </para>
+      </section>
+      <section>
+        <title>Column Family <literal>samples</literal></title>
+        <para>
+          The <literal>samples</literal> column family
+          stores the actual samples for the different channels.
+          The row key is a combination of the compression-level name, the
+          channel name and the time-stamp. However, the time-stamp is not
+          included when calculating the MD5 hash.
+        </para>
+        <para>
+          The columns <literal>severity</literal> and <literal>status</literal>
+          exist for all rows and store the alarm severity and status of the
+          sample.
+        </para>
+        <para>
+          For samples of the type <interfacename>IDoubleValue</interfacename>,
+          the column <literal>doubleValue</literal> stores the value(s). For
+          samples that are not in the "raw" compression level, the
+          <literal>valueDoubleMin</literal> and
+          <literal>valueDoubleMax</literal> columns store the minimum and
+          maximum value in the compression interval.
+        </para>
+        <para>
+          For samples of the type <interfacename>IEnumValue</interfacename> the
+          <literal>valueEnum</literal> column stores the value(s) of the sample.
+          If the names associated with the different enum states are known, they
+          are stored in the <literal>metaDataEnumStates</literal> column.
+        </para>
+        <para>
+          For samples of the type <interfacename>ILongValue</interfacename> the
+          <literal>valueLong</literal> column stores the value(s) of the sample.
+        </para>
+        <para>
+          For samples of the type <interfacename>IStringValue</interfacename>
+          the <literal>valueString</literal> column stores the value(s) of the
+          sample.
+        </para>
+        <para>
+          If the sample has meta-data of the type
+          <interfacename>INumericMetaData</interfacename> associated with it, 
+          the columns <literal>metaDataNumDispLow</literal>,
+          <literal>metaDataNumDispHigh</literal>,
+          <literal>metaDataNumWarnLow</literal>,
+          <literal>metaDataNumWarnHigh</literal>,
+          <literal>metaDataNumAlarmLow</literal>,
+          <literal>metaDataNumAlarmHigh</literal>,
+          <literal>metaDataNumPrecision</literal> and
+          <literal>metaDataNumUnits</literal> store the meta-information for
+          the sample.
+        </para>
+        <para>
+          For all samples except the first sample for a given channel and
+          compression-level the column <literal>precedingSampleTime</literal>
+          stores the timestamp of the sample directly preceding the sample.
+        </para>
+      </section>
+    </section>
+  </chapter>
+  
+  <chapter xml:id="gettingstarted">
+    <title>Getting Started</title>
+    <para>
+      For setting up a simple test environment for the Cassandra Archiver,
+      four steps are needed. First, Apache Cassandra has to be installed.
+      Second, the Cassandra Archiver Engine and the accompanying tools have
+      to be installed. Third, the keyspace used by the Cassandra Archiver has
+      to be setup and an initial archiver engine configuration has to be
+      imported. Finally, the Cassandra Archiver Reader has to be installed
+      in Control System Studio.
+    </para>
+    <para>
+      All the steps needed to install and configure the Cassandra Archiver
+      are described in <xref linkend="installation"/> and
+      <xref linkend="configuration"/>. If you are using a simple setup, where
+      the Archive Engine, the Apache Cassandra Server and Control System Studio
+      are all running on the same host, you can simply skip the sections marked
+      as optional in these two chapters.
+    </para>
+  </chapter>
+  
+  <chapter xml:id="installation">
+    <title>Installation</title>
+    <section>
+      <title>Apache Cassandra</title>
+      <para>
+        This section describes the steps needed for setting up the Apache
+        Cassandra server for use with the Cassandra Archiver.
+      </para>
+      <important>
+        <para>
+          This section contains important information about configuration
+          options that <emphasis>must</emphasis> be set for the Cassandra
+          Archiver to work correctly. Thus, you should carefully read this
+          section (in particular
+          <xref linkend="installation.cassandra.partitioner"/>), even if you
+          already have a running Cassandra server.
+        </para>
+      </important>
+      <section>
+        <title>Download and Unpacking</title>
+        <para>
+          You can download Apache Cassandra from the
+          <link xlink:href="http://cassandra.apache.org/download/">project's website</link>.
+          You should choose the newest version of the binary download from the
+          1.0 branch, having a filename like
+          <filename>apache-cassandra-1.0.x-bin.tar.gz</filename>. Apache 
+          Cassandra is implemented in Java, so that the binary download is the
+          same for all platforms. You need a Java Runtime Environment version 6
+          or higher in order to run Cassandra.
+        </para>
+        <para>
+          After downloading the tarball, extract it to some place on your 
+          hard-disk. For the rest of this document, we assume that you unpacked 
+          it to <filename>/path/to/cassandra</filename>.
+        </para>
+      </section>
+      <section>
+        <title>Configuration</title>
+        <para>
+          Apache Cassandra stores its configuration in
+          <filename>/path/to/cassandra/conf</filename>. For a simple, 
+          single-node configuration, there are two relevant files:
+          <filename>cassandra.yaml</filename> and 
+          <filename>log4j-server.properties</filename>.
+        </para>
+        <section>
+          <title>Data Paths</title>
+          <para>
+            Before starting Cassandra, you either have to change the paths
+            where Cassandra stores its data, or you have to create the
+            directories used by default and make sure the user, that is running
+            Cassandra can write to these directories.
+          </para>
+          <para>
+            There are four directories Cassandra uses to store data. The first
+            three are configured in <filename>cassandra.yaml</filename>. The
+            option <literal>data_file_directories</literal> is set to
+            <filename>/var/lib/cassandra/data</filename> by default and defines
+            where the actual data from the various column families is saved.
+            The option <filename>saved_caches_directory</filename> defaults to
+            <filename>/var/lib/cassandra/saved_caches</filename> and is used
+            to store cached data. The third option is the
+            <literal>commitlog_directory</literal>, which defaults to
+            <filename>/var/lib/cassandra/commitlog</filename>. This directory is
+            used for storing the write-ahead log. If you aim for maximum
+            performance, you might want to consider storing the commit-log on
+            a different disk than the data directories. For most setups however,
+            storing the commit-log on the same disk is fine.
+          </para>
+          <para>
+            The last directory is configured in
+            <filename>log4j-server.properties</filename> and is used to store
+            the server log. The option <literal>log4j.appender.R.File</literal>
+            defaults to <filename>/var/log/cassandra/system.log</filename>.
+            In contrast to the other options, this option specifies the file and
+            not a directory.
+          </para>
+        </section>
+        <section xml:id="installation.cassandra.partitioner">
+          <title>Configuring the Partitioner</title>
+          <important>
+            <para>
+              An order-preserving partitioner must be used for the Cassandra
+              Archiver. The partioner cannot be changed after data has been
+              stored in the database, therefore you have to change this option
+              before starting Cassandra the first time.
+            </para>
+          </important>
+          <para>
+            In <filename>cassandra.yaml</filename> the
+            <literal>partitioner</literal> option has to be changed to refer to
+            <classname>org.apache.cassandra.dht.ByteOrderedPartitioner</classname>.
+            The Cassandra Archiver uses key-range queries for retrieving samples
+            in a specific time range, so that an ordered partioner must be used.
+            If you have other applications, which do not use ranged queries, you
+            should run them on a different Cassandra cluster using the random
+            partioner. Using applications which are desgined for use with the
+            random partionier on a cluster with an ordered partioner will lead
+            to unequal data distribution across the cluster nodes and bad read
+            and write performance.
+          </para>
+        </section>
+        <section xml:id="installation.cassandra.network">
+          <title>Configuring the Network Interface</title>
+          <note>
+            <para>
+              If the Cassandra server, the Cassandra Archiver Engine and the
+              Control System Studio client are all running on the same machine,
+              you can skip this step.
+            </para>
+          </note>
+          <para>
+            There are five configuration regarding the network interface used
+            by the cassandra server. The first three options
+            (<literal>storage_port</literal>,
+            <literal>ssl_storage_port</literal> and
+            <literal>listen_address</literal>) are only relevant for a
+            multi-node Cassandra cluster and thus outside the scope of this
+            manual.
+          </para>
+          <para>
+            The other two options (<literal>rpc_address</literal> and
+            <literal>rpc_port</literal>) are relevant if you want to run
+            Control System Studio or the archive engine on different machines
+            than the Cassandra server. By default <literal>rpc_address</literal>
+            is configured to only listen on the loopback interface. You should
+            change this to the IP address of the network interface your machine
+            uses to connect to the rest of the network. If you are sure, your
+            hostname and IP address configuration is correct (in particular
+            <filename>/etc/hosts</filename> and 
+            <filename>/etc/hostname</filename> are configured correctly), you
+            can also set a blank value, to make Cassandra deterine the right
+            IP address by itself.
+          </para> 
+          <para>
+            The <literal>rpc_port</literal> option needs only to be changed, if
+            you run two or more Cassandra servers on the same host, or a
+            different service uses the same port. By default TCP port 9160 is
+            used for the
+            <link xlink:href="http://thrift.apache.org/">Thrift</link> service.
+            If you change this port number, you also have to adjust the setting
+            in the archive engine and archive reader configurations.
+          </para>
+        </section>
+        <section>
+          <title>Configuring Authentication Options</title>
+          <note>
+            <para>
+              Configuring the authentication options is completely optional.
+              By default, Cassandra grants full write-access to all connections
+              without any authentication. If using Cassandra in a production
+              environment, you might want to use authentication for better
+              security however.
+            </para>
+          </note>
+          <para>
+            Cassandra's security system divides into two components:
+            authentication and authorization. Authentication is the task of 
+            checking credentials provided by a client and assigning a principal.
+            Authentication is the task of checking whether a specific principal
+            may perform a certain operation.
+          </para>
+          <para>
+            By default Cassandra is distributed with an authenticator which
+            accepts any credentials and an authority which grants any permission
+            to any principal.
+          </para>
+          <para>
+            The <classname>SimpleAuthenticator</classname> and
+            <classname>SimpleAuthority</classname> are part of the Cassandra
+            source code but are not distributed with the binary distribution.
+          </para>
+          <para>
+            For your convenience, a JAR file with the compiled versions of the
+            two classes is distributed with the Cassandra Archiver in the
+            <filename>cassandra-simpleauth</filename> directory.
+          </para>
+          <para>
+            Copy this JAR to the <filename>lib</filename> directory of the
+            Cassandra installation and add the following two lines to the end
+            of the <filename>cassandra-env.sh</filename> configuration file:
+          </para>
+<programlisting><![CDATA[
+JVM_OPTS="$JVM_OPTS -Dpasswd.properties=$CASSANDRA_CONF/passwd.properties"
+JVM_OPTS="$JVM_OPTS -Daccess.properties=$CASSANDRA_CONF/access.properties"
+]]></programlisting>
+          <para>
+            Besides adding these system properties, you also have to adjust
+            the <literal>authenticator</literal> and
+            <literal>authority</literal> options in
+            <filename>cassandra.yaml</filename> to refer to
+            <classname>org.apache.cassandra.auth.SimpleAuthenticator</classname>
+            and
+            <classname>org.apache.cassandra.auth.SimpleAuthority</classname>
+            respectively.
+          </para>
+          <para>
+            You also have to create the configuration files
+            <filename>passwd.properties</filename> and
+            <filename>access.properties</filename> in the
+            <filename>conf</filename> directory of the Cassandra installation.
+          </para>
+          <para>
+            The <filename>passwd.properties</filename> file uses a simple
+            syntax where the property name is the username and the property
+            value is the clear-text password for the user. The following
+            examples defines four users with different passwords:
+          </para>
+<programlisting><![CDATA[
+admin=superSafePassword
+archive-read=somePassword
+archive-write=someDifferentPassword
+archive-config=anotherPassword
+]]></programlisting>
+          <para>
+            The <filename>access.properties</filename> uses a syntax, where the
+            property name represents a privilege and the property value is a
+            comma-separated list of principals, which are granted that
+            privilege. The following example assigns four levels of privileges:
+            The user <literal>admin</literal> may perform any operation, the
+            user <literal>archive-read</literal> may read data from the
+            column-families in the <literal>cssArchive</literal> keyspace and
+            the user <literal>archive-write</literal> may write data to the
+            column-families <literal>samples</literal>,
+            <literal>channelConfigurations</literal> and
+            <literal>compressionLevelConfigurations</literal> in the 
+            <literal>cssArchive</literal> keyspace, and the user
+            <literal>archive-config</literal> may write data to any column 
+            family in the <literal>cssArchive</literal> keyspace:
+          </para>
+<programlisting><![CDATA[
+<modify-keyspaces>=admin
+cssArchive.<ro>=archive-read,archive-write,archive-config
+cssArchive.<rw>=admin
+cssArchive.engineConfiguration.<ro>=archive-read,archive-write
+cssArchive.engineConfiguration.<rw>=archive-config,admin
+cssArchive.engineConfigurationToGroups.<ro>=archive-read,archive-write
+cssArchive.engineConfigurationToGroups.<rw>=archive-config,admin
+cssArchive.groupConfiguration.<ro>=archive-read,archive-write
+cssArchive.groupConfiguration.<rw>=archive-config,admin
+cssArchive.groupConfigurationToChannels.<ro>=archive-read,archive-write
+cssArchive.groupConfigurationToChannels.<rw>=archive-config,admin
+cssArchive.channelConfiguration.<ro>=archive-read
+cssArchive.channelConfiguration.<rw>=archive-config,archive-write,admin
+cssArchive.channelConfigurationToCompressionLevels.<ro>=archive-read,archive-write
+cssArchive.channelConfigurationToCompressionLevels.<rw>=archive-config,admin
+cssArchive.compressionLevelConfiguration.<ro>=archive-read
+cssArchive.compressionLevelConfiguration.<rw>=archive-config,archive-write,admin
+cssArchive.samples.<ro>=archive-read
+cssArchive.samples.<rw>=archive-config,archive-write,admin
+]]></programlisting>
+        </section>
+        <section>
+          <title>Starting the Server</title>
+          <para>
+            The Cassandra server can be started using the script
+            <command>/path/to/cassandra/bin/cassandra</command>.
+            You can use the <literal>-f</literal> flag to start Cassandra
+            in foreground (recommended when testing Cassandra the first time).
+          </para>
+        </section>
+        <section>
+          <title>Creating the Keyspace for the Cassandra Archiver</title>
+          <para>
+            In order to use the Cassandra Archiver, you first have to create the
+            keyspace and the column families used by the the archiver.
+            You can do this by starting
+            <command>/path/to/cassandra/bin/cassandra-cli -h &lt;hostname or IP address of your Cassandra server&gt;</command>.
+            If you enabled authentication for your Cassandra server, you have to
+            specify additional parameters. Call
+            <literal>cassandra-cli -h</literal> for getting a list of all
+            supported command-line parameters.
+          </para>
+          <para>
+            Once you successfully started the Cassandra CLI and it is
+            connected to the Cassandra server, you can execute the following
+            commands to create the keyspace and the column families for the
+            Cassandra Archiver.
+          </para>
+<programlisting><![CDATA[
+CREATE KEYSPACE cssArchive;
+USE cssArchive;
+CREATE COLUMN FAMILY engineConfiguration;
+CREATE COLUMN FAMILY engineConfigurationToGroups;
+CREATE COLUMN FAMILY groupConfiguration;
+CREATE COLUMN FAMILY groupConfigurationToChannels;
+CREATE COLUMN FAMILY channelConfiguration;
+CREATE COLUMN FAMILY channelConfigurationToCompressionLevels;
+CREATE COLUMN FAMILY compressionLevelConfiguration;
+CREATE COLUMN FAMILY samples WITH
+  compression_options = {
+    sstable_compression: DeflateCompressor,
+    chunk_length_kb: 256
+  };
+]]></programlisting>
+          <para>
+           Instead of <literal>cssArchive</literal> you can use a different name
+           for the keyspace. However, you will have to configure the keyspace
+           name for the tools using the Cassandra server, if you do not use the
+           default keyspace name. The column-family names are fixed and cannot
+           be changed.
+          </para>
+          <para>
+            You can change the <literal>chunk_length_kb</literal> option for the
+            <literal>samples</literal> column family. Choosing the right chunk
+            length is a trade-off between the optimal compression ratio and the
+            best performance for random reads. Using a value of 256 kilobytes
+            should be okay for most environments, because on one hand random
+            reads of samples are rare, so there is no significant benefit from
+            using a smaller chunk size. On the other hand, for the kind of data
+            typically stored in the samples column family, increasing the chunk
+            size will not improve the compression ratio significantly. 
+          </para>
+        </section>
+      </section>
+    </section>
+    <section>
+      <title>Cassandra Archive Engine and Tools</title>
+      <section xml:id="installation.archiveengine.downloadinstallation">
+        <title>Download and Installation</title>
+        <para>
+          After downloading the binary distribution from the
+          <link xlink:href="http://oss.aquenos.com/epics/cassandra-archiver/">Cassandra Archiver website</link>
+          you should unpack the archive. The archive contains four directories:
+          <itemizedlist>
+            <listitem>
+              <para>archive-engine</para>
+            </listitem>
+            <listitem>
+              <para>archive-cleanup-tool</para>
+            </listitem>
+            <listitem>
+              <para>archive-config-tool</para>
+            </listitem>
+            <listitem>
+              <para>css-plugins</para>
+            </listitem>
+          </itemizedlist>
+        </para>
+        <para>
+          While the programs in the first three directories can be used as-is,
+          the files in the <filename>css-plugins</filename> directory has to
+          be copied to the <filename>plugins</filename> directory of your
+          Control System Studio installation. The plugins have been developed
+          for version 3.0.2 of CSS, so they might not work with other versions.
+        </para>
+      </section>
+      <section xml:id="installation.archiveengine.configuration">
+        <title>Configuration</title>
+        <para>
+          If the Cassandra server is not running on the same host as the
+          archive engine, you have configured Cassandra to listen on a
+          different port than the default port, or you enabled authentication,
+          you have to create a plug-in customization file.
+        </para>
+        <para>
+          While the archive config-tool and the archive cleanup-tool can also
+          be configured using command-line paramters, the use of a plug-in
+          customization file is mandatory for the archive engine. For Control
+          System Studio, no plug-in customization file is needed, because all
+          options can be set in the archive URL.
+        </para>
+        <para>
+          The plug-in customization file is usually called 
+          <filename>plugin_customization.ini</filename> and placed in the root
+          directory of the software it is used for. Here is an example
+          of a plug-in customization file specifying the relevant options
+          for the Cassandra Archiver:
+        </para>
+<programlisting language="ini"><![CDATA[
+; Comma-Separated List of Cassandra Servers.
+; You can specify only one server, but if you have a cluster
+; with several nodes, you want to list more here for fail-over.
+com.aquenos.csstudio.archive.cassandra/hosts=first-host.example.com,second-host.example.com
+
+; Thrift Port for the Cassandra Server(s).
+com.aquenos.csstudio.archive.cassandra/port=9160
+
+; Cassandra Keyspace Name.
+com.aquenos.csstudio.archive.cassandra/keyspace=cssArchive
+
+; Cassandra Username
+com.aquenos.csstudio.archive.cassandra/username=myCassandraWriteUser
+
+; Cassandra Password
+com.aquenos.csstudio.archive.cassandra/password=myPassword
+]]></programlisting>
+        <para>
+          The <literal>hosts</literal> property has to be specified, if the
+          Cassandra server is not running on the same host as the archive engine
+          or if you use a multi-node Cassandra cluster.
+        </para>
+        <para>
+          The <literal>port</literal> property has to be specified, if you do
+          not use the default Thrift port.
+        </para>
+        <para>
+          The <literal>keyspace</literal> property has to be specified, if you
+          are using a different keyspace name than
+          <literal>cssArchive</literal>.
+        </para>
+        <para>
+          The <literal>username</literal> and <literal>password</literal>
+          properties have to be specified, if you enabled authentication for
+          the Cassandra server.
+        </para>
+        <para>
+          In order to tell a program to use the
+          <filename>plugin_customization.ini</filename> you can use the
+          command-line parameter
+          <literal>-pluginCustomization plugin_customization.ini</literal>.
+        </para>
+      </section>
+      <section>
+        <title>Starting the Archive Engine</title>
+        <note>
+          <para>
+            A configuration has to be loaded into the database before the
+            archive engine can be started. Refer to
+            <xref linkend="configuration.loading"/> for details about how
+            to load a configuration.
+          </para>
+        </note>
+        <para>
+          The archive engine can be started by changing to the directory where
+          it is installed (usually <filename>archive-engine</filename>) and
+          executing <filename>ArchiveEngine.sh</filename>.
+          You will have to specify a few parameters, e.g.
+          <command>./ArchiveEngine.sh -engine MyEngineName -data workspace</command>.
+          Two instances of the archive engine can not share the same engine name
+          or workspace, so make sure the parameter values are unique within your
+          cluster.
+        </para>
+        <para>
+          Call <command>./ArchiveEngine.sh -help</command> for a full
+          list of available command-line options. If the Cassandra database is
+          not running on the same host as the archive engine, you are using
+          a non-default keyspace name, or you enabled authentication, you can
+          specify a plug-in customization file using the
+          <literal>-pluginCustomization</literal> parameter. See
+          <xref linkend="installation.archiveengine.configuration"/> for details
+          on how to define plugin customization options.
+        </para>
+      </section>
+    </section>
+    <section>
+      <title>Cassandra Archive Reader for Control System Studio</title>
+      <section>
+        <title>Download and Installation</title>
+        <para>
+          Follow the instructions in
+          <xref linkend="installation.archiveengine.downloadinstallation"/> for
+          installing the plugins needed to integrate the Cassandra Archive
+          Reader into the data browser in Control System Studio.
+        </para>
+      </section>
+      <section>
+        <title>Configuration</title>
+        <para>
+          The Cassandra Archive Reader is configured the same way as the other
+          archive readers in Control System Studio:
+        </para>
+        <para>
+          In Control System Studio, go to
+          <menuchoice><guimenu>CSS</guimenu><guimenuitem>Preferences...</guimenuitem></menuchoice>.
+          This will open the preferences window. In the tree to the left select
+          <menuchoice><guimenu>CSS Applications</guimenu><guisubmenu>Trends</guisubmenu><guimenuitem>Data Browser</guimenuitem></menuchoice>.
+          Now you can add the URL of the Cassandra database to the list 
+          <guilabel>Archive Data Server URLs</guilabel>.
+        </para>
+        <para>
+          The URLs supported by the Cassandra Archive Reader have the format
+          <literal>cassandra://&lt;hosts&gt;:&lt;port&gt;/&lt;keyspace&gt;?username=&lt;username&gt;&amp;password=&lt;password&gt;</literal>.
+        </para>
+        <para>
+          In <link xlink:href="http://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_Form">EBNF</link>
+          the syntax is:
+        </para>
+        <productionset>
+          <production>
+            <lhs>url</lhs>
+            <rhs>"cassandra://", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txtt">host</nonterminal>, { ",", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">host</nonterminal> }, [":", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">port</nonterminal> ], <nonterminal def="#ebnf.cassandra.url.keyspace">keyspace</nonterminal>, [ "?", "username", "=", <nonterminal def="#ebnf.cassandra.url.username">username</nonterminal>, "&amp;", "password", "=", <nonterminal def="#ebnf.cassandra.url.password">password</nonterminal> ] ;</rhs>
+          </production>
+          <production xml:id="ebnf.cassandra.url.keyspace">
+            <lhs>keyspace</lhs>
+            <rhs><nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">path-absolute</nonterminal> ; <lineannotation>The keyspace must not only be a valid path according to the URL specifications but (after URL decoding) also be a valid Cassandra keyspace name.</lineannotation></rhs>
+          </production>
+          <production xml:id="ebnf.cassandra.url.username">
+            <lhs>username</lhs>
+            <rhs><nonterminal def="#ebnf.cassandra.url.parametervalue">parameter value</nonterminal> ;</rhs>
+          </production>
+          <production xml:id="ebnf.cassandra.url.password">
+            <lhs>password</lhs>
+            <rhs><nonterminal def="#ebnf.cassandra.url.parametervalue">parameter value</nonterminal> ;</rhs>
+          </production>
+          <production xml:id="ebnf.cassandra.url.parametervalue">
+            <lhs>parameter value</lhs>
+            <rhs>{ <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">pchar</nonterminal> } ;</rhs>
+          </production>
+        </productionset>
+        <para>
+          The symbols used but not defined here, are defined in
+          <link xlink:href="http://www.rfc-editor.org/rfc/rfc3986.txt">RFC 3986</link>.
+        </para>
+        <para>
+          For a multi-node Cassandra setup, the list of hosts should include all
+          hosts which export the service via Thrift. In this case the client can
+          try all available hosts and continue operation if some of the hosts
+          are down. The port specified here must be the same as the Thrift port
+          specified in the Cassandra configuration (see
+          <xref linkend="installation.cassandra.network"/>). This port must be
+          the same for all nodes in the cluster.
+        </para>
+      </section>
+    </section>
+  </chapter>
+  
+  <chapter xml:id="configuration">
+    <title>Configuration</title>
+    <section>
+      <title>Configuration Format</title>
+      <para>
+        Basically, the configuration format used by the Cassandra Archiver
+        is the same that is used by the
+        <link xlink:href="http://sourceforge.net/apps/trac/cs-studio/wiki/RDBArchive">RDB Archiver</link>.
+        However, the syntax is extended by a new tag used to configure
+        <link linkend="configuration.compressionlevels">compression levels</link>.
+      </para>
+      <para>
+        For explaining the syntax of the configuration file, we use a simple
+        example:
+      </para>
+<programlisting language="xml"><![CDATA[
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<engineconfig>
+  <group>
+    <name>firstGroup</name>
+    <channel>
+      <name>firstChannel</name>
+      <period>0.5</period>
+      <monitor/>
+      <compression-level name="raw" retention-period="86400"/>
+      <compression-level name="30s" compression-period="30"/>
+      <compression-level name="5m" compression-period="300"/>
+    </channel>
+    <channel>
+      <enable/>      
+      <name>secondChannel</name>
+      <period>1</period>
+      <scan/>
+    </channel>
+  </group>
+  <group>
+    <name>anotherGroup</name>
+    
+    <channel>
+      <name>someOtherChannel</name>
+      <period>10</period>
+      <scan/>
+      <compression-level name="30s" compression-period="30"/>
+      <compression-level name="5m" compression-period="300"/>
+    </channel>
+  </group>
+</engineconfig>
+]]></programlisting>
+      <para>
+        Every engine configuration is enclosed by the <tag>engineconfig</tag>
+        tag. Within the <tag>engineconfig</tag> there must be at least one
+        <tag>group</tag>. Each group must have a <tag>name</tag>. The group name
+        must be unique within the engine configuration.
+      </para>
+      <para>
+        Within a group, there can be an arbitrary number of <tag>channel</tag>
+        tags. Each <tag>channel</tag> must specify a <tag>name</tag>. The
+        channel name must be unique across all engine configurations.
+      </para>
+      <para>
+        A <tag>channel</tag> must also specify a <tag>period</tag> and either
+        the <tag>scan</tag> or <tag>monitor</tag> mode.
+      </para>
+      <para>
+        In <tag>scan</tag> mode,
+        the <tag>period</tag> specifies the interval (as a floating point number
+        in seconds) between the snapshots taken
+        from the channel. If the channel has not changed since the last snapshot
+        the new snapshot is discarded.
+      </para>
+      <para>
+        In <tag>monitor</tag> mode, every change
+        received for the channel is saved. In this case, <tag>period</tag>
+        specifies the expected change rate. This is used to allocate the queue,
+        which stores new samples, before they are written to the database. If
+        the specified period is too long and the actual change rate is higher,
+        samples might be lost, because the queue fills up. If the specified
+        period is much shorter than the actual change period, more memory than
+        needed is allocated for the channel. As computer memory is rather
+        cheap today, you should rather choose this value too small than too big.
+      </para>
+      <para>
+        The <tag>compression-level</tag> tag is optional and its meaning is
+        discussed in the
+        <link linkend="configuration.compressionlevels">next section</link>.
+      </para>
+    </section>
+    <section xml:id="configuration.compressionlevels">
+      <title>Compression Levels</title>
+      <para>
+        Unlike the RDB Archiver, the Cassandra Archiver does not perform
+        compression of samples for each read request, but stores the compressed
+        samples instead. This has the advantage, that for queries requesting
+        samples for a long period, less data has to be read and thus the query
+        can be answered more quickly.
+      </para>
+      <para>
+        The compression levels are independently configured for each channel.
+        If no compression levels are configured, only raw samples are saved and
+        they are never deleted. Each <tag>compression-level</tag> tag must
+        have a <tag class="attribute">name</tag> attribute. The
+        compression-level name must be unique within the channel configuration.
+        The special name <literal>raw</literal> is reserved for the raw samples,
+        which are not calculated but represent the samples received from the
+        channel.
+      </para>
+      <para>
+        Each <tag>compression-level</tag> except the <literal>raw</literal>
+        level must specify a <tag class="attribute">compression-period</tag>
+        attribute. This interval (an integer number of seconds) specifies the
+        time between two compressed samples. If two consecutive samples have
+        the same (average) value as well as the same minimum and maximum bounds,
+        the seconds sample is not saved. All compressed samples are aligned to
+        January 1st, 1970, 00:00:00 UTC. This way, the compressed samples from
+        two different channels but using the same compression period are aligned
+        with respect to each other. The
+        <tag class="attribute">compression-period</tag> attribute is not valid
+        for the special <literal>raw</literal> compression level.
+      </para>
+      <para>
+        The <tag class="attribute">retention-period</tag> attribute is optional
+        for the <tag>compression-level</tag> tag. If a positive retention period
+        (in integer seconds) is defined, samples that are older than the newest
+        sample minus the specified period are deleted. The
+        <tag class="attribute">retention-period</tag> attribute is also valid
+        for the special <literal>raw</literal> compression level.
+      </para>
+      <important>
+        <para>
+          When specifying a retention period for <literal>raw</literal> samples,
+          you have to make sure that all compressed samples have been calculated
+          before the raw samples are deleted. As compressed samples are always
+          calculated from raw samples, they could not be calculated, if the
+          raw samples were deleted too early. As a rule of thumb, the retention
+          period for the raw samples should be at least double the largest
+          compression period for the same channel.
+        </para>
+      </important>
+    </section>
+    <section xml:id="configuration.loading">
+      <title>Loading the Configuration</title>
+      <para>
+        For loading or updating an engine configuration, you have to use the
+        archive config tool, which is distributed in the 
+        <filename>archive-config-tool</filename> directory of the binary
+        distribution. For importing an engine configuration file, you can call
+        <command>./ArchiveConfigTool.sh -engine myEngineName -config myEngineConfig.xml -import</command>.
+        If you want to replace the configuration of an existing engine, you have
+        to add the <literal>-replace_engine</literal> parameter. Replacing
+        an engine configuration will first delete the existing configuration and
+        than import the new configuration. Thus, it is equivalent to first
+        using the <literal>-delete_config</literal> parameter and then importing
+        the configuration with the <literal>-replace_engine</literal> parameter.
+        Deleting an engine configuration will never delete the samples
+        associated with the engine's channels. However, if a channel does not
+        exist in the configuration, there is no way to retrieve the samples
+        using the archive reader. Therefore, instead of completely deleting
+        channels, you should move them to a disabled group, if you want to be
+        able to retrieve historic data. If you finally want to delete samples
+        for deleted channels, you have to use the
+        <link linkend="configuration.cleanup">clean-up tool</link>.
+      </para>
+      <para>
+        If the default connection parameters (Cassandra host is
+        <literal>localhost</literal>, port is <literal>9160</literal>,
+        keyspace name is <literal>cssArchive</literal> and no authentication is
+        used) are not correct for your setup, you either have to specify the
+        connection parameters as command-line parameters, or you have to
+        specify a
+        <link linkend="installation.archiveengine.configuration">plug-in customization file</link>.
+        Call <command>./ArchiveConfigTool -help</command> for a list of all
+        supported command-line parameters.
+      </para>
+    </section>
+    <section xml:id="configuration.cleanup">
+      <title>Cleaning up the Database</title>
+      <para>
+        If you want to delete the samples for non-existing channels or want to
+        clean-up small inconsistencies, which can occur if a write operation is
+        interrupted, you can use the clean-up tool.
+      </para>
+      <para>
+        The clean-up tool is distributed in the
+        <filename>archive-cleanup-tool</filename> directory of the binary
+        distribution. You can start it by invoking
+        <command>./ArchiveCleanUpTool.sh</command>. If you are using non-default
+        connection parameters, the same considerations as for the
+        <link linkend="configuration.loading">archive config tool</link> apply.
+      </para>
+      <important>
+        <para>
+          The run of the clean-up tool can take a very long time. During this
+          time you should not use the archive config tool, because new
+          configurations added by the config tool and the respective samples
+          might be deleted by the clean-up tool. However, the archive engine
+          can run while the clean-up process is running.
+        </para>
+      </important>
+    </section>
+  </chapter>
+  
+</book>
