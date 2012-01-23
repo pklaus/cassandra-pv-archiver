@@ -177,102 +177,119 @@ public class SampleCompressor {
 				}
 				Sample[] newSamples = queryAndCache(start, queryEnd, queryNum);
 				// Return samples
-				if (queryEnd.isLessThan(end)) {
-					ArrayList<Sample> samples = new ArrayList<Sample>(
-							numberOfSamples);
-					int count = 0;
-					Entry<ITimestamp, Sample> entry = cache.ceilingEntry(start);
-					while (entry != null) {
-						if (entry.getKey().isGreaterThan(end)
-								|| count >= numberOfSamples) {
-							return samples.toArray(new Sample[count]);
-						}
-						samples.add(entry.getValue());
-						count++;
-						entry = cache.higherEntry(entry.getKey());
-					}
-					if (newSamples.length == 0) {
-						return samples.toArray(new Sample[count]);
-					}
-					if (count == 0
-							|| !newSamples[0].getValue().getTime()
-									.equals(samples.get(count - 1))) {
-						// The last value in the cache and the first value
-						// returned do not equal, so we add the first value.
-						samples.add(newSamples[0]);
-						count++;
-					}
-					// Add all remaining samples
-					for (int i = 1; i < newSamples.length; i++) {
-						Sample sample = newSamples[i];
+				if (end.equals(queryEnd)) {
+					// The samples returned exactly match the request.
+					return newSamples;
+				} else if (end.isLessThan(queryEnd)) {
+					// The samples returned include all requested samples,
+					// however there might be more samples, because we
+					// readjusted the end.
+					int numberOfSamplesToUse = 0;
+					for (Sample sample : newSamples) {
 						if (sample.getValue().getTime().isLessOrEqual(end)) {
-							samples.add(sample);
-							count++;
+							numberOfSamplesToUse++;
 						} else {
 							break;
 						}
 					}
-					return samples.toArray(new Sample[count]);
+					return Arrays.copyOf(newSamples, numberOfSamplesToUse);
 				} else {
-					if (numberOfSamples < newSamples.length) {
-						return Arrays.copyOf(newSamples, numberOfSamples);
-					} else {
-						return newSamples;
+					// We shortened the query, because we have parts of the
+					// period in the cache. Now we first use the samples
+					// returned and then add the samples from the cache.
+					// We cannot take all samples from the cache, because the
+					// samples from the new request have not been added, if
+					// there was only a single sample.
+					ArrayList<Sample> samples = new ArrayList<Sample>(
+							numberOfSamples);
+					for (Sample sample : newSamples) {
+						// There is no need to check the timestamp, because
+						// the end timestamp used is actually smaller than
+						// the end timestamp requested by the calling code.
+						samples.add(sample);
 					}
+					// Now we add samples from the cache, until we either hit
+					// the end of the cache or we find a sample with a timestamp
+					// greater than the end timestamp.
+					Entry<ITimestamp, Sample> entry = cache.ceilingEntry(start);
+					if (samples.size() != 0) {
+						// Find first sample that comes after the last sample
+						// we already added to the list.
+						entry = cache.higherEntry(samples
+								.get(samples.size() - 1).getValue().getTime());
+					} else {
+						// Start with the first sample that is at or after
+						// start.
+						entry = cache.ceilingEntry(start);
+					}
+					while (entry != null) {
+						if (entry.getKey().isGreaterThan(end)) {
+							return samples.toArray(new Sample[samples.size()]);
+						}
+						samples.add(entry.getValue());
+						entry = cache.higherEntry(entry.getKey());
+					}
+					return samples.toArray(new Sample[samples.size()]);
 				}
 			}
+			// If we got until here, we know that we have samples starting at
+			// or after start in the cache. In this case we only have to check,
+			// that we also have all samples up to end.
 			ArrayList<Sample> samples = new ArrayList<Sample>(numberOfSamples);
-			int count = 0;
 			Entry<ITimestamp, Sample> entry = cache.ceilingEntry(start);
 			while (entry != null) {
 				if (entry.getKey().isGreaterThan(end)
-						|| count >= numberOfSamples) {
-					return samples.toArray(new Sample[count]);
+						|| samples.size() >= numberOfSamples) {
+					return samples.toArray(new Sample[samples.size()]);
 				}
 				samples.add(entry.getValue());
-				count++;
 				entry = cache.higherEntry(entry.getKey());
 			}
-			if (count < numberOfSamples
-					&& (cacheHigh == null || end.isGreaterThan(cacheHigh))) {
+			if (samples.size() >= numberOfSamples
+					|| (cacheHigh != null && end.isLessOrEqual(cacheHigh))) {
+				// The samples from the cache were sufficient - either because
+				// we got enough of them or because the cache covers the whole
+				// requested range.
+				return samples.toArray(new Sample[samples.size()]);
+			} else {
 				// End is outside cache range and the cache did not have the
 				// right number of entries, so we have to ask the server.
 				// Request the number of samples requested by the calling
 				// code or 50 samples, whichever is more.
-				int queryNum = numberOfSamples - count;
+				int queryNum = numberOfSamples - samples.size();
 				queryNum = Math.max(queryNum, 50);
 				ITimestamp queryStart;
-				if (count > 0) {
-					queryStart = samples.get(count - 1).getValue().getTime();
+				if (samples.size() > 0) {
+					queryStart = samples.get(samples.size() - 1).getValue()
+							.getTime();
 				} else {
 					queryStart = start;
 				}
 				Sample[] newSamples = queryAndCache(queryStart,
 						TimestampArithmetics.MAX_TIME, queryNum);
-				// Add new samples to result.
+				// Add new samples to result. First check whether first sample
+				// is already included in the list.
 				if (newSamples.length > 0
-						&& (count == 0 || !newSamples[0]
+						&& (samples.size() == 0 || !newSamples[0]
 								.getValue()
 								.getTime()
-								.equals(samples.get(count - 1).getValue()
-										.getTime()))) {
+								.equals(samples.get(samples.size() - 1)
+										.getValue().getTime()))) {
 					// The last value in the cache and the first value
 					// returned do not equal, so we add the first value.
-					samples.add(newSamples[0]);
-					count++;
+					if (newSamples[0].getValue().getTime().isLessOrEqual(end)) {
+						samples.add(newSamples[0]);
+					}
 				}
 				// Add all remaining samples
 				for (int i = 1; i < newSamples.length; i++) {
 					Sample sample = newSamples[i];
 					if (sample.getValue().getTime().isLessOrEqual(end)) {
 						samples.add(sample);
-						count++;
 					} else {
 						break;
 					}
 				}
-				return samples.toArray(new Sample[count]);
-			} else {
 				return samples.toArray(new Sample[samples.size()]);
 			}
 		}

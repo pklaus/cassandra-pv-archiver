@@ -142,7 +142,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 			credentials.put("username", username);
 			credentials.put("password", password);
 		}
-		Keyspace keyspace = HFactory.createKeyspace(keyspaceName, this.cluster);
+		Keyspace keyspace = HFactory.createKeyspace(keyspaceName, this.cluster,
+				consistencyLevelPolicy, failoverPolicy, credentials);
 		initialize(keyspace, enableCompressor);
 	}
 

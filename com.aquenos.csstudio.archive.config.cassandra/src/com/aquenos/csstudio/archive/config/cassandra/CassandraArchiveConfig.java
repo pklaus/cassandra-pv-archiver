@@ -433,6 +433,7 @@ public class CassandraArchiveConfig implements ArchiveConfig {
 					continue;
 				}
 				firstRow = false;
+				startKey = row.getKey();
 				HColumn<String, byte[]> column = row
 						.getColumnSlice()
 						.getColumnByName(
