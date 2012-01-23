@@ -3,7 +3,7 @@ Bundle-ManifestVersion: 2
 Bundle-Name: Archive Configuration for Cassandra
 Bundle-Description: Archive configuration for the Apache Cassandra distributed database system
 Bundle-SymbolicName: com.aquenos.csstudio.archive.config.cassandra;singleton:=true
-Bundle-Version: 1.0.0.qualifier
+Bundle-Version: 1.0.1.qualifier
 Bundle-Vendor: aquenos GmbH
 Require-Bundle: org.eclipse.core.runtime;bundle-version="3.6.0",
  org.csstudio.archive.config;bundle-version="1.0.0",
