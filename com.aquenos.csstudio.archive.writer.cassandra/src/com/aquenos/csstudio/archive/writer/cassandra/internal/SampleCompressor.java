@@ -476,34 +476,90 @@ public class SampleCompressor {
 	private void processChannel(String channelName) {
 		Pair<CompressionLevelConfig, CompressionLevelState>[] pairs = archiveConfig
 				.findCompressionLevelConfigsAndStates(channelName);
+		// First we sort the compression levels in the order of their
+		// compression period (from short too long). We do this, so that
+		// compression levels with a longer period can use the data from
+		// compression levels with a shorter period, instead of having to use
+		// raw data. The raw compression level is handled separately, as it is
+		// never compressed.
+		LinkedList<Pair<CompressionLevelConfig, CompressionLevelState>> retentionOnly = new LinkedList<Pair<CompressionLevelConfig, CompressionLevelState>>();
+		TreeMap<Long, Pair<CompressionLevelConfig, CompressionLevelState>> compressionLevelPairs = new TreeMap<Long, Pair<CompressionLevelConfig, CompressionLevelState>>();
 		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : pairs) {
+			CompressionLevelConfig config = pair.getFirst();
+			long compressionPeriod = config.getCompressionPeriod();
+			if (compressionPeriod <= 0
+					|| config.getCompressionLevelName().equals(
+							CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME)) {
+				// No compression
+				retentionOnly.add(pair);
+			} else {
+				// There should never be two compression levels with the same
+				// compression period. However, in case there is such a
+				// configuration, we just ignore the second compression level
+				// and log a warning.
+				if (!compressionLevelPairs.containsKey(compressionPeriod)) {
+					compressionLevelPairs.put(compressionPeriod, pair);
+				} else {
+					logger.warning("Error in compression level configuration for channel \""
+							+ channelName
+							+ "\": Ignoring compression level \""
+							+ config.getCompressionLevelName()
+							+ "\" because it has the same compression period ("
+							+ compressionPeriod
+							+ ") as compression level \""
+							+ compressionLevelPairs.get(compressionPeriod)
+									.getFirst().getCompressionLevelName());
+				}
+			}
+		}
+		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : compressionLevelPairs
+				.values()) {
 			CompressionLevelConfig compressionLevelConfig = pair.getFirst();
 			CompressionLevelState compressionLevelState = pair.getSecond();
-			boolean enableCompression = compressionLevelConfig
-					.getCompressionPeriod() > 0;
+			long compressionPeriod = compressionLevelConfig
+					.getCompressionPeriod();
+			Long nextCompressionPeriod = compressionPeriod;
+			while (nextCompressionPeriod != null) {
+				nextCompressionPeriod = compressionLevelPairs
+						.lowerKey(nextCompressionPeriod);
+				if (nextCompressionPeriod != null
+						&& compressionPeriod % (nextCompressionPeriod * 2) == 0) {
+					// Found a compression level with a shorter compression
+					// period, that the current compression period is an even
+					// integer multiple of. In this case, we will benefit
+					// from using that compression level instead of the raw
+					// samples, because the samples from the compression level
+					// are exactly aligned to the start and end of the intervals
+					// used to calculate the samples of this compression level.
+					break;
+				}
+			}
+			String sourceCompressionLevelName;
+			if (nextCompressionPeriod == null) {
+				// If no matching compression level is found, we have to use the
+				// raw samples.
+				sourceCompressionLevelName = CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME;
+			} else {
+				sourceCompressionLevelName = compressionLevelPairs
+						.get(nextCompressionPeriod).getFirst()
+						.getCompressionLevelName();
+			}
 			boolean enableRetention = compressionLevelConfig
 					.getRetentionPeriod() > 0;
-			boolean rawCompressionLevel = compressionLevelConfig
-					.getCompressionLevelName().equals(
-							CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME);
-			if (enableCompression == false && enableRetention == false) {
-				// Invalid configuration, continue with next compression level
-				continue;
+			// The compression action might change the timestamps, thus we
+			// have to use the configuration returned by the compress method.
+			compressionLevelState = compressChannel(compressionLevelConfig,
+					compressionLevelState, sourceCompressionLevelName);
+			if (enableRetention) {
+				deleteOldSamples(compressionLevelConfig, compressionLevelState);
 			}
-			if (enableCompression && !rawCompressionLevel) {
-				// The compression action might change the timestamps, thus we
-				// have to use the configuration returned by the compress
-				// method.
-				compressionLevelState = compressChannel(compressionLevelConfig,
-						compressionLevelState);
-			} else if (enableCompression) {
-				// We never compress the raw samples themselves.
-				logger.log(
-						Level.INFO,
-						"Skipping compression for channel \""
-								+ channelName
-								+ "\" compression level \"raw\", although positive compression period is specified in configuration.");
-			}
+		}
+		// Process remaining compression levels for retention
+		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : retentionOnly) {
+			CompressionLevelConfig compressionLevelConfig = pair.getFirst();
+			CompressionLevelState compressionLevelState = pair.getSecond();
+			boolean enableRetention = compressionLevelConfig
+					.getRetentionPeriod() > 0;
 			if (enableRetention) {
 				deleteOldSamples(compressionLevelConfig, compressionLevelState);
 			}
@@ -543,10 +599,11 @@ public class SampleCompressor {
 
 	private CompressionLevelState compressChannel(
 			CompressionLevelConfig compressionLevelConfig,
-			CompressionLevelState compressionLevelState) {
+			CompressionLevelState compressionLevelState,
+			String sourceCompressionLevelName) {
 		String channelName = compressionLevelConfig.getChannelName();
-		SampleCache cache = new SampleCache(
-				CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME, channelName);
+		SampleCache cache = new SampleCache(sourceCompressionLevelName,
+				channelName);
 		ITimestamp nextSampleTime = compressionLevelState.getNextSampleTime();
 		Sample lastSavedSample = null;
 		ITimestamp lastSavedSampleTime = compressionLevelState
@@ -562,19 +619,20 @@ public class SampleCompressor {
 		Mutator<byte[]> mutator = HFactory.createMutator(keyspace,
 				BytesArraySerializer.get());
 		int insertCounts = 0;
-		// Process samples for channel until we got no more raw samples.
+		// Process samples for channel until we got no more source samples.
 		while (true) {
 			if (isNull(nextSampleTime)) {
 				// There is no sample yet, thus we use the first time available.
-				Sample[] rawSamples = cache.findSamples(null, null, 1);
-				if (rawSamples.length == 0) {
-					// There are no raw samples.
+				Sample[] sourceSamples = cache.findSamples(null, null, 1);
+				if (sourceSamples.length == 0) {
+					// There are no source samples.
 					break;
 				}
-				ITimestamp rawSampleTime = rawSamples[0].getValue().getTime();
-				// After the first raw sample, we have to wait at least two half
-				// the compression period.
-				nextSampleTime = TimestampArithmetics.add(rawSampleTime,
+				ITimestamp sourceSampleTime = sourceSamples[0].getValue()
+						.getTime();
+				// After the first source sample, we have to wait at least two
+				// half the compression period.
+				nextSampleTime = TimestampArithmetics.add(sourceSampleTime,
 						halfCompressionIntervalTimestamp);
 				// We want to make sure that samples for different channels are
 				// nicely aligned in time.
@@ -617,7 +675,7 @@ public class SampleCompressor {
 					// samples have been delete since we calculated the last
 					// average, this could happen. In this case we delete the
 					// information about the last processed sample, so that at
-					// the next iteration we use the first raw sample.
+					// the next iteration we use the first source sample.
 					lastSavedSampleTime = TimestampFactory.createTimestamp(0L,
 							0L);
 					lastSavedSample = null;
@@ -645,6 +703,21 @@ public class SampleCompressor {
 			} else {
 				lastDoubleValues = EMPTY_DOUBLE_ARRAY;
 			}
+			if (lastValue instanceof IMinMaxDoubleValue) {
+				// The source samples are already averaged samples.
+				// In this case, we have to consider the minimum and
+				// maximum of the original values.
+				IMinMaxDoubleValue minMaxValue = (IMinMaxDoubleValue) lastValue;
+				double sourceMin = minMaxValue.getMinimum();
+				double sourceMax = minMaxValue.getMaximum();
+				if (doubleMin == null || doubleMax == null) {
+					doubleMin = sourceMin;
+					doubleMax = sourceMax;
+				} else {
+					doubleMin = Math.min(doubleMin, sourceMin);
+					doubleMax = Math.max(doubleMax, sourceMax);
+				}
+			}
 			ISeverity maxSeverity = null;
 			IValue centerValue = lastValue;
 			boolean gotAllSamples = false;
@@ -669,10 +742,10 @@ public class SampleCompressor {
 					ValueType valueType = getValueType(value);
 					if (!valueType.equals(lastValueType)) {
 						// The value type changed. This can happen if the
-						// channelis connected to a different device. If the
-						// typechangesaveraging over the samples of different
-						// types doesnot make sense. Therefore we insert two
-						// samples (the lastof the old and the first of the new
+						// channel is connected to a different device. If the
+						// type changes, averaging over the samples of different
+						// types does not make sense. Therefore we insert two
+						// samples (the last of the old and the first of the new
 						// type. Then, we continue with the averaging.
 						sampleStore.insertSample(mutator,
 								compressionLevelConfig
@@ -736,6 +809,22 @@ public class SampleCompressor {
 							lastDoubleValues = getDoubleValue(value);
 							doubleMin = getMin(lastDoubleValues, doubleMin);
 							doubleMax = getMax(lastDoubleValues, doubleMax);
+							if (lastValue instanceof IMinMaxDoubleValue) {
+								// The source samples are already averaged
+								// samples. In this case, we have to consider
+								// the minimum and maximum of the original
+								// values.
+								IMinMaxDoubleValue minMaxValue = (IMinMaxDoubleValue) lastValue;
+								double sourceMin = minMaxValue.getMinimum();
+								double sourceMax = minMaxValue.getMaximum();
+								if (doubleMin == null || doubleMax == null) {
+									doubleMin = sourceMin;
+									doubleMax = sourceMax;
+								} else {
+									doubleMin = Math.min(doubleMin, sourceMin);
+									doubleMax = Math.max(doubleMax, sourceMax);
+								}
+							}
 						}
 					}
 				}

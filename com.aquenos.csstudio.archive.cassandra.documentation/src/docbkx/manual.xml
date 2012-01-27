@@ -983,13 +983,16 @@ com.aquenos.csstudio.archive.cassandra/password=myPassword
       </para>
       <important>
         <para>
-          When specifying a retention period for <literal>raw</literal> samples,
-          you have to make sure that all compressed samples have been calculated
-          before the raw samples are deleted. As compressed samples are always
-          calculated from raw samples, they could not be calculated, if the
-          raw samples were deleted too early. As a rule of thumb, the retention
-          period for the raw samples should be at least double the largest
-          compression period for the same channel.
+          When specifying a retention period, you have to make sure that all
+          compressed samples have been calculated before the samples needed for
+          this calculation are deleted. Compressed samples are usually
+          calculated from the compression level with the next shorter
+          compression period, that is an even integer fraction of the
+          compression period of the level to be calculated. However, if no such
+          compression level exists, the raw samples are used however.
+          As a rule of thumb, the retention period for any compression level
+          should be at least double the largest compression period for the same
+          channel.
         </para>
       </important>
     </section>
