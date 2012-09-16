@@ -11,6 +11,7 @@ package com.aquenos.csstudio.archive.writer.cassandra.internal;
 
 import com.aquenos.csstudio.archive.cassandra.CassandraArchivePreferences;
 import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriter;
+import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriterPreferences;
 
 /**
  * Sub-class of {@link CassandraArchiveWriter} that provides a default
@@ -29,7 +30,9 @@ public class DefaultCassandraArchiveWriter extends CassandraArchiveWriter {
 				CassandraArchivePreferences.getConsistencyLevelPolicy(),
 				CassandraArchivePreferences.getFailoverPolicy(),
 				CassandraArchivePreferences.getUsername(),
-				CassandraArchivePreferences.getPassword(), true);
+				CassandraArchivePreferences.getPassword(),
+				CassandraArchiveWriterPreferences
+						.getNumberOfCompressorWorkers());
 	}
 
 }
