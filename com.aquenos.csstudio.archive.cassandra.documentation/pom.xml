@@ -5,7 +5,7 @@
   <groupId>com.aquenos.csstudio.archive.cassandra</groupId>
   <artifactId>cassandra-documentation</artifactId>
   <name>Cassandra Archiver Documentation</name>
-  <version>1.0.0</version>
+  <version>1.2.0</version>
   <packaging>pom</packaging>
 
   <properties>

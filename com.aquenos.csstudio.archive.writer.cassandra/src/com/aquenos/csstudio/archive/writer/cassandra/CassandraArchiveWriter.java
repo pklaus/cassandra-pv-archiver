@@ -94,8 +94,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 			ConsistencyLevelPolicy consistencyLevelPolicy,
 			FailoverPolicy failoverPolicy, String username, String password) {
 		this(cassandraHosts, cassandraPort, cassandraKeyspace,
-				consistencyLevelPolicy, failoverPolicy, username, password,
-				false);
+				consistencyLevelPolicy, failoverPolicy, username, password, 0);
 	}
 
 	/**
@@ -121,16 +120,17 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 	 * @param password
 	 *            password to use for authentication or <code>null</code> to use
 	 *            no authentication.
-	 * @param enableCompressor
-	 *            if set to <code>true</code>, a thread will be created that
-	 *            periodically performs the compression for all channels managed
-	 *            by the specified engine.
+	 * @param numCompressorWorkers
+	 *            the number of worker threads created for periodically
+	 *            performing the compression for all channels managed by the
+	 *            specified engine. If this is less than one, the compression is
+	 *            deactivated.
 	 */
 	protected CassandraArchiveWriter(String cassandraHosts, int cassandraPort,
 			String cassandraKeyspace,
 			ConsistencyLevelPolicy consistencyLevelPolicy,
 			FailoverPolicy failoverPolicy, String username, String password,
-			boolean enableCompressor) {
+			int numCompressorWorkers) {
 		CassandraHostConfigurator hostConfigurator = new CassandraHostConfigurator();
 		hostConfigurator.setHosts(cassandraHosts);
 		hostConfigurator.setPort(cassandraPort);
@@ -144,7 +144,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 		}
 		Keyspace keyspace = HFactory.createKeyspace(keyspaceName, this.cluster,
 				consistencyLevelPolicy, failoverPolicy, credentials);
-		initialize(keyspace, enableCompressor);
+		initialize(keyspace, numCompressorWorkers);
 	}
 
 	/**
@@ -156,7 +156,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 	 *            keyspace that stores the configuration and samples.
 	 */
 	public CassandraArchiveWriter(Keyspace keyspace) {
-		initialize(keyspace, false);
+		initialize(keyspace, 0);
 	}
 
 	/**
@@ -168,21 +168,23 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 	 * 
 	 * @param keyspace
 	 *            keyspace that stores the configuration and samples.
-	 * @param enableCompressor
-	 *            if set to <code>true</code>, a thread will be created that
-	 *            periodically performs the compression for all channels managed
-	 *            by the specified engine.
+	 * @param numCompressorWorkers
+	 *            the number of worker threads created for periodically
+	 *            performing the compression for all channels managed by the
+	 *            specified engine. If this is less than one, the compression is
+	 *            deactivated.
 	 */
-	protected CassandraArchiveWriter(Keyspace keyspace, boolean enableCompressor) {
-		initialize(keyspace, enableCompressor);
+	protected CassandraArchiveWriter(Keyspace keyspace, int numCompressorWorkers) {
+		initialize(keyspace, numCompressorWorkers);
 	}
 
-	private void initialize(Keyspace keyspace, boolean enableCompressor) {
+	private void initialize(Keyspace keyspace, int numCompressorWorkers) {
 		this.keyspace = keyspace;
 		this.config = new CassandraArchiveConfig(this.keyspace);
 		this.sampleStore = new SampleStore(this.keyspace);
-		if (enableCompressor) {
-			this.sampleCompressor = new SampleCompressor(this.keyspace);
+		if (numCompressorWorkers > 0) {
+			this.sampleCompressor = new SampleCompressor(this.keyspace,
+					numCompressorWorkers);
 			this.sampleCompressor.start();
 		}
 	}
@@ -281,7 +283,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 
 		// If we have a sample compressor, it should process the channels we
 		// wrote samples for at its next run.
-		if (affectedChannels != null) {
+		if (affectedChannels != null && this.sampleCompressor != null) {
 			this.sampleCompressor.queueChannelProcessRequests(affectedChannels);
 		}
 	}

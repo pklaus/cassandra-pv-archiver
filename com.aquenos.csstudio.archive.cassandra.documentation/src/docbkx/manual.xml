@@ -723,6 +723,9 @@ com.aquenos.csstudio.archive.cassandra/username=myCassandraWriteUser
 
 ; Cassandra Password
 com.aquenos.csstudio.archive.cassandra/password=myPassword
+
+; Number of Compressor Worker Threads
+com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
 ]]></programlisting>
         <para>
           The <literal>hosts</literal> property has to be specified, if the
@@ -742,6 +745,20 @@ com.aquenos.csstudio.archive.cassandra/password=myPassword
           The <literal>username</literal> and <literal>password</literal>
           properties have to be specified, if you enabled authentication for
           the Cassandra server.
+        </para>
+        <para>
+          The <literal>numCompressorWorkers</literal> property (note the 
+          different bundle name) specifies how many thread run in parallel to
+          perform the sample compression and deletion (see
+          <xref linkend="configuration.compressionlevels"/>). The default
+          setting is <literal>1</literal>. This number can be increased if the
+          compression process does not catch up with the generation of new data
+          (usually because the same archive engine is handling a lot of
+          channels). If this number is set to zero, the compression process is
+          disabled. This means that no data for compression levels is generated
+          and old samples are not deleted. This option was introduced in version
+          1.2.0. In earlier versions there always is exactly one compressor
+          thread.
         </para>
         <para>
           In order to tell a program to use the
