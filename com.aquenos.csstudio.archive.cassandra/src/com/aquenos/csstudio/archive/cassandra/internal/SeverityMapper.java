@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 aquenos GmbH.
+ * Copyright 2012-2013 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -19,90 +19,90 @@ import org.csstudio.data.values.ISeverity;
  */
 public abstract class SeverityMapper {
 
-	public static byte severityToNumber(ISeverity severity) {
-		byte number;
-		if (severity.isOK()) {
-			number = 0;
-		} else if (severity.isMinor()) {
-			number = 1;
-		} else if (severity.isMajor()) {
-			number = 2;
-		} else if (severity.isInvalid()) {
-			number = 3;
-		} else {
-			throw new IllegalArgumentException("Unknown severity: " + severity);
-		}
-		if (!severity.hasValue()) {
-			return (byte) (number - 128);
-		} else {
-			return number;
-		}
-	}
+    public static byte severityToNumber(ISeverity severity) {
+        byte number;
+        if (severity.isOK()) {
+            number = 0;
+        } else if (severity.isMinor()) {
+            number = 1;
+        } else if (severity.isMajor()) {
+            number = 2;
+        } else if (severity.isInvalid()) {
+            number = 3;
+        } else {
+            throw new IllegalArgumentException("Unknown severity: " + severity);
+        }
+        if (severity.hasValue()) {
+            return (byte) (number + 4);
+        } else {
+            return number;
+        }
+    }
 
-	public static ISeverity numberToSeverity(byte number) {
+    public static ISeverity numberToSeverity(byte number) {
 
-		if (number >= 0 && number <= 3) {
-			return new SeverityImpl(number, true);
-		} else if (number >= -128 && number <= -125) {
-			return new SeverityImpl((byte) (number + 128), false);
-		} else {
-			throw new IllegalArgumentException(
-					"Number representing severity must be between -1 and 3.");
-		}
-	}
+        if (number >= 0 && number <= 3) {
+            return new SeverityImpl(number, false);
+        } else if (number >= 4 && number <= 7) {
+            return new SeverityImpl((byte) (number - 4), true);
+        } else {
+            throw new IllegalArgumentException(
+                    "Number representing severity must be between 0 and 7.");
+        }
+    }
 
-	private static class SeverityImpl implements ISeverity {
+    private static class SeverityImpl implements ISeverity {
 
-		private static final long serialVersionUID = -6232821242029071256L;
-		private byte severity;
-		private boolean hasValue;
+        private static final long serialVersionUID = -6232821242029071256L;
+        private byte severity;
+        private boolean hasValue;
 
-		public SeverityImpl(byte number, boolean hasValue) {
-			this.severity = number;
-			this.hasValue = hasValue;
-		}
+        public SeverityImpl(byte number, boolean hasValue) {
+            this.severity = number;
+            this.hasValue = hasValue;
+        }
 
-		@Override
-		public boolean isOK() {
-			return severity == 0;
-		}
+        @Override
+        public boolean isOK() {
+            return severity == 0;
+        }
 
-		@Override
-		public boolean isMinor() {
-			return severity == 1;
-		}
+        @Override
+        public boolean isMinor() {
+            return severity == 1;
+        }
 
-		@Override
-		public boolean isMajor() {
-			return severity == 2;
-		}
+        @Override
+        public boolean isMajor() {
+            return severity == 2;
+        }
 
-		@Override
-		public boolean isInvalid() {
-			return severity == 3;
-		}
+        @Override
+        public boolean isInvalid() {
+            return severity == 3;
+        }
 
-		@Override
-		public boolean hasValue() {
-			return hasValue;
-		}
+        @Override
+        public boolean hasValue() {
+            return hasValue;
+        }
 
-		@Override
-		public String toString() {
-			switch (severity) {
-			case 0:
-				return "OK";
-			case 1:
-				return "MINOR";
-			case 2:
-				return "MAJOR";
-			case 3:
-				return "INVALID";
-			default:
-				return "<unknown>";
-			}
-		}
+        @Override
+        public String toString() {
+            switch (severity) {
+            case 0:
+                return "OK";
+            case 1:
+                return "MINOR";
+            case 2:
+                return "MAJOR";
+            case 3:
+                return "INVALID";
+            default:
+                return "<unknown>";
+            }
+        }
 
-	}
+    }
 
 }

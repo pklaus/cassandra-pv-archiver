@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 aquenos GmbH.
+ * Copyright 2012-2013 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -22,11 +22,14 @@ import com.aquenos.csstudio.archive.cassandra.CassandraArchivePreferences;
  */
 public class CassandraArchiveReaderFactory implements ArchiveReaderFactory {
 
-	@Override
-	public ArchiveReader getArchiveReader(String url) throws Exception {
-		return new CassandraArchiveReader(url,
-				CassandraArchivePreferences.getConsistencyLevelPolicy(),
-				CassandraArchivePreferences.getFailoverPolicy());
-	}
+    @Override
+    public ArchiveReader getArchiveReader(String url) throws Exception {
+        return new CassandraArchiveReader(url,
+                CassandraArchivePreferences.getReadDataConsistencyLevel(),
+                CassandraArchivePreferences.getWriteDataConsistencyLevel(),
+                CassandraArchivePreferences.getReadMetaDataConsistencyLevel(),
+                CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
+                CassandraArchivePreferences.getRetryPolicy());
+    }
 
 }

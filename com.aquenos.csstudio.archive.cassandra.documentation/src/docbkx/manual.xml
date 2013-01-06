@@ -7,6 +7,7 @@
     <title>Cassandra Archiver Manual</title>
     <copyright>
       <year>2012</year>
+      <year>2013</year>
       <holder>aquenos GmbH</holder>
     </copyright>
     <author>
@@ -26,13 +27,50 @@
       This manual is divided in four chapters (not counting this introduction).
       The <link linkend="concept">first chapter</link> introduces the concepts 
       of Apache Cassandra in general and the Cassandra Archiver in particular.
-      The <link linkend="gettingstarted">second chapter</link> describes the
+      The <link linkend="news">second chapter</link> summarizes the new features
+      of the present version of the Cassandra Archiver and outlines the changes
+      compared to older versions.
+      The <link linkend="gettingstarted">third chapter</link> describes the
       few steps needed to setup a basic installation of the Cassandra Archiver.
-      The <link linkend="installation">third chapter</link> gives more detailed
+      The <link linkend="installation">fourth chapter</link> gives more detailed
       instructions on how to install the Cassandra Archiver.
-      Finally, the <link linkend="configuration">fourth chapter</link> explains
+      Finally, the <link linkend="configuration">fifth chapter</link> explains
       how to configure the archiver.
     </para>
+  </chapter>
+  
+  <chapter xml:id="news">
+    <title>News</title>
+    <para>
+      This chapter presents the changes in newer versions of the Cassandra
+      Archiver in comparison to previous versions. If you are new to the
+      Cassandra Archiver, you can safely skip this chapter and procede with the
+      <link linkend="concept">next chapter</link>.
+    </para>
+    <section>
+      <title>What's New in Cassandra Archiver 2.0</title>
+      <para>
+        Version 2.0 of the Cassandra Archiver changes the structure of the
+        database used to store the samples. The new structure brings significant
+        improvements for the performance of Cassandra, in particular for large
+        databases.
+      </para>
+      <para>
+        Existing databases cannot be converted to the new format. Instead the
+        new database has to be setup first and then the data needs to be
+        transferred manually.
+      </para>
+      <para>
+        Other changes mainly affect the internal code structure which has been
+        tidied up. In particular, major changes have been made to the sample
+        compressor, which also profits from the new database structure.
+      </para>
+      <para>
+        Finally an option for changing the consistency levels used for reads and
+        writes has been added. Expert users can use this setting to tweak the
+        availability trade-off between read and write scenarios.
+      </para>
+    </section>
   </chapter>
   
   <chapter xml:id="concept">
@@ -97,7 +135,7 @@
         If you want to setup a cluster of Cassandra servers or are interested in
         advanced configuration options and performance tuning, you should read
         the
-        <link xlink:href="http://www.datastax.com/docs/1.0/index">Apache Cassandra Documentation</link>
+        <link xlink:href="http://www.datastax.com/docs/1.1/index">Apache Cassandra Documentation</link>
         provided by DataStax. However, this manual describes the basic steps
         needed to setup a single-node Cassandra cluster for getting started with
         the Cassandra Archiver.
@@ -116,14 +154,19 @@
       </para>
       <para>
         By using a column-oriented database management system, huge amounts of
-        channel samples can be archived. The Cassandra Archiver uses one
-        column family for storing all channel samples. Each row stores one
-        sample and is identified by a key that aggregates the channel name, the
-        time-stamp of the sample and the
-        <link linkend="configuration.compressionlevels">compression-level name</link>.
-        The columns of each row store the sample's value and meta-data
-        (e.g. alarm severity). As the data in the samples column-family is
-        compressed before being written to disk, the space requirements of the
+        channel samples can be archived. The Cassandra Archiver uses two
+        column families for storing all samples of all channels for a certain
+        <link linkend="configuration.compressionlevels">compression level</link>.
+        Several samples of a channel are aggregated in a so
+        called bucket and each bucket is stored in one row. Each row storeing a
+        bucket is identified by a key that aggregates the channel name, the
+        size of the bucket and the start time-stamp of the bucket
+        (both in nanoseconds).
+        Each column of a bucket-row stores one sample, using the column's name
+        for the sample's time-stamp and the column's value for the sample's value
+        and meta-data (e.g. alarm severity).
+        As data stored in column-families is
+        compressed before being written to disk by default, the space requirements of the
         database are reduced. Due to the way Cassandra stores data, the
         read and write perfomance of the database is not reduced by using
         compression. In fact, using compression can even
@@ -138,7 +181,7 @@
         well-tested database management system for storing data. However, like
         the Channel Archiver, the Cassandra Archiver uses a storage format that
         is more optimized for storing channel samples and can provide high
-        write and read rate.
+        write and read rates.
       </para>
       <para>
         The <link xlink:href="http://www.lnl.infn.it/~epics/joomla/archiver.html">HyperArchiver</link>
@@ -170,12 +213,9 @@
         in this section is not needed for setting up the Cassandra Archiver. 
       </para>
       <para>
-        For row keys which have several parts, the various parts are seperated 
-        by a null byte. All row-keys are prepended by a (binary) MD5 hash
-        followed by a null byte in order to make sure that they are evenly
-        distributed across the cluster nodes. The MD5 hash is calculated by
-        appending the constituent byte arrays of the key (without a separating
-        null byte) and then caclulating the MD5 hash of the result byte array.
+        For row keys and column names, which have several parts, a
+        <link xlink:href="http://www.datastax.com/dev/blog/introduction-to-composite-columns-part-1">composite type</link>
+        is used.
       </para>
       <section>
         <title>Column Family <literal>engineConfiguration</literal></title>
@@ -237,80 +277,81 @@
           family maps channels to their respective compression levels. The 
           channel name is used as the row key. A column exists for each 
           compression-level that is configured for the respective channel.
-          However, the special "raw" compression level always exists, even if 
-          there is no column.
+          Each compression level is stored as a column, where the column name is
+          the compression period and the column value is the retention period.
+          The special compression level that stores raw samples always exists,
+          even if there is no column with a column name of zero (this is the
+          compression period internally assigned to the raw compression-level).
         </para>
       </section>
       <section>
-        <title>Column Family <literal>compressionLevelConfiguration</literal></title>
+        <title>Column Families <literal>samplesBucketSize and samplesBucketSize_*</literal></title>
         <para>
-          The <literal>compressionLevelConfiguration</literal> column family
-          stores the configuration for each compression level of a channel. The 
-          row key is a combination of the channel name and the compression-level
-          name. The columns <literal>compressionPeriod</literal>,
-          <literal>retentionPeriod</literal>,
-          <literal>lastSavedSampleTime</literal> and
-          <literal>nextSampleTime</literal> store the period between samples
-          (not for the "raw" compression level), the time after which samples
-          are deleted, the time-stamp of the latest sample and the time-stamp
-          of the next sample to be calculated (not for the "raw" compression
-          level).
+          The <literal>samplesBucketSize</literal> column family
+          stores the bucket size of the sample buckets for all channels in the
+          raw compression-level. The row key is the channel name.
+          Each column stores a bucket size, using the time the bucket size
+          started to be used as the column name and the bucket size as the
+          column value.
+        </para>
+        <para>
+          The same bucket size is usually used for many buckets in a row and the
+          time-stamp used for a bucket size is not aligned with the time-stamp
+          of one of these buckets. The time-stamp for the bucket size just means
+          that samples with a time-stamp greater than or equal to the time-stamp
+          for this bucket size are stored in a bucket of this size, unless there
+          is a bucket size with a greater time-stamp that is still less than or
+          equal to the sample's time-stamp.
+        </para>
+        <para>
+          This database structure is used, because Cassandra does not perform
+          well if many "skinny" rows are stored.
+          Therefore several samples have to be aggregated in one row.
+          On the other hand, a maximum number of
+          2<superscript>31</superscript>-1 columns can be stored in a row,
+          which is clearly not enough for channels that change at a very high
+          rate or are intended to be stored for a long period of time. In fact
+          the practical limit for the number of columns in a row is even lower
+          than that. Typically, a good number of columns for one row is in the
+          magnitude of a few millions.
+        </para>
+        <para>
+          The Cassandra Archiver tries to reach this number by determining
+          the bucket size (the period of time that is stored in one bucket) by
+          dividing one million by the scan period (or expected update rate) for
+          a channel. The only drawback of this database structure is, that there
+          is no way to tell what the time-stamp of the newest sample is.
+          Therefore the Cassandra Archive only accepts samples that have a
+          time-stamp which is a maximum of two hours ahead in time and only looks
+          for samples with a time-stamp that is a maximum of four hours ahead,
+          when searching for samples. The extra two hours allow for a certain
+          clock skew between participating systems. 
+        </para>
+        <para>
+          For each compression level a column familiy with the name
+          <literal>samplesBucketSize_*</literal>, where the asterisk is replaced
+          by the compression period in seconds, is created. The structure of
+          this column family is exactly the same as the one of the
+          <literal>samplesBucketSize</literal> column-family.
         </para>
       </section>
       <section>
-        <title>Column Family <literal>samples</literal></title>
+        <title>Column Families <literal>samples and samples_*</literal></title>
         <para>
           The <literal>samples</literal> column family
-          stores the actual samples for the different channels.
-          The row key is a combination of the compression-level name, the
-          channel name and the time-stamp. However, the time-stamp is not
-          included when calculating the MD5 hash.
+          stores the actual raw samples for all channels.
+          The row key is a combination of the channel name, the bucket's length
+          and the bucket's start time-stamp. Each column stores a sample, using
+          the sample's time-stamp as the column name and the sample's value and
+          meta-data as the column value. The column value is a single blob
+          aggregating all data of a sample except the time-stamp.
         </para>
         <para>
-          The columns <literal>severity</literal> and <literal>status</literal>
-          exist for all rows and store the alarm severity and status of the
-          sample.
-        </para>
-        <para>
-          For samples of the type <interfacename>IDoubleValue</interfacename>,
-          the column <literal>doubleValue</literal> stores the value(s). For
-          samples that are not in the "raw" compression level, the
-          <literal>valueDoubleMin</literal> and
-          <literal>valueDoubleMax</literal> columns store the minimum and
-          maximum value in the compression interval.
-        </para>
-        <para>
-          For samples of the type <interfacename>IEnumValue</interfacename> the
-          <literal>valueEnum</literal> column stores the value(s) of the sample.
-          If the names associated with the different enum states are known, they
-          are stored in the <literal>metaDataEnumStates</literal> column.
-        </para>
-        <para>
-          For samples of the type <interfacename>ILongValue</interfacename> the
-          <literal>valueLong</literal> column stores the value(s) of the sample.
-        </para>
-        <para>
-          For samples of the type <interfacename>IStringValue</interfacename>
-          the <literal>valueString</literal> column stores the value(s) of the
-          sample.
-        </para>
-        <para>
-          If the sample has meta-data of the type
-          <interfacename>INumericMetaData</interfacename> associated with it, 
-          the columns <literal>metaDataNumDispLow</literal>,
-          <literal>metaDataNumDispHigh</literal>,
-          <literal>metaDataNumWarnLow</literal>,
-          <literal>metaDataNumWarnHigh</literal>,
-          <literal>metaDataNumAlarmLow</literal>,
-          <literal>metaDataNumAlarmHigh</literal>,
-          <literal>metaDataNumPrecision</literal> and
-          <literal>metaDataNumUnits</literal> store the meta-information for
-          the sample.
-        </para>
-        <para>
-          For all samples except the first sample for a given channel and
-          compression-level the column <literal>precedingSampleTime</literal>
-          stores the timestamp of the sample directly preceding the sample.
+          For each compression level a column familiy with the name
+          <literal>samples_*</literal>, where the asterisk is replaced by the
+          compression period in seconds, is created. The structure of this
+          column family is exactly the same as the one of the
+          <literal>samples</literal> column-family.
         </para>
       </section>
     </section>
@@ -347,30 +388,31 @@
       </para>
       <important>
         <para>
-          This section contains important information about configuration
-          options that <emphasis>must</emphasis> be set for the Cassandra
-          Archiver to work correctly. Thus, you should carefully read this
-          section (in particular
-          <xref linkend="installation.cassandra.partitioner"/>), even if you
-          already have a running Cassandra server.
+          Earlier versions of the Cassandra Archiver (before version 2.0.0)
+          used a different database structure which required an
+          order-preserving partitioner to be used. Newer version of the
+          Cassandra archiver (starting with version 2.0.0) do not require this
+          any longer and in fact should not be installed on a cluster with an
+          order-preserving partitioner, because this will cause hot-spots. 
         </para>
       </important>
       <section>
         <title>Download and Unpacking</title>
         <para>
           You can download Apache Cassandra from the
-          <link xlink:href="http://cassandra.apache.org/download/">project's website</link>.
+          <link xlink:href="http://cassandra.apache.org/download/">project's website</link>
+          or use one of the builds provided by
+          <link xlink:href="http://www.datastax.com/download/community">DataStax</link>.
           You should choose the newest version of the binary download from the
-          1.0 branch, having a filename like
-          <filename>apache-cassandra-1.0.x-bin.tar.gz</filename>. Apache 
+          1.1 branch. Apache 
           Cassandra is implemented in Java, so that the binary download is the
           same for all platforms. You need a Java Runtime Environment version 6
           or higher in order to run Cassandra.
         </para>
         <para>
-          After downloading the tarball, extract it to some place on your 
-          hard-disk. For the rest of this document, we assume that you unpacked 
-          it to <filename>/path/to/cassandra</filename>.
+          For the rest of this document, we assume that Cassandra is installed
+          in <filename>/path/to/cassandra</filename>. The actual location
+          depends on which of the provided binary packages you use.
         </para>
       </section>
       <section>
@@ -403,8 +445,8 @@
             <filename>/var/lib/cassandra/commitlog</filename>. This directory is
             used for storing the write-ahead log. If you aim for maximum
             performance, you might want to consider storing the commit-log on
-            a different disk than the data directories. For most setups however,
-            storing the commit-log on the same disk is fine.
+            a different disk than the data directories. For simple test setups
+            however, storing the commit-log on the same disk is fine.
           </para>
           <para>
             The last directory is configured in
@@ -413,30 +455,6 @@
             defaults to <filename>/var/log/cassandra/system.log</filename>.
             In contrast to the other options, this option specifies the file and
             not a directory.
-          </para>
-        </section>
-        <section xml:id="installation.cassandra.partitioner">
-          <title>Configuring the Partitioner</title>
-          <important>
-            <para>
-              An order-preserving partitioner must be used for the Cassandra
-              Archiver. The partioner cannot be changed after data has been
-              stored in the database, therefore you have to change this option
-              before starting Cassandra the first time.
-            </para>
-          </important>
-          <para>
-            In <filename>cassandra.yaml</filename> the
-            <literal>partitioner</literal> option has to be changed to refer to
-            <classname>org.apache.cassandra.dht.ByteOrderedPartitioner</classname>.
-            The Cassandra Archiver uses key-range queries for retrieving samples
-            in a specific time range, so that an ordered partioner must be used.
-            If you have other applications, which do not use ranged queries, you
-            should run them on a different Cassandra cluster using the random
-            partioner. Using applications which are desgined for use with the
-            random partionier on a cluster with an ordered partioner will lead
-            to unequal data distribution across the cluster nodes and bad read
-            and write performance.
           </para>
         </section>
         <section xml:id="installation.cassandra.network">
@@ -579,15 +597,41 @@ cssArchive.groupConfiguration.<ro>=archive-read,archive-write
 cssArchive.groupConfiguration.<rw>=archive-config,admin
 cssArchive.groupConfigurationToChannels.<ro>=archive-read,archive-write
 cssArchive.groupConfigurationToChannels.<rw>=archive-config,admin
-cssArchive.channelConfiguration.<ro>=archive-read
-cssArchive.channelConfiguration.<rw>=archive-config,archive-write,admin
+cssArchive.channelConfiguration.<ro>=archive-read,archive-write
+cssArchive.channelConfiguration.<rw>=archive-config,admin
 cssArchive.channelConfigurationToCompressionLevels.<ro>=archive-read,archive-write
 cssArchive.channelConfigurationToCompressionLevels.<rw>=archive-config,admin
-cssArchive.compressionLevelConfiguration.<ro>=archive-read
-cssArchive.compressionLevelConfiguration.<rw>=archive-config,archive-write,admin
-cssArchive.samples.<ro>=archive-read
-cssArchive.samples.<rw>=archive-config,archive-write,admin
+cssArchive.samples.<ro>=archive-read,archive-config
+cssArchive.samples.<rw>=archive-write,admin
+cssArchive.samplesBucketSize.<ro>=archive-read,archive-config
+cssArchive.samplesBucketSize.<rw>=archive-write,admin
 ]]></programlisting>
+          <para>
+            The lines for the <literal>samples</literal> and
+            <literal>samplesBucketSize</literal> families have to be repeated
+            for all the column families used for compression levels (e.g.
+            <literal>samples_5</literal> and
+            <literal>samplesBucketSize_5</literal> for the compression level
+            with a compression period of five seconds).
+          </para>
+          <para>
+            While you can grant write permissions for the whole keyspace to the
+            <literal>archive-write</literal> user, this does not work for read
+            permissions due to the limitations of the
+            <classname>SimpleAuthority</classname>.
+          </para>
+          <warning>
+            <para>
+              The <classname>SimpleAuthenticator</classname> and
+              <classname>SimpleAuthority</classname> are not designed for
+              production use and should not be used in a production environment.
+              They are only meant for testing and as a starting point to
+              implement your own authenticator and authority. An authenticator
+              and authority that uses a highly-available data-source that is
+              automatically replicated might be a good choice (e.g. an LDAP
+              directory that has a read-only replica on each Cassandra node).
+            </para>
+          </warning>
         </section>
         <section>
           <title>Starting the Server</title>
@@ -613,24 +657,11 @@ cssArchive.samples.<rw>=archive-config,archive-write,admin
           <para>
             Once you successfully started the Cassandra CLI and it is
             connected to the Cassandra server, you can execute the following
-            commands to create the keyspace and the column families for the
+            command to create the keyspace for the
             Cassandra Archiver.
           </para>
 <programlisting><![CDATA[
 CREATE KEYSPACE cssArchive;
-USE cssArchive;
-CREATE COLUMN FAMILY engineConfiguration;
-CREATE COLUMN FAMILY engineConfigurationToGroups;
-CREATE COLUMN FAMILY groupConfiguration;
-CREATE COLUMN FAMILY groupConfigurationToChannels;
-CREATE COLUMN FAMILY channelConfiguration;
-CREATE COLUMN FAMILY channelConfigurationToCompressionLevels;
-CREATE COLUMN FAMILY compressionLevelConfiguration;
-CREATE COLUMN FAMILY samples WITH
-  compression_options = {
-    sstable_compression: DeflateCompressor,
-    chunk_length_kb: 256
-  };
 ]]></programlisting>
           <para>
            Instead of <literal>cssArchive</literal> you can use a different name
@@ -638,17 +669,6 @@ CREATE COLUMN FAMILY samples WITH
            name for the tools using the Cassandra server, if you do not use the
            default keyspace name. The column-family names are fixed and cannot
            be changed.
-          </para>
-          <para>
-            You can change the <literal>chunk_length_kb</literal> option for the
-            <literal>samples</literal> column family. Choosing the right chunk
-            length is a trade-off between the optimal compression ratio and the
-            best performance for random reads. Using a value of 256 kilobytes
-            should be okay for most environments, because on one hand random
-            reads of samples are rare, so there is no significant benefit from
-            using a smaller chunk size. On the other hand, for the kind of data
-            typically stored in the samples column family, increasing the chunk
-            size will not improve the compression ratio significantly. 
           </para>
         </section>
       </section>
@@ -678,17 +698,17 @@ CREATE COLUMN FAMILY samples WITH
         </para>
         <para>
           While the programs in the first three directories can be used as-is,
-          the files in the <filename>css-plugins</filename> directory has to
+          the files in the <filename>css-plugins</filename> directory have to
           be copied to the <filename>plugins</filename> directory of your
           Control System Studio installation. The plugins have been developed
-          for version 3.0.2 of CSS, so they might not work with other versions.
+          for version 3.1 of CSS, so they might not work with other versions.
         </para>
       </section>
       <section xml:id="installation.archiveengine.configuration">
         <title>Configuration</title>
         <para>
           If the Cassandra server is not running on the same host as the
-          archive engine, you have configured Cassandra to listen on a
+          archive engine, you have configure Cassandra to listen on a
           different port than the default port, or you enabled authentication,
           you have to create a plug-in customization file.
         </para>
@@ -726,6 +746,12 @@ com.aquenos.csstudio.archive.cassandra/password=myPassword
 
 ; Number of Compressor Worker Threads
 com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
+
+; Consistency Levels
+;com.aquenos.csstudio.archive.cassandra/readDataConsistencyLevel=QUORUM
+;com.aquenos.csstudio.archive.cassandra/writeDataConsistencyLevel=QUORUM
+;com.aquenos.csstudio.archive.cassandra/readMetaDataConsistencyLevel=QUORUM
+;com.aquenos.csstudio.archive.cassandra/writeMetaDataConsistencyLevel=QUORUM
 ]]></programlisting>
         <para>
           The <literal>hosts</literal> property has to be specified, if the
@@ -759,6 +785,23 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
           and old samples are not deleted. This option was introduced in version
           1.2.0. In earlier versions there always is exactly one compressor
           thread.
+        </para>
+        <para>
+          The <literal>readDataConsistencyLevel</literal>,
+          <literal>writeDataConsistencyLevel</literal>,
+          <literal>readMetaDataConsistencyLevel</literal> and
+          <literal>writeMetaDataConsistencyLevel</literal> properties specify
+          the consistency levels being used for reading data (samples), writing
+          data, reading meta-data (sample bucket sizes and configuration
+          information) and writing meta-data respectively. For most scenarios
+          (in particular for a single-node setup) there is no need to change
+          these parameters. If you change them, you should be very careful to
+          apply the changes to all programs (the archive engine, the archive
+          configuration tool and the archive clean-up tool) at the same time.
+          You also should make sure that the sum of the replicas used for
+          reading and writing a certain category of data is always greater than
+          the number of replicas used. If the sum is less or equal, reads may
+          return inconsistent data.
         </para>
         <para>
           In order to tell a program to use the
@@ -895,9 +938,9 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
       <name>firstChannel</name>
       <period>0.5</period>
       <monitor/>
-      <compression-level name="raw" retention-period="86400"/>
-      <compression-level name="30s" compression-period="30"/>
-      <compression-level name="5m" compression-period="300"/>
+      <compression-level retention-period="86400"/>
+      <compression-level compression-period="30"/>
+      <compression-level compression-period="300"/>
     </channel>
     <channel>
       <enable/>      
@@ -913,8 +956,18 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
       <name>someOtherChannel</name>
       <period>10</period>
       <scan/>
-      <compression-level name="30s" compression-period="30"/>
-      <compression-level name="5m" compression-period="300"/>
+      <compression-level compression-period="30"/>
+      <compression-level compression-period="300"/>
+    </channel>
+  </group>
+  <group>
+    <name>__disabled_channels</name>
+    
+    <channel>
+      <name>someOldChannel</name>
+      <period>5</period>
+      <scan/>
+      <compression-level compression-period="30"/>
     </channel>
   </group>
 </engineconfig>
@@ -949,13 +1002,32 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
         the specified period is too long and the actual change rate is higher,
         samples might be lost, because the queue fills up. If the specified
         period is much shorter than the actual change period, more memory than
-        needed is allocated for the channel. As computer memory is rather
-        cheap today, you should rather choose this value too small than too big.
+        needed is allocated for the channel. The size of the buckets storing
+        the samples is also determined based on the configured period. Choosing
+        a period that is too far off the actual period will either result in
+        too many buckets being created (hurting the read and write performance)
+        or in too many samples being stored in a single bucket (which means that
+        rows will grow very big). Therefore you should choose the period as what
+        you expect for the average change rate. If you are woried about losing
+        samples in periods of bursts, you can increase the
+        <literal>org.csstudio.archive.engine/buffer_reserve</literal> property.
       </para>
       <para>
         The <tag>compression-level</tag> tag is optional and its meaning is
         discussed in the
         <link linkend="configuration.compressionlevels">next section</link>.
+      </para>
+      <para>
+        The group name <literal>__disabled_channels</literal> is
+        reserved for special use:
+        You can use this group for channels, which you want to disable
+        permanently (e.g.
+        because the corresponding device has been removed), but which you still
+        want to see in the data browser.
+        Moving a channel to this group
+        basically has the same effect as moving it to a group with an enabling
+        channel that is always false, but it avoids the warning about the
+        channel being disconnected.
       </para>
     </section>
     <section xml:id="configuration.compressionlevels">
@@ -969,16 +1041,8 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
       </para>
       <para>
         The compression levels are independently configured for each channel.
-        If no compression levels are configured, only raw samples are saved and
-        they are never deleted. Each <tag>compression-level</tag> tag must
-        have a <tag class="attribute">name</tag> attribute. The
-        compression-level name must be unique within the channel configuration.
-        The special name <literal>raw</literal> is reserved for the raw samples,
-        which are not calculated but represent the samples received from the
-        channel.
-      </para>
-      <para>
-        Each <tag>compression-level</tag> except the <literal>raw</literal>
+        Each <tag>compression-level</tag> (except the compression level that
+        stores the raw samples and has an implicit compression period of zero)
         level must specify a <tag class="attribute">compression-period</tag>
         attribute. This interval (an integer number of seconds) specifies the
         time between two compressed samples. If two consecutive samples have
@@ -986,9 +1050,7 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
         the seconds sample is not saved. All compressed samples are aligned to
         January 1st, 1970, 00:00:00 UTC. This way, the compressed samples from
         two different channels but using the same compression period are aligned
-        with respect to each other. The
-        <tag class="attribute">compression-period</tag> attribute is not valid
-        for the special <literal>raw</literal> compression level.
+        with respect to each other.
       </para>
       <para>
         The <tag class="attribute">retention-period</tag> attribute is optional
@@ -996,7 +1058,12 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
         (in integer seconds) is defined, samples that are older than the newest
         sample minus the specified period are deleted. The
         <tag class="attribute">retention-period</tag> attribute is also valid
-        for the special <literal>raw</literal> compression level.
+        for the special raw compression level.
+      </para>
+      <para>
+        The raw compression-level is always defined, even if you do not specify
+        a <tag>compression-level</tag> for it. By default its retention period
+        is zero (meaning that samples are never deleted).
       </para>
       <important>
         <para>
@@ -1047,6 +1114,18 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
         Call <command>./ArchiveConfigTool -help</command> for a list of all
         supported command-line parameters.
       </para>
+      <important>
+        <para>
+          No channels should be modified using the archive configuration tool,
+          while the engine for the respective channel is running (in particular
+          no channel should be deleted). This means that you should not use the
+          <literal>-import</literal> or <literal>-delete_config</literal> 
+          actions for an archive engine that is running and that you should not
+          use the <literal>-steal_channels</literal> option, while any engine
+          is running. You also should not modify the configuration while the
+          archive clean-up tool is running. 
+        </para>
+      </important>
     </section>
     <section xml:id="configuration.cleanup">
       <title>Cleaning up the Database</title>

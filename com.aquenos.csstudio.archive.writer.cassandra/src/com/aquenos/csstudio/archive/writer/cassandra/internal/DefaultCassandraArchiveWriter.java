@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 aquenos GmbH.
+ * Copyright 2012-2013 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -23,16 +23,19 @@ import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriterPrefe
  * @author Sebastian Marsching
  */
 public class DefaultCassandraArchiveWriter extends CassandraArchiveWriter {
-	public DefaultCassandraArchiveWriter() {
-		super(CassandraArchivePreferences.getHosts(),
-				CassandraArchivePreferences.getPort(),
-				CassandraArchivePreferences.getKeyspace(),
-				CassandraArchivePreferences.getConsistencyLevelPolicy(),
-				CassandraArchivePreferences.getFailoverPolicy(),
-				CassandraArchivePreferences.getUsername(),
-				CassandraArchivePreferences.getPassword(),
-				CassandraArchiveWriterPreferences
-						.getNumberOfCompressorWorkers());
-	}
+    public DefaultCassandraArchiveWriter() {
+        super(CassandraArchivePreferences.getHosts(),
+                CassandraArchivePreferences.getPort(),
+                CassandraArchivePreferences.getKeyspace(),
+                CassandraArchivePreferences.getReadDataConsistencyLevel(),
+                CassandraArchivePreferences.getWriteDataConsistencyLevel(),
+                CassandraArchivePreferences.getReadMetaDataConsistencyLevel(),
+                CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
+                CassandraArchivePreferences.getRetryPolicy(),
+                CassandraArchivePreferences.getUsername(),
+                CassandraArchivePreferences.getPassword(),
+                CassandraArchiveWriterPreferences
+                        .getNumberOfCompressorWorkers());
+    }
 
 }

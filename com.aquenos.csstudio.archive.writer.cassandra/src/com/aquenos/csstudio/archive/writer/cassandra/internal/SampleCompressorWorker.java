@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 aquenos GmbH.
+ * Copyright 2012-2013 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -9,19 +9,13 @@
 
 package com.aquenos.csstudio.archive.writer.cassandra.internal;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import me.prettyprint.cassandra.serializers.BytesArraySerializer;
-import me.prettyprint.hector.api.Keyspace;
-import me.prettyprint.hector.api.factory.HFactory;
-import me.prettyprint.hector.api.mutation.Mutator;
 
 import org.csstudio.data.values.IDoubleValue;
 import org.csstudio.data.values.IEnumeratedMetaData;
@@ -40,11 +34,14 @@ import org.csstudio.data.values.ValueFactory;
 
 import com.aquenos.csstudio.archive.cassandra.Sample;
 import com.aquenos.csstudio.archive.cassandra.SampleStore;
-import com.aquenos.csstudio.archive.cassandra.TimestampArithmetics;
-import com.aquenos.csstudio.archive.cassandra.util.Pair;
+import com.aquenos.csstudio.archive.cassandra.util.TimestampArithmetics;
+import com.aquenos.csstudio.archive.cassandra.util.astyanax.NotifyingMutationBatch;
+import com.aquenos.csstudio.archive.cassandra.util.astyanax.WrappedNotifyingMutationBatch;
 import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
 import com.aquenos.csstudio.archive.config.cassandra.CompressionLevelConfig;
-import com.aquenos.csstudio.archive.config.cassandra.CompressionLevelState;
+import com.netflix.astyanax.Keyspace;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
+import com.netflix.astyanax.model.ConsistencyLevel;
 
 /**
  * Calculates compressed samples and deletes old samples. This class is only
@@ -53,1030 +50,932 @@ import com.aquenos.csstudio.archive.config.cassandra.CompressionLevelState;
  * @author Sebastian Marsching
  */
 public class SampleCompressorWorker implements Runnable {
-	private double[] EMPTY_DOUBLE_ARRAY = new double[0];
+    private final ITimestamp ONE_NANOSECOND = TimestampFactory.createTimestamp(
+            0L, 1L);
 
-	private final Logger logger = Logger.getLogger(WriterBundle.NAME);
-	private Keyspace keyspace;
-	private SampleStore sampleStore;
-	private CassandraArchiveConfig archiveConfig;
-	private BlockingQueue<String> receiveChannelNameQueue;
-	private BlockingQueue<String> acknowledgeChannelNameQueue;
+    private final Logger logger = Logger.getLogger(WriterBundle.NAME);
+    private Keyspace keyspace;
+    private ConsistencyLevel writeDataConsistencyLevel;
+    private SampleStore sampleStore;
+    private CassandraArchiveConfig archiveConfig;
+    private BlockingQueue<String> receiveChannelNameQueue;
+    private BlockingQueue<String> acknowledgeChannelNameQueue;
 
-	private enum ValueType {
-		DOUBLE, ENUM, LONG, STRING
-	}
+    private enum ValueType {
+        DOUBLE, ENUM, LONG, STRING
+    }
 
-	private class SampleCache {
-		private int cacheSize = 10000;
-		private String compressionLevelName;
-		private String channelName;
-		private TreeMap<ITimestamp, Sample> cache = new TreeMap<ITimestamp, Sample>();
-		private ITimestamp cacheLow;
-		private ITimestamp cacheHigh;
+    private class GeneralState {
+        ITimestamp start;
+        ITimestamp end;
+        ITimestamp nextSampleTime;
+        boolean skippedLastSample = false;
+        int insertCounter = 0;
+        ISeverity maxSeverity;
+        IValue centerValue;
+        boolean haveNewData = false;
+    }
 
-		public SampleCache(String compressionLevelName, String channelName) {
-			this.compressionLevelName = compressionLevelName;
-			this.channelName = channelName;
-		}
+    private class NumericState {
+        Double doubleMin;
+        Double doubleMax;
+        double[] doubleSum;
+    }
 
-		public Sample findPrecedingSample(Mutator<byte[]> mutator, Sample sample) {
-			ITimestamp precedingSampleTimestamp = sample
-					.getPrecedingSampleTimestamp();
-			Sample precedingSample = null;
-			if (precedingSampleTimestamp != null) {
-				precedingSample = findSample(precedingSampleTimestamp);
-			}
-			if (precedingSample == null) {
-				// Use SampleStore#getPrecedingSample because this method can
-				// actually search for sample, if the timestamp is unknown.
-				return sampleStore.findPrecedingSample(mutator, sample);
-			} else {
-				return precedingSample;
-			}
-		}
+    public SampleCompressorWorker(Keyspace keyspace,
+            ConsistencyLevel writeDataConsistencyLevel,
+            SampleStore sampleStore,
+            BlockingQueue<String> receiveChannelNameQueue,
+            BlockingQueue<String> acknowledgeChannelNameQueue) {
+        this.keyspace = keyspace;
+        this.writeDataConsistencyLevel = writeDataConsistencyLevel;
+        this.sampleStore = sampleStore;
+        this.archiveConfig = sampleStore.getArchiveConfig();
+        this.receiveChannelNameQueue = receiveChannelNameQueue;
+        this.acknowledgeChannelNameQueue = acknowledgeChannelNameQueue;
+    }
 
-		public Sample findSample(ITimestamp timestamp) {
-			Sample sample = cache.get(timestamp);
-			if (sample != null) {
-				return sample;
-			}
-			if (cacheLow != null && cacheHigh != null
-					&& cacheLow.isLessOrEqual(timestamp)
-					&& cacheLow.isGreaterOrEqual(timestamp)) {
-				return null;
-			}
-			Sample[] newSamples = findSamples(timestamp, null, 1);
-			if (newSamples.length == 0) {
-				return null;
-			}
-			sample = newSamples[0];
-			if (sample.getValue().getTime().equals(timestamp)) {
-				return sample;
-			} else {
-				return null;
-			}
-		}
+    @Override
+    public void run() {
+        while (!Thread.currentThread().isInterrupted()) {
+            String channelName;
+            try {
+                channelName = receiveChannelNameQueue.take();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                // We can return, because we did not take a channel name from
+                // the queue, so there is nothing left to do.
+                return;
+            }
+            try {
+                processChannel(channelName);
+            } catch (Throwable e) {
+                // Log exception and continue with next channel
+                logger.log(Level.WARNING,
+                        "Error while compressing samples for channel "
+                                + channelName + ": " + e.getMessage(), e);
+            } finally {
+                // Notify the management thread that the processing of the
+                // channel has finished and the channel might be processed
+                // again.
+                acknowledgeChannelNameQueue.add(channelName);
+            }
+        }
+    }
 
-		public Sample[] findSamples(ITimestamp start, ITimestamp end,
-				int numberOfSamples) {
-			// Ensure that the cache is big enough
-			cacheSize = Math.max(cacheSize, numberOfSamples + 1);
-			if (numberOfSamples == 0) {
-				return new Sample[0];
-			}
-			if (start == null) {
-				start = TimestampArithmetics.MIN_TIME;
-			}
-			if (end == null) {
-				end = TimestampArithmetics.MAX_TIME;
-			}
-			if (cacheLow == null || start.isLessThan(cacheLow)) {
-				// Start is outside of cache range, so we have to ask the
-				// database server.
-				int queryNum;
-				if (end.equals(TimestampArithmetics.MAX_TIME)) {
-					// Open limit query, thus we do not request too many
-					// samples.
-					queryNum = 50;
-				} else {
-					// End is limited by timestamp, thus we can request a rather
-					// large number, as most likely the end timestamp will limit
-					// it.
-					queryNum = 1000;
-				}
-				// If more samples have been requested by the calling code, we
-				// request the same number of samples.
-				queryNum = Math.max(numberOfSamples, 50);
-				ITimestamp queryEnd = end;
-				if (cacheLow != null && end.isGreaterOrEqual(cacheLow)
-						&& cacheHigh != null && start.isLessOrEqual(cacheHigh)) {
-					// We can limit the query to the samples that are not in the
-					// cache yet.
-					queryEnd = cache.firstKey();
-				}
-				Sample[] newSamples = queryAndCache(start, queryEnd, queryNum);
-				// Return samples
-				if (end.equals(queryEnd)) {
-					// The samples returned exactly match the request.
-					return newSamples;
-				} else if (end.isLessThan(queryEnd)) {
-					// The samples returned include all requested samples,
-					// however there might be more samples, because we
-					// readjusted the end.
-					int numberOfSamplesToUse = 0;
-					for (Sample sample : newSamples) {
-						if (sample.getValue().getTime().isLessOrEqual(end)) {
-							numberOfSamplesToUse++;
-						} else {
-							break;
-						}
-					}
-					return Arrays.copyOf(newSamples, numberOfSamplesToUse);
-				} else {
-					// We shortened the query, because we have parts of the
-					// period in the cache. Now we first use the samples
-					// returned and then add the samples from the cache.
-					// We cannot take all samples from the cache, because the
-					// samples from the new request have not been added, if
-					// there was only a single sample.
-					ArrayList<Sample> samples = new ArrayList<Sample>(
-							numberOfSamples);
-					for (Sample sample : newSamples) {
-						// There is no need to check the timestamp, because
-						// the end timestamp used is actually smaller than
-						// the end timestamp requested by the calling code.
-						samples.add(sample);
-					}
-					// Now we add samples from the cache, until we either hit
-					// the end of the cache or we find a sample with a timestamp
-					// greater than the end timestamp.
-					Entry<ITimestamp, Sample> entry = cache.ceilingEntry(start);
-					if (samples.size() != 0) {
-						// Find first sample that comes after the last sample
-						// we already added to the list.
-						entry = cache.higherEntry(samples
-								.get(samples.size() - 1).getValue().getTime());
-					} else {
-						// Start with the first sample that is at or after
-						// start.
-						entry = cache.ceilingEntry(start);
-					}
-					while (entry != null) {
-						if (entry.getKey().isGreaterThan(end)) {
-							return samples.toArray(new Sample[samples.size()]);
-						}
-						samples.add(entry.getValue());
-						entry = cache.higherEntry(entry.getKey());
-					}
-					return samples.toArray(new Sample[samples.size()]);
-				}
-			}
-			// If we got until here, we know that we have samples starting at
-			// or after start in the cache. In this case we only have to check,
-			// that we also have all samples up to end.
-			ArrayList<Sample> samples = new ArrayList<Sample>(numberOfSamples);
-			Entry<ITimestamp, Sample> entry = cache.ceilingEntry(start);
-			while (entry != null) {
-				if (entry.getKey().isGreaterThan(end)
-						|| samples.size() >= numberOfSamples) {
-					return samples.toArray(new Sample[samples.size()]);
-				}
-				samples.add(entry.getValue());
-				entry = cache.higherEntry(entry.getKey());
-			}
-			if (samples.size() >= numberOfSamples
-					|| (cacheHigh != null && end.isLessOrEqual(cacheHigh))) {
-				// The samples from the cache were sufficient - either because
-				// we got enough of them or because the cache covers the whole
-				// requested range.
-				return samples.toArray(new Sample[samples.size()]);
-			} else {
-				// End is outside cache range and the cache did not have the
-				// right number of entries, so we have to ask the server.
-				// Request the number of samples requested by the calling
-				// code or 50 samples, whichever is more.
-				int queryNum = numberOfSamples - samples.size();
-				queryNum = Math.max(queryNum, 50);
-				ITimestamp queryStart;
-				if (samples.size() > 0) {
-					queryStart = samples.get(samples.size() - 1).getValue()
-							.getTime();
-				} else {
-					queryStart = start;
-				}
-				Sample[] newSamples = queryAndCache(queryStart,
-						TimestampArithmetics.MAX_TIME, queryNum);
-				// Add new samples to result. First check whether first sample
-				// is already included in the list.
-				if (newSamples.length > 0
-						&& (samples.size() == 0 || !newSamples[0]
-								.getValue()
-								.getTime()
-								.equals(samples.get(samples.size() - 1)
-										.getValue().getTime()))) {
-					// The last value in the cache and the first value
-					// returned do not equal, so we add the first value.
-					if (newSamples[0].getValue().getTime().isLessOrEqual(end)) {
-						samples.add(newSamples[0]);
-					}
-				}
-				// Add all remaining samples
-				for (int i = 1; i < newSamples.length; i++) {
-					Sample sample = newSamples[i];
-					if (sample.getValue().getTime().isLessOrEqual(end)) {
-						samples.add(sample);
-					} else {
-						break;
-					}
-				}
-				return samples.toArray(new Sample[samples.size()]);
-			}
-		}
+    private void processChannel(String channelName) throws ConnectionException {
+        CompressionLevelConfig[] compressionLevelConfigs = archiveConfig
+                .findCompressionLevelConfigs(channelName);
+        // First we sort the compression levels in the order of their
+        // compression period (from short too long). We do this, so that
+        // compression levels with a longer period can use the data from
+        // compression levels with a shorter period, instead of having to use
+        // raw data. The raw compression level is handled separately, as it is
+        // never compressed.
+        LinkedList<CompressionLevelConfig> retentionOnly = new LinkedList<CompressionLevelConfig>();
+        TreeMap<Long, CompressionLevelConfig> compressionPeriodToConfig = new TreeMap<Long, CompressionLevelConfig>();
+        for (CompressionLevelConfig config : compressionLevelConfigs) {
+            long compressionPeriod = config.getCompressionPeriod();
+            if (compressionPeriod <= 0) {
+                // No compression
+                retentionOnly.add(config);
+            } else {
+                // There can never be two compression level configurations with
+                // the same compression period, so this is safe.
+                compressionPeriodToConfig.put(compressionPeriod, config);
+            }
+        }
+        for (CompressionLevelConfig compressionLevelConfig : compressionPeriodToConfig
+                .values()) {
+            long compressionPeriod = compressionLevelConfig
+                    .getCompressionPeriod();
+            Long nextCompressionPeriod = compressionPeriod;
+            while (nextCompressionPeriod != null) {
+                nextCompressionPeriod = compressionPeriodToConfig
+                        .lowerKey(nextCompressionPeriod);
+                if (nextCompressionPeriod != null
+                        && compressionPeriod % (nextCompressionPeriod * 2) == 0) {
+                    // Found a compression level with a shorter compression
+                    // period, that the current compression period is an even
+                    // integer multiple of. In this case, we will benefit
+                    // from using that compression level instead of the raw
+                    // samples, because the samples from the compression level
+                    // are exactly aligned to the start and end of the intervals
+                    // used to calculate the samples of this compression level.
+                    break;
+                }
+            }
+            long sourceCompressionPeriod;
+            if (nextCompressionPeriod == null) {
+                // If no matching compression level is found, we have to use the
+                // raw samples.
+                sourceCompressionPeriod = 0L;
+            } else {
+                sourceCompressionPeriod = nextCompressionPeriod;
+            }
+            boolean enableRetention = compressionLevelConfig
+                    .getRetentionPeriod() > 0;
+            // Generate compressed samples for this compression level and
+            // channel.
+            compressChannel(compressionLevelConfig, sourceCompressionPeriod);
+            // Delete old samples if retention is enabled.
+            if (enableRetention) {
+                deleteOldSamples(compressionLevelConfig);
+            }
+        }
+        // Process remaining compression levels for retention
+        for (CompressionLevelConfig compressionLevelConfig : retentionOnly) {
+            boolean enableRetention = compressionLevelConfig
+                    .getRetentionPeriod() > 0;
+            if (enableRetention) {
+                deleteOldSamples(compressionLevelConfig);
+            }
+        }
+    }
 
-		private Sample[] queryAndCache(ITimestamp start, ITimestamp end,
-				int numberOfSamples) {
-			Sample[] samples = sampleStore.findSamples(compressionLevelName,
-					channelName, start, end, numberOfSamples);
-			if (samples.length <= 1 && cache.size() > 0) {
-				// If no samples or only one sample is returned, and we already
-				// have data in the cache, we do not cache but just return the
-				// requested samples.
-				return samples;
-			}
-			ITimestamp newCacheHigh;
-			if (samples.length < numberOfSamples) {
-				// If we got less samples than requested, we know for sure, that
-				// we got all samples available between the start and the end
-				// timestamp.
-				newCacheHigh = end;
-			} else {
-				// If we got the number of samples we requested, there might be
-				// more samples with a timestamp less than end.
-				newCacheHigh = samples[samples.length - 1].getValue().getTime();
-			}
-			if (cache.size() != 0) {
-				// How do cached samples and new samples overlap?
-				// -1: Overlap at start of cache
-				// 0: No overlap
-				// 1: Overlap at end of cache
-				int overlap;
-				if (cacheLow.isLessOrEqual(newCacheHigh)
-						&& cacheLow.isGreaterOrEqual(start)) {
-					overlap = -1;
-				} else if (cacheHigh.isLessOrEqual(newCacheHigh)
-						&& cacheHigh.isGreaterOrEqual(start)) {
-					overlap = 1;
-				} else {
-					overlap = 0;
-				}
-				if (overlap == 0 || cache.size() + samples.length > cacheSize) {
-					// We have to free up some space in order to add the new
-					// samples.
-					int numberToDelete = (cache.size() + samples.length)
-							- cacheSize;
-					if (overlap == 0 || numberToDelete >= cache.size()) {
-						// If we have to delete all samples (either because we
-						// will refill the complete cache or because there is no
-						// overlap, we just clear the whole map, because this
-						// should be much quicker.
-						cache.clear();
-						cacheLow = null;
-						cacheHigh = null;
-					} else {
-						while (numberToDelete > 0) {
-							if (overlap > 0) {
-								cache.remove(cache.firstKey());
-							} else {
-								cache.remove(cache.lastKey());
-							}
-						}
-						if (overlap > 0) {
-							cacheLow = cache.firstKey();
-						} else {
-							cacheHigh = cache.lastKey();
-						}
-					}
-				}
-			}
-			// Add all new samples
-			for (Sample sample : samples) {
-				cache.put(sample.getValue().getTime(), sample);
-			}
-			if (cacheLow == null || start.isLessThan(cacheLow)) {
-				cacheLow = start;
-			}
-			if (cacheHigh == null || newCacheHigh.isGreaterThan(cacheHigh)) {
-				cacheHigh = newCacheHigh;
-			}
-			return samples;
-		}
-	}
+    private void deleteOldSamples(CompressionLevelConfig compressionLevelConfig)
+            throws ConnectionException {
+        String channelName = compressionLevelConfig.getChannelName();
+        long compressionPeriod = compressionLevelConfig.getCompressionPeriod();
+        ITimestamp end = TimestampFactory.createTimestamp(sampleStore
+                .getLastSampleTimestamp(compressionPeriod, channelName)
+                .seconds()
+                - compressionLevelConfig.getRetentionPeriod(), 0L);
+        if (end.seconds() < 0 || (end.seconds() == 0 && end.nanoseconds() == 0)) {
+            return;
+        }
+        sampleStore.deleteSamples(compressionPeriod, channelName, null, end);
+    }
 
-	public SampleCompressorWorker(Keyspace keyspace,
-			BlockingQueue<String> receiveChannelNameQueue,
-			BlockingQueue<String> acknowledgeChannelNameQueue) {
-		this.keyspace = keyspace;
-		this.sampleStore = new SampleStore(this.keyspace);
-		this.archiveConfig = new CassandraArchiveConfig(this.keyspace);
-		this.receiveChannelNameQueue = receiveChannelNameQueue;
-		this.acknowledgeChannelNameQueue = acknowledgeChannelNameQueue;
-	}
+    private void compressChannel(CompressionLevelConfig compressionLevelConfig,
+            long sourceCompressionPeriod) throws ConnectionException {
+        String channelName = compressionLevelConfig.getChannelName();
+        long compressionPeriod = compressionLevelConfig.getCompressionPeriod();
+        ITimestamp compressionPeriodAsTimestamp = TimestampFactory
+                .createTimestamp(compressionPeriod, 0L);
+        ITimestamp halfCompressionPeriodAsTimestamp = TimestampArithmetics
+                .divide(compressionPeriodAsTimestamp, 2);
+        ITimestamp lastSampleTime = sampleStore.getLastSampleTimestamp(
+                compressionPeriod, channelName);
+        // We store most of the state in two structures, so that we can
+        // manipulate the state from other methods, that we use to concentrate
+        // some common code.
+        GeneralState generalState = new GeneralState();
+        NumericState numericState = new NumericState();
+        // We have to determine the timestamp of the next compressed sample to
+        // be calculated.
+        if (lastSampleTime != null) {
+            generalState.nextSampleTime = TimestampArithmetics.add(
+                    lastSampleTime, compressionPeriodAsTimestamp);
+            // We want to make sure that the next sample time is aligned, even
+            // if for some reason we have an unaligned sample in the database.
+            generalState.nextSampleTime = alignNextSampleTime(
+                    generalState.nextSampleTime, compressionPeriod);
+        } else {
+            // calculateNextSampleTime already takes care of aligning the time,
+            // so we do not have to do this here.
+            generalState.nextSampleTime = calculateNextSampleTime(channelName,
+                    compressionPeriod, sourceCompressionPeriod);
+        }
+        if (generalState.nextSampleTime == null) {
+            // If there are no source samples and no compressed samples have
+            // been stored yet, the nextSampleTime is null. In this case we
+            // cannot create a compressed sample and just return.
+            return;
+        }
+        // For calculating the compressed sample we need source samples starting
+        // half a compression period before the compressed sample.
+        // In addition to that, we need one earlier sample, so that we know the
+        // source sample value for the complete compression period (otherwise a
+        // period in the start would be missing, if the first sample was not
+        // exactly at the start).
+        Sample lastSourceSample;
+        do {
+            generalState.start = TimestampArithmetics.substract(
+                    generalState.nextSampleTime,
+                    halfCompressionPeriodAsTimestamp);
+            lastSourceSample = getFirst(sampleStore.findSamples(
+                    sourceCompressionPeriod, channelName, generalState.start,
+                    null, 1, true));
+            if (lastSourceSample == null) {
+                // There is no sample that is old enough. This can happen if we
+                // already have compressed samples and relatively new source
+                // samples have been deleted. In this case, we calculate the
+                // time for the next compressed sample based on the timestamp of
+                // the oldest available source sample.
+                generalState.nextSampleTime = calculateNextSampleTime(
+                        channelName, compressionPeriod, sourceCompressionPeriod);
+                if (generalState.nextSampleTime == null) {
+                    // There are no source samples, thus we cannot calculate any
+                    // compressed samples.
+                    return;
+                }
+            }
+        } while (lastSourceSample == null);
+        // The end of the compression period is defined by the start plus the
+        // compression period. We update the start and end in order to reflect
+        // the compressed sample currently being built while we iterate over the
+        // source samples.
+        generalState.end = TimestampArithmetics.add(generalState.start,
+                compressionPeriodAsTimestamp);
+        // We also need the last compressed sample in order to decide whether
+        // the value has changed and thus the new compressed sample should be
+        // saved. It is okay, if we do not find any such sample. We just save
+        // the new compressed sample without comparing it.
+        Sample lastCompressedSample = getFirst(sampleStore.findSamples(
+                compressionPeriod, channelName, TimestampArithmetics.substract(
+                        generalState.nextSampleTime, ONE_NANOSECOND), null, 1,
+                true));
+        // Now that we have a sample before the compression period, we can start
+        // collecting all the samples in the compression period and create the
+        // compressed sample. We do this until we run out of source samples.
+        NotifyingMutationBatch mutationBatch = new WrappedNotifyingMutationBatch(
+                keyspace.prepareMutationBatch().withConsistencyLevel(
+                        writeDataConsistencyLevel));
+        // We use the iterator directly, because sometimes we have to do a loop
+        // iteration without incrementing the iterator.
+        Iterator<Sample> sourceSampleIterator = sampleStore.findSamples(
+                sourceCompressionPeriod, channelName, generalState.start, null,
+                -1, false).iterator();
+        Sample sourceSample = null;
+        while (sourceSampleIterator.hasNext()) {
+            // We only want to increment the iterator if the next sample is the
+            // first sample, or if the current sample is within the current
+            // compression period. If the current sample is ahead of the current
+            // compression period, the start and end of the compression period
+            // will be incremented below, when we insert the compressed sample.
+            // Thus, the timestamp of the current sample will be less than the
+            // end of the compression period in one of the future iterations.
+            if (sourceSample == null) {
+                sourceSample = sourceSampleIterator.next();
+            } else if (sourceSample.getValue().getTime()
+                    .isLessThan(generalState.end)) {
+                // If sourceSample was already set, we want to save it in
+                // lastSourceSample.
+                lastSourceSample = sourceSample;
+                sourceSample = sourceSampleIterator.next();
+            }
+            // If the new source sample is still before the compression period
+            // we want to calculate, we skip it. This way the newest sample
+            // right before the compression period will be in lastSourceSample.
+            IValue sourceValue = sourceSample.getValue();
+            if (sourceValue.getTime().isLessOrEqual(generalState.start)) {
+                lastSourceSample = sourceSample;
+                continue;
+            }
 
-	@Override
-	public void run() {
-		while (!Thread.currentThread().isInterrupted()) {
-			String channelName;
-			try {
-				channelName = receiveChannelNameQueue.take();
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				// We can return, because we did not take a channel name from
-				// the queue, so there is nothing left to do.
-				return;
-			}
-			try {
-				processChannel(channelName);
-			} catch (Throwable e) {
-				// Log exception and continue with next channel
-				logger.log(Level.WARNING,
-						"Error while compressing samples for channel "
-								+ channelName + ": " + e.getMessage(), e);
-			} finally {
-				// Notify the management thread that the processing of the
-				// channel has finished and the channel might be processed
-				// again.
-				acknowledgeChannelNameQueue.add(channelName);
-			}
-		}
-	}
+            IValue lastSourceValue = lastSourceSample.getValue();
+            ValueType lastValueType = getValueType(lastSourceValue);
 
-	private void processChannel(String channelName) {
-		Pair<CompressionLevelConfig, CompressionLevelState>[] pairs = archiveConfig
-				.findCompressionLevelConfigsAndStates(channelName);
-		// First we sort the compression levels in the order of their
-		// compression period (from short too long). We do this, so that
-		// compression levels with a longer period can use the data from
-		// compression levels with a shorter period, instead of having to use
-		// raw data. The raw compression level is handled separately, as it is
-		// never compressed.
-		LinkedList<Pair<CompressionLevelConfig, CompressionLevelState>> retentionOnly = new LinkedList<Pair<CompressionLevelConfig, CompressionLevelState>>();
-		TreeMap<Long, Pair<CompressionLevelConfig, CompressionLevelState>> compressionLevelPairs = new TreeMap<Long, Pair<CompressionLevelConfig, CompressionLevelState>>();
-		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : pairs) {
-			CompressionLevelConfig config = pair.getFirst();
-			long compressionPeriod = config.getCompressionPeriod();
-			if (compressionPeriod <= 0
-					|| config.getCompressionLevelName().equals(
-							CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME)) {
-				// No compression
-				retentionOnly.add(pair);
-			} else {
-				// There should never be two compression levels with the same
-				// compression period. However, in case there is such a
-				// configuration, we just ignore the second compression level
-				// and log a warning.
-				if (!compressionLevelPairs.containsKey(compressionPeriod)) {
-					compressionLevelPairs.put(compressionPeriod, pair);
-				} else {
-					logger.warning("Error in compression level configuration for channel \""
-							+ channelName
-							+ "\": Ignoring compression level \""
-							+ config.getCompressionLevelName()
-							+ "\" because it has the same compression period ("
-							+ compressionPeriod
-							+ ") as compression level \""
-							+ compressionLevelPairs.get(compressionPeriod)
-									.getFirst().getCompressionLevelName());
-				}
-			}
-		}
-		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : compressionLevelPairs
-				.values()) {
-			CompressionLevelConfig compressionLevelConfig = pair.getFirst();
-			CompressionLevelState compressionLevelState = pair.getSecond();
-			long compressionPeriod = compressionLevelConfig
-					.getCompressionPeriod();
-			Long nextCompressionPeriod = compressionPeriod;
-			while (nextCompressionPeriod != null) {
-				nextCompressionPeriod = compressionLevelPairs
-						.lowerKey(nextCompressionPeriod);
-				if (nextCompressionPeriod != null
-						&& compressionPeriod % (nextCompressionPeriod * 2) == 0) {
-					// Found a compression level with a shorter compression
-					// period, that the current compression period is an even
-					// integer multiple of. In this case, we will benefit
-					// from using that compression level instead of the raw
-					// samples, because the samples from the compression level
-					// are exactly aligned to the start and end of the intervals
-					// used to calculate the samples of this compression level.
-					break;
-				}
-			}
-			String sourceCompressionLevelName;
-			if (nextCompressionPeriod == null) {
-				// If no matching compression level is found, we have to use the
-				// raw samples.
-				sourceCompressionLevelName = CompressionLevelConfig.RAW_COMPRESSION_LEVEL_NAME;
-			} else {
-				sourceCompressionLevelName = compressionLevelPairs
-						.get(nextCompressionPeriod).getFirst()
-						.getCompressionLevelName();
-			}
-			boolean enableRetention = compressionLevelConfig
-					.getRetentionPeriod() > 0;
-			// The compression action might change the timestamps, thus we
-			// have to use the configuration returned by the compress method.
-			compressionLevelState = compressChannel(compressionLevelConfig,
-					compressionLevelState, sourceCompressionLevelName);
-			if (enableRetention) {
-				deleteOldSamples(compressionLevelConfig, compressionLevelState);
-			}
-		}
-		// Process remaining compression levels for retention
-		for (Pair<CompressionLevelConfig, CompressionLevelState> pair : retentionOnly) {
-			CompressionLevelConfig compressionLevelConfig = pair.getFirst();
-			CompressionLevelState compressionLevelState = pair.getSecond();
-			boolean enableRetention = compressionLevelConfig
-					.getRetentionPeriod() > 0;
-			if (enableRetention) {
-				deleteOldSamples(compressionLevelConfig, compressionLevelState);
-			}
-		}
-	}
+            // First we handle the generic properties of the last sample.
+            // We update our intermediate value when the last value was
+            // in the current or the last compression period or the next
+            // sample is in the current compression period. We have to
+            // do the latter because the older sample might still
+            // contribute to the compressed value of the current
+            // compression period.
+            if (lastSourceValue.getTime().isGreaterThan(
+                    TimestampArithmetics.substract(generalState.start,
+                            compressionPeriodAsTimestamp))
+                    || sourceValue.getTime().isLessThan(generalState.end)) {
+                updateGeneralState(generalState, lastSourceValue);
+                // The numeric state is only updated if the value-type of the
+                // last sample is numeric.
+                if (isNumericType(lastValueType)) {
+                    updateNumericState(numericState, lastSourceValue,
+                            sourceValue.getTime(), generalState.start,
+                            generalState.end);
+                }
+            }
 
-	private void deleteOldSamples(
-			CompressionLevelConfig compressionLevelConfig,
-			CompressionLevelState compressionLevelState) {
-		String compressionLevelName = compressionLevelConfig
-				.getCompressionLevelName();
-		String channelName = compressionLevelConfig.getChannelName();
-		ITimestamp end = TimestampFactory.createTimestamp(
-				compressionLevelState.getLastSavedSampleTime().seconds()
-						- compressionLevelConfig.getRetentionPeriod(), 0L);
-		if (end.seconds() < 0 || (end.seconds() == 0 && end.nanoseconds() == 0)) {
-			return;
-		}
-		int maxSamples = 5000;
-		int samplesFound;
-		do {
-			ITimestamp[] timestamps = sampleStore.findSampleTimestamps(
-					compressionLevelName, channelName, null, end, maxSamples);
-			samplesFound = timestamps.length;
-			if (samplesFound == 0) {
-				break;
-			}
-			Mutator<byte[]> mutator = HFactory.createMutator(this.keyspace,
-					BytesArraySerializer.get());
-			for (ITimestamp timestamp : timestamps) {
-				sampleStore.deleteSample(mutator, compressionLevelName,
-						channelName, timestamp);
-			}
-			mutator.execute();
-		} while (samplesFound == maxSamples);
-	}
+            // If we have a sample that is greater than or equal to the current
+            // period end, we can calculate the compressed sample for the
+            // current period.
+            if (sourceValue.getTime().isGreaterOrEqual(generalState.end)) {
+                // Insert compressed sample based on the aggregated data.
+                lastCompressedSample = insertCompressedSample(mutationBatch,
+                        generalState, numericState, lastValueType,
+                        lastCompressedSample, channelName, compressionPeriod);
+                // Reset state data.
+                resetGeneralState(generalState);
+                resetNumericState(numericState);
+                // If the last sample's validity extends into the next
+                // compression period, we have to take it into account. This
+                // basically is the same situation as the sample before the
+                // first compression period.
+                // However, we do not add the last sample to the intermediate
+                // sum, when the time of the current sample is later then the
+                // end of the current compression period. In this case the
+                // sample iterator will not be incremented at the start of the
+                // next iteration and thus the last sample will be added to the
+                // intermediate sum. If we also added it here, we would add it
+                // twice and thus generate a bogus sum.
+                if (sourceValue.getTime().isGreaterThan(generalState.start)
+                        && sourceValue.getTime().isLessThan(generalState.end)) {
+                    // We update our intermediate value when the last value was
+                    // in the current or the last compression period or the next
+                    // sample is in the current compression period. We have to
+                    // do the latter because the older sample might still
+                    // contribute to the compressed value of the current
+                    // compression period.
+                    if (lastSourceValue.getTime().isGreaterThan(
+                            TimestampArithmetics.substract(generalState.start,
+                                    compressionPeriodAsTimestamp))
+                            || sourceValue.getTime().isLessThan(
+                                    generalState.end)) {
+                        updateGeneralState(generalState, lastSourceValue);
+                        // The numeric state is only updated if the value-type
+                        // of the last sample is numeric.
+                        if (isNumericType(lastValueType)) {
+                            updateNumericState(numericState, lastSourceValue,
+                                    sourceValue.getTime(), generalState.start,
+                                    generalState.end);
+                        }
+                    }
+                }
+            }
 
-	private CompressionLevelState compressChannel(
-			CompressionLevelConfig compressionLevelConfig,
-			CompressionLevelState compressionLevelState,
-			String sourceCompressionLevelName) {
-		String channelName = compressionLevelConfig.getChannelName();
-		SampleCache cache = new SampleCache(sourceCompressionLevelName,
-				channelName);
-		ITimestamp nextSampleTime = compressionLevelState.getNextSampleTime();
-		Sample lastSavedSample = null;
-		ITimestamp lastSavedSampleTime = compressionLevelState
-				.getLastSavedSampleTime();
-		long compressionInterval = compressionLevelConfig
-				.getCompressionPeriod();
-		ITimestamp compressionIntervalTimestamp = TimestampFactory
-				.createTimestamp(compressionInterval, 0L);
-		ITimestamp halfCompressionIntervalTimestamp = TimestampArithmetics
-				.divide(compressionIntervalTimestamp, 2);
-		// We share the mutator over several iterations in order to reduce the
-		// number of requests sent.
-		Mutator<byte[]> mutator = HFactory.createMutator(keyspace,
-				BytesArraySerializer.get());
-		int insertCounts = 0;
-		// Process samples for channel until we got no more source samples.
-		while (true) {
-			if (isNull(nextSampleTime)) {
-				// There is no sample yet, thus we use the first time available.
-				Sample[] sourceSamples = cache.findSamples(null, null, 1);
-				if (sourceSamples.length == 0) {
-					// There are no source samples.
-					break;
-				}
-				ITimestamp sourceSampleTime = sourceSamples[0].getValue()
-						.getTime();
-				// After the first source sample, we have to wait at least two
-				// half the compression period.
-				nextSampleTime = TimestampArithmetics.add(sourceSampleTime,
-						halfCompressionIntervalTimestamp);
-				// We want to make sure that samples for different channels are
-				// nicely aligned in time.
-				long seconds = nextSampleTime.seconds();
-				if (nextSampleTime.nanoseconds() > 0L) {
-					seconds += 1;
-				}
-				long remainingSeconds = seconds % compressionInterval;
-				if (remainingSeconds != 0) {
-					seconds += compressionInterval - remainingSeconds;
-				}
-				nextSampleTime = TimestampFactory.createTimestamp(seconds, 0L);
-			}
-			// Calculate start and end of current sample interval.
-			ITimestamp start = TimestampArithmetics.substract(nextSampleTime,
-					halfCompressionIntervalTimestamp);
-			ITimestamp end = TimestampArithmetics.add(nextSampleTime,
-					halfCompressionIntervalTimestamp);
-			// Doing the query with start first increases the chances that the
-			// next query might be in the cache (while it does not work the
-			// other way round).
-			Sample[] firstSamples = cache.findSamples(start, null, 1);
-			// Find first sample at end of or after the period. If we do not
-			// find such a sample, we cannot be sure that the period is already
-			// closed.
-			if (cache.findSamples(end, null, 1).length == 0) {
-				break;
-			}
-			Sample firstSample = firstSamples[0];
-			IValue lastValue;
-			if (firstSample.getValue().getTime().equals(start)) {
-				lastValue = firstSample.getValue();
-			} else {
-				Sample precedingSample = cache.findPrecedingSample(mutator,
-						firstSample);
-				if (precedingSample == null) {
-					// This problem should actually never happen, because we
-					// either have used an older sample previously or we ensured
-					// we have a sample which is early enough above. However, if
-					// samples have been delete since we calculated the last
-					// average, this could happen. In this case we delete the
-					// information about the last processed sample, so that at
-					// the next iteration we use the first source sample.
-					lastSavedSampleTime = TimestampFactory.createTimestamp(0L,
-							0L);
-					lastSavedSample = null;
-					nextSampleTime = lastSavedSampleTime;
-					compressionLevelState = archiveConfig
-							.updateCompressionLevelState(mutator,
-									compressionLevelState, lastSavedSampleTime,
-									nextSampleTime);
-					break;
-				} else {
-					lastValue = precedingSample.getValue();
-				}
-			}
-			ITimestamp lastTime = lastValue.getTime();
-			ValueType lastValueType = getValueType(lastValue);
-			ITimestamp averageStartTime = start;
-			double[] doubleSum = EMPTY_DOUBLE_ARRAY;
-			double[] lastDoubleValues;
-			Double doubleMin = null;
-			Double doubleMax = null;
-			if (isNumericType(lastValueType)) {
-				lastDoubleValues = getDoubleValue(lastValue);
-				doubleMin = getMin(lastDoubleValues);
-				doubleMax = getMax(lastDoubleValues);
-			} else {
-				lastDoubleValues = EMPTY_DOUBLE_ARRAY;
-			}
-			if (lastValue instanceof IMinMaxDoubleValue) {
-				// The source samples are already averaged samples.
-				// In this case, we have to consider the minimum and
-				// maximum of the original values.
-				IMinMaxDoubleValue minMaxValue = (IMinMaxDoubleValue) lastValue;
-				double sourceMin = minMaxValue.getMinimum();
-				double sourceMax = minMaxValue.getMaximum();
-				if (doubleMin == null || doubleMax == null) {
-					doubleMin = sourceMin;
-					doubleMax = sourceMax;
-				} else {
-					doubleMin = Math.min(doubleMin, sourceMin);
-					doubleMax = Math.max(doubleMax, sourceMax);
-				}
-			}
-			ISeverity maxSeverity = null;
-			IValue centerValue = lastValue;
-			boolean gotAllSamples = false;
-			while (!gotAllSamples) {
-				int samplesPerRequest = 5000;
-				Sample[] samples = cache.findSamples(start, end,
-						samplesPerRequest);
-				if (samples.length < samplesPerRequest) {
-					gotAllSamples = true;
-				}
-				for (int i = 0; i < samples.length; i++) {
-					if (!gotAllSamples && i == samples.length - 1) {
-						// Skip last sample because it will reappear in next
-						// sample list.
-						continue;
-					}
-					Sample sample = samples[i];
-					IValue value = sample.getValue();
-					if (value.getTime().isLessOrEqual(nextSampleTime)) {
-						centerValue = value;
-					}
-					ValueType valueType = getValueType(value);
-					if (!valueType.equals(lastValueType)) {
-						// The value type changed. This can happen if the
-						// channel is connected to a different device. If the
-						// type changes, averaging over the samples of different
-						// types does not make sense. Therefore we insert two
-						// samples (the last of the old and the first of the new
-						// type. Then, we continue with the averaging.
-						sampleStore.insertSample(mutator,
-								compressionLevelConfig
-										.getCompressionLevelName(),
-								channelName, lastValue, lastTime);
-						lastValue = sample.getValue();
-						lastValueType = getValueType(lastValue);
-						lastTime = lastValue.getTime();
-						sampleStore.insertSample(mutator,
-								compressionLevelConfig
-										.getCompressionLevelName(),
-								channelName, lastValue, lastTime);
-						lastSavedSample = new Sample(
-								compressionLevelConfig
-										.getCompressionLevelName(),
-								channelName, lastValue, lastSavedSampleTime);
-						lastSavedSampleTime = lastTime;
-						archiveConfig.updateCompressionLevelState(mutator,
-								compressionLevelState, lastSavedSampleTime,
-								nextSampleTime);
-						if (lastTime.isGreaterOrEqual(nextSampleTime)) {
-							// There is no sense in continuing with the
-							// averaging.
-							// Instead we will use the values we got so far
-							// or use the center value.
-							gotAllSamples = true;
-							// As we will not continue, we have to set the end
-							// timestamp so that the averaging will work
-							// correctly.
-							end = lastTime;
-							break;
-						} else {
-							averageStartTime = lastTime;
-							doubleSum = EMPTY_DOUBLE_ARRAY;
-							lastDoubleValues = EMPTY_DOUBLE_ARRAY;
-							doubleMin = null;
-							doubleMax = null;
-							maxSeverity = null;
-						}
-					} else {
-						ITimestamp valueTime = value.getTime();
-						maxSeverity = maximizeSeverity(maxSeverity,
-								value.getSeverity());
-						if ((valueType.equals(ValueType.DOUBLE) || valueType
-								.equals(ValueType.LONG))
-								&& valueTime.isGreaterThan(lastTime)) {
-							ITimestamp diffTime = TimestampArithmetics
-									.substract(
-											valueTime,
-											lastTime.isGreaterThan(averageStartTime) ? lastTime
-													: averageStartTime);
-							// Each samples weight depends on the period of time
-							// it was valid for.
-							doubleSum = add(
-									doubleSum,
-									multiply(lastDoubleValues,
-											diffTime.toDouble()));
-							// Update last value variables
-							lastValue = value;
-							lastTime = valueTime;
-							lastDoubleValues = getDoubleValue(value);
-							doubleMin = getMin(lastDoubleValues, doubleMin);
-							doubleMax = getMax(lastDoubleValues, doubleMax);
-							if (lastValue instanceof IMinMaxDoubleValue) {
-								// The source samples are already averaged
-								// samples. In this case, we have to consider
-								// the minimum and maximum of the original
-								// values.
-								IMinMaxDoubleValue minMaxValue = (IMinMaxDoubleValue) lastValue;
-								double sourceMin = minMaxValue.getMinimum();
-								double sourceMax = minMaxValue.getMaximum();
-								if (doubleMin == null || doubleMax == null) {
-									doubleMin = sourceMin;
-									doubleMax = sourceMax;
-								} else {
-									doubleMin = Math.min(doubleMin, sourceMin);
-									doubleMax = Math.max(doubleMax, sourceMax);
-								}
-							}
-						}
-					}
-				}
-			}
-			IValue compressedValue;
-			if (isNumericType(lastValueType) && doubleSum.length > 0) {
-				// Long values do not support minimum maximum, thus we even save
-				// the sample as double if the original samples were longs.
-				ITimestamp diffTime = TimestampArithmetics.substract(end,
-						lastTime.isGreaterThan(averageStartTime) ? lastTime
-								: averageStartTime);
-				doubleSum = add(doubleSum,
-						multiply(lastDoubleValues, diffTime.toDouble()));
-				ITimestamp averageTime = TimestampArithmetics.substract(end,
-						averageStartTime);
-				double[] doubleAverage = divide(doubleSum,
-						averageTime.toDouble());
-				IMetaData metaData = lastValue.getMetaData();
-				INumericMetaData numericMetaData = null;
-				if (metaData != null && metaData instanceof INumericMetaData) {
-					numericMetaData = (INumericMetaData) metaData;
-				}
-				compressedValue = ValueFactory.createMinMaxDoubleValue(
-						nextSampleTime, maxSeverity, "<averaged>",
-						numericMetaData, Quality.Interpolated, doubleAverage,
-						doubleMin, doubleMax);
-			} else {
-				// Either we got a non-numeric type, or all values were empty
-				// arrays. In both cases, averaging does not make sense and we
-				// just use the sample that is valid for our compressed sample
-				// time.
-				IMetaData metaData = centerValue.getMetaData();
-				INumericMetaData numericMetaData = null;
-				IEnumeratedMetaData enumMetaData = null;
-				if (metaData != null && metaData instanceof INumericMetaData) {
-					numericMetaData = (INumericMetaData) metaData;
-				} else if (metaData != null
-						&& metaData instanceof IEnumeratedMetaData) {
-					enumMetaData = (IEnumeratedMetaData) metaData;
-				}
-				if (maxSeverity == null) {
-					maxSeverity = centerValue.getSeverity();
-				}
-				if (centerValue instanceof IDoubleValue) {
-					compressedValue = ValueFactory.createDoubleValue(
-							nextSampleTime, maxSeverity, "<compressed>",
-							numericMetaData, Quality.Interpolated,
-							((IDoubleValue) centerValue).getValues());
-				} else if (centerValue instanceof IEnumeratedValue) {
-					compressedValue = ValueFactory.createEnumeratedValue(
-							nextSampleTime, maxSeverity, "<compressed>",
-							enumMetaData, Quality.Interpolated,
-							((IEnumeratedValue) centerValue).getValues());
-				} else if (centerValue instanceof ILongValue) {
-					compressedValue = ValueFactory.createLongValue(
-							nextSampleTime, maxSeverity, "<compressed>",
-							numericMetaData, Quality.Interpolated,
-							((ILongValue) centerValue).getValues());
-				} else if (centerValue instanceof IStringValue) {
-					compressedValue = ValueFactory.createStringValue(
-							nextSampleTime, maxSeverity, "<compressed>",
-							Quality.Interpolated,
-							((IStringValue) centerValue).getValues());
-				} else {
-					compressedValue = null;
-				}
-			}
-			if (compressedValue != null) {
-				if (lastSavedSample == null && lastSavedSampleTime != null) {
-					lastSavedSample = sampleStore.findSample(
-							compressionLevelConfig.getCompressionLevelName(),
-							channelName, lastSavedSampleTime);
-				}
-				if (lastSavedSample == null
-						|| !approximatelyEquals(lastSavedSample.getValue(),
-								compressedValue)) {
-					sampleStore.insertSample(mutator,
-							compressionLevelConfig.getCompressionLevelName(),
-							channelName, compressedValue, lastSavedSampleTime);
-					lastSavedSample = new Sample(
-							compressionLevelConfig.getCompressionLevelName(),
-							channelName, compressedValue, lastSavedSampleTime);
-					lastSavedSampleTime = nextSampleTime;
-				}
-				nextSampleTime = TimestampFactory.createTimestamp(
-						nextSampleTime.seconds() + compressionInterval, 0);
-				compressionLevelState = archiveConfig
-						.updateCompressionLevelState(mutator,
-								compressionLevelState, lastSavedSampleTime,
-								nextSampleTime);
-			}
-			insertCounts++;
-			if (insertCounts % 1000 == 0) {
-				mutator.execute();
-				mutator = HFactory.createMutator(keyspace,
-						BytesArraySerializer.get());
-			}
-		}
-		// Perform outstanding insert operations.
-		mutator.execute();
-		return compressionLevelState;
-	}
+            // Check whether the value type has changed. We are only interested
+            // in this change, if it happens within the compression period that
+            // we are currently calculating. We cannot do this in an else branch
+            // of the if-statement right above, because the end time might have
+            // changed within the if-block.
+            if (sourceValue.getTime().isLessThan(generalState.end)
+                    && !getValueType(sourceValue).equals(lastValueType)) {
+                // The value type changed. This can happen if the channel is
+                // connected to a different device. If the type changes,
+                // averaging over the samples of different types does not make
+                // sense. If we already passed the timestamp of the compressed
+                // sample to be calculated, we calculate the have not passed it
+                // yet, we calculate the compressed sample based on the data to
+                // come.
+                if (generalState.nextSampleTime.isLessThan(sourceValue
+                        .getTime())) {
+                    // Insert compressed sample based on the data we have
+                    // aggregated so far.
+                    generalState.end = sourceValue.getTime();
+                    lastCompressedSample = insertCompressedSample(
+                            mutationBatch, generalState, numericState,
+                            lastValueType, lastCompressedSample, channelName,
+                            compressionPeriod);
+                    // Reset state data. We do not update the state because this
+                    // will happen in the next iteration (or a subsequent
+                    // iteration if there are several samples which belong to
+                    // the old compression period.
+                    resetGeneralState(generalState);
+                    resetNumericState(numericState);
+                    //
+                } else {
+                    // Drop the data we have already collected and continue with
+                    // the current sample.
+                    resetGeneralState(generalState);
+                    resetNumericState(numericState);
+                    // We do not update the state because this will in the next
+                    // iteration.
+                    generalState.start = sourceValue.getTime();
+                }
+            }
 
-	private boolean approximatelyEquals(IValue value1, IValue value2) {
-		ValueType valueType = getValueType(value1);
-		if (!valueType.equals(getValueType(value2))) {
-			return false;
-		}
-		switch (valueType) {
-		case DOUBLE:
-			IDoubleValue doubleValue1 = (IDoubleValue) value1;
-			IDoubleValue doubleValue2 = (IDoubleValue) value2;
-			if (!Arrays.equals(doubleValue1.getValues(),
-					doubleValue2.getValues())) {
-				return false;
-			}
-			if (doubleValue1 instanceof IMinMaxDoubleValue) {
-				if (!(doubleValue2 instanceof IMinMaxDoubleValue)) {
-					return false;
-				}
-				IMinMaxDoubleValue minMaxDoubleValue1 = (IMinMaxDoubleValue) value1;
-				IMinMaxDoubleValue minMaxDoubleValue2 = (IMinMaxDoubleValue) value2;
-				if (minMaxDoubleValue1.getMinimum() != minMaxDoubleValue2
-						.getMinimum()) {
-					return false;
-				}
-				if (minMaxDoubleValue1.getMaximum() != minMaxDoubleValue2
-						.getMaximum()) {
-					return false;
-				}
-			} else {
-				if (doubleValue2 instanceof IMinMaxDoubleValue) {
-					return false;
-				}
-			}
-			break;
-		case ENUM:
-			IEnumeratedValue enumValue1 = (IEnumeratedValue) value1;
-			IEnumeratedValue enumValue2 = (IEnumeratedValue) value2;
-			if (!Arrays.equals(enumValue1.getValues(), enumValue2.getValues())) {
-				return false;
-			}
-			break;
-		case LONG:
-			ILongValue longValue1 = (ILongValue) value1;
-			ILongValue longValue2 = (ILongValue) value2;
-			if (!Arrays.equals(longValue1.getValues(), longValue2.getValues())) {
-				return false;
-			}
-			break;
-		case STRING:
-			IStringValue stringValue1 = (IStringValue) value1;
-			IStringValue stringValue2 = (IStringValue) value2;
-			if (!Arrays.deepEquals(stringValue1.getValues(),
-					stringValue2.getValues())) {
-				return false;
-			}
-		}
-		IMetaData metaData1 = value1.getMetaData();
-		IMetaData metaData2 = value2.getMetaData();
-		if (metaData1 != null) {
-			if (metaData2 == null) {
-				return false;
-			}
-			if (!metaData1.equals(metaData2)) {
-				return false;
-			}
-		} else {
-			if (metaData2 != null) {
-				return false;
-			}
-		}
-		if (!value1.getSeverity().equals(value2.getSeverity())) {
-			return false;
-		}
-		return true;
-	}
+            // We want to execute the mutation batch every 5000 samples, so that
+            // the batch does not grow too big.
+            if (generalState.insertCounter != 0
+                    && generalState.insertCounter % 5000 == 0) {
+                mutationBatch.execute();
+            }
+        }
 
-	private Double getMin(double[] values, Double value) {
-		Double arrayMin = getMin(values);
-		if (value == null) {
-			return arrayMin;
-		} else if (arrayMin == null) {
-			return value;
-		} else {
-			return Math.min(arrayMin, value);
-		}
-	}
+        // Finally we want to execute the remaining inserts in the mutation
+        // batch.
+        mutationBatch.execute();
+    }
 
-	private Double getMax(double[] values, Double value) {
-		Double arrayMax = getMax(values);
-		if (value == null) {
-			return arrayMax;
-		} else if (arrayMax == null) {
-			return value;
-		} else {
-			return Math.max(arrayMax, value);
-		}
-	}
+    private ITimestamp calculateNextSampleTime(String channelName,
+            long compressionPeriod, long sourceCompressionPeriod)
+            throws ConnectionException {
+        ITimestamp compressionPeriodAsTimestamp = TimestampFactory
+                .createTimestamp(compressionPeriod, 0L);
+        ITimestamp halfCompressionPeriodAsTimestamp = TimestampArithmetics
+                .divide(compressionPeriodAsTimestamp, 2);
+        ITimestamp nextSampleTime;
+        Sample firstSourceSample = getFirst(sampleStore.findSamples(
+                sourceCompressionPeriod, channelName, null, null, 1, false));
+        if (firstSourceSample == null) {
+            // There are no source samples, thus there is no valid next
+            // timestamp.
+            return null;
+        }
+        ITimestamp sourceSampleTime = firstSourceSample.getValue().getTime();
+        // A compressed sample needs source samples for at least half the
+        // compression period before the compressed samples time. This means
+        // we can add half the compression period to the time of the first
+        // source sample and the result is the minimum time for the
+        // compressed sample.
+        nextSampleTime = TimestampArithmetics.add(sourceSampleTime,
+                halfCompressionPeriodAsTimestamp);
+        // We want to make sure that samples for different channels are
+        // nicely aligned in time.
+        nextSampleTime = alignNextSampleTime(nextSampleTime, compressionPeriod);
+        return nextSampleTime;
+    }
 
-	private Double getMin(double[] values) {
-		if (values.length == 0) {
-			return null;
-		}
-		double min = values[0];
-		for (double value : values) {
-			min = Math.min(value, min);
-		}
-		return min;
-	}
+    private ITimestamp alignNextSampleTime(ITimestamp nextSampleTime,
+            long compressionPeriod) {
+        // The sample times for compressed samples should be aligned, so that
+        // their time relative to the start of epoch (January 1st, 1970,
+        // 00:00:00 UTC) is always an integer multiple of the compression
+        // period.
+        long seconds = nextSampleTime.seconds();
+        if (nextSampleTime.nanoseconds() > 0L) {
+            seconds += 1;
+        }
+        long remainingSeconds = seconds % compressionPeriod;
+        if (remainingSeconds != 0) {
+            seconds += compressionPeriod - remainingSeconds;
+        }
+        return TimestampFactory.createTimestamp(seconds, 0L);
+    }
 
-	private Double getMax(double[] values) {
-		if (values.length == 0) {
-			return null;
-		}
-		double max = values[0];
-		for (double value : values) {
-			max = Math.max(value, max);
-		}
-		return max;
-	}
+    private Sample insertCompressedSample(NotifyingMutationBatch mutationBatch,
+            GeneralState generalState, NumericState numericState,
+            ValueType lastValueType, Sample lastCompressedSample,
+            String channelName, long compressionPeriod)
+            throws ConnectionException {
+        ITimestamp compressionPeriodAsTimestamp = TimestampFactory
+                .createTimestamp(compressionPeriod, 0L);
+        ITimestamp halfCompressionPeriodAsTimestamp = TimestampArithmetics
+                .divide(compressionPeriodAsTimestamp, 2);
+        // Calculate the compressed value.
+        IValue compressedValue;
+        ITimestamp nextSampleTime = generalState.nextSampleTime;
+        if (!generalState.haveNewData && lastCompressedSample != null) {
+            // If we do not have any new data, we can save some time by just
+            // using the values from the last compressed sample and only
+            // updating the timestamp. This can save considerable time when we
+            // are skipping a long period without source samples.
+            IValue lastValue = lastCompressedSample.getValue();
+            if (lastValue instanceof IMinMaxDoubleValue) {
+                IMinMaxDoubleValue value = (IMinMaxDoubleValue) lastValue;
+                compressedValue = ValueFactory.createMinMaxDoubleValue(
+                        nextSampleTime, value.getSeverity(), value.getStatus(),
+                        (INumericMetaData) value.getMetaData(),
+                        value.getQuality(), value.getValues(),
+                        value.getMinimum(), value.getMaximum());
+            } else if (lastValue instanceof IDoubleValue) {
+                IDoubleValue value = (IDoubleValue) lastValue;
+                compressedValue = ValueFactory.createDoubleValue(
+                        nextSampleTime, value.getSeverity(), value.getStatus(),
+                        (INumericMetaData) value.getMetaData(),
+                        value.getQuality(), value.getValues());
+            } else if (lastValue instanceof IEnumeratedValue) {
+                IEnumeratedValue value = (IEnumeratedValue) lastValue;
+                compressedValue = ValueFactory.createEnumeratedValue(
+                        nextSampleTime, value.getSeverity(), value.getStatus(),
+                        value.getMetaData(), value.getQuality(),
+                        value.getValues());
+            } else if (lastValue instanceof ILongValue) {
+                ILongValue value = (ILongValue) lastValue;
+                compressedValue = ValueFactory.createLongValue(nextSampleTime,
+                        value.getSeverity(), value.getStatus(),
+                        (INumericMetaData) value.getMetaData(),
+                        value.getQuality(), value.getValues());
+            } else if (lastValue instanceof IStringValue) {
+                IStringValue value = (IStringValue) lastValue;
+                compressedValue = ValueFactory.createStringValue(
+                        nextSampleTime, value.getSeverity(), value.getStatus(),
+                        value.getQuality(), value.getValues());
+            } else {
+                // We should never get a different type, because we created the
+                // original values ourselves.
+                throw new RuntimeException("IValue of unhandled type "
+                        + lastValue.getClass().getName());
+            }
+        } else {
+            // We processed data, thus we have to calculate the next compressed
+            // sample.
+            ISeverity maxSeverity = generalState.maxSeverity;
+            if (isNumericType(lastValueType) && numericState.doubleSum != null
+                    && numericState.doubleSum.length != 0) {
+                // We calculate the average by dividing the sum by the
+                // period. We cannot use the compression period here,
+                // because the start might have been readjusted due to value
+                // type changes.
+                ITimestamp averageTime = TimestampArithmetics.substract(
+                        generalState.end, generalState.start);
+                double[] doubleAverage = divide(numericState.doubleSum,
+                        averageTime.toDouble());
+                IMetaData metaData = generalState.centerValue.getMetaData();
+                INumericMetaData numericMetaData = null;
+                if (metaData != null && metaData instanceof INumericMetaData) {
+                    numericMetaData = (INumericMetaData) metaData;
+                }
+                compressedValue = ValueFactory.createMinMaxDoubleValue(
+                        generalState.nextSampleTime, generalState.maxSeverity,
+                        "<averaged>", numericMetaData, Quality.Interpolated,
+                        doubleAverage, numericState.doubleMin,
+                        numericState.doubleMax);
+            } else {
+                // Either we got a non-numeric type, or all values were
+                // empty arrays. In both cases, averaging does not make
+                // sense and we just use the sample that is valid for our
+                // compressed sample time.
+                IValue value = generalState.centerValue;
+                IMetaData metaData = value.getMetaData();
+                INumericMetaData numericMetaData = null;
+                IEnumeratedMetaData enumMetaData = null;
+                if (metaData != null && metaData instanceof INumericMetaData) {
+                    numericMetaData = (INumericMetaData) metaData;
+                } else if (metaData != null
+                        && metaData instanceof IEnumeratedMetaData) {
+                    enumMetaData = (IEnumeratedMetaData) metaData;
+                }
+                if (value instanceof IDoubleValue) {
+                    compressedValue = ValueFactory.createDoubleValue(
+                            nextSampleTime, maxSeverity, "<compressed>",
+                            numericMetaData, Quality.Interpolated,
+                            ((IDoubleValue) value).getValues());
+                } else if (value instanceof IEnumeratedValue) {
+                    compressedValue = ValueFactory.createEnumeratedValue(
+                            nextSampleTime, maxSeverity, "<compressed>",
+                            enumMetaData, Quality.Interpolated,
+                            ((IEnumeratedValue) value).getValues());
+                } else if (value instanceof ILongValue) {
+                    compressedValue = ValueFactory.createLongValue(
+                            nextSampleTime, maxSeverity, "<compressed>",
+                            numericMetaData, Quality.Interpolated,
+                            ((ILongValue) value).getValues());
+                } else if (value instanceof IStringValue) {
+                    compressedValue = ValueFactory.createStringValue(
+                            nextSampleTime, maxSeverity, "<compressed>",
+                            Quality.Interpolated,
+                            ((IStringValue) value).getValues());
+                } else {
+                    compressedValue = null;
+                }
+            }
+        }
+        if (compressedValue != null) {
+            if (generalState.haveNewData
+                    && (lastCompressedSample == null || !approximatelyEquals(
+                            lastCompressedSample.getValue(), compressedValue))) {
+                // If we skipped the last compressed sample and now the next
+                // compressed sample has changed, we also insert the last
+                // skipped sample. We have to do this, because the trend tool in
+                // CSS interpolates the minimum / maximum limits, which leads to
+                // a funny display (value is not interpolated).
+                if (generalState.skippedLastSample) {
+                    sampleStore.insertSample(mutationBatch, compressionPeriod,
+                            channelName, lastCompressedSample.getValue());
+                    generalState.insertCounter++;
+                }
+                sampleStore.insertSample(mutationBatch, compressionPeriod,
+                        channelName, compressedValue);
+                generalState.insertCounter++;
+                generalState.skippedLastSample = false;
+            } else {
+                generalState.skippedLastSample = true;
+            }
+            // Even if we did not insert the sample, we want to use the new
+            // timestamp, so that we have the right timestamp if we insert it
+            // later.
+            lastCompressedSample = new Sample(compressionPeriod, channelName,
+                    compressedValue);
+        }
+        // We update the timestamps so that they point to the next compression
+        // period.
+        generalState.nextSampleTime = TimestampFactory.createTimestamp(
+                nextSampleTime.seconds() + compressionPeriod, 0);
+        generalState.start = TimestampArithmetics.substract(
+                generalState.nextSampleTime, halfCompressionPeriodAsTimestamp);
+        generalState.end = TimestampArithmetics.add(
+                generalState.nextSampleTime, halfCompressionPeriodAsTimestamp);
+        return lastCompressedSample;
+    }
 
-	private ISeverity maximizeSeverity(ISeverity severity1, ISeverity severity2) {
-		if (severity1 == null) {
-			severity1 = ValueFactory.createOKSeverity();
-		}
-		if (severity2 == null) {
-			severity2 = ValueFactory.createOKSeverity();
-		}
-		if (severity1.isOK()) {
-			if (severity2.isMinor()) {
-				return ValueFactory.createMinorSeverity();
-			} else if (severity2.isMajor()) {
-				return ValueFactory.createMajorSeverity();
-			} else if (severity2.isInvalid()) {
-				return ValueFactory.createInvalidSeverity();
-			} else {
-				return ValueFactory.createOKSeverity();
-			}
-		} else if (severity1.isMinor()) {
-			if (severity2.isMajor()) {
-				return ValueFactory.createMajorSeverity();
-			} else if (severity2.isInvalid()) {
-				return ValueFactory.createInvalidSeverity();
-			} else {
-				return ValueFactory.createMinorSeverity();
-			}
-		} else if (severity1.isMajor()) {
-			if (severity2.isInvalid()) {
-				return ValueFactory.createInvalidSeverity();
-			} else {
-				return ValueFactory.createMajorSeverity();
-			}
-		} else if (severity1.isInvalid()) {
-			return ValueFactory.createInvalidSeverity();
-		} else {
-			if (severity1.isOK()) {
-				return ValueFactory.createOKSeverity();
-			} else if (severity1.isMinor()) {
-				return ValueFactory.createMinorSeverity();
-			} else if (severity1.isMajor()) {
-				return ValueFactory.createMajorSeverity();
-			} else {
-				return ValueFactory.createInvalidSeverity();
-			}
-		}
-	}
+    private void updateGeneralState(GeneralState generalState,
+            IValue sourceValue) {
+        if (sourceValue.getTime().isLessOrEqual(generalState.nextSampleTime)) {
+            generalState.centerValue = sourceValue;
+        }
+        generalState.maxSeverity = maximizeSeverity(generalState.maxSeverity,
+                sourceValue.getSeverity());
+        generalState.haveNewData = true;
+    }
 
-	private boolean isNumericType(ValueType valueType) {
-		return valueType == ValueType.DOUBLE || valueType == ValueType.LONG;
-	}
+    private void updateNumericState(NumericState numericState,
+            IValue sourceValue, ITimestamp nextTimestamp, ITimestamp start,
+            ITimestamp end) {
+        // Long values do not support minimum maximum, thus we even save the
+        // sample as double if the original samples were longs.
+        ITimestamp lastTime = sourceValue.getTime();
+        if (lastTime.isLessThan(start)) {
+            lastTime = start;
+        }
+        ITimestamp endTime = nextTimestamp;
+        if (endTime.isGreaterThan(end)) {
+            endTime = end;
+        }
+        ITimestamp diffTime = TimestampArithmetics.substract(endTime, lastTime);
+        double[] lastDoubleValues = getDoubleValue(sourceValue);
+        if (numericState.doubleSum != null) {
+            numericState.doubleSum = add(numericState.doubleSum,
+                    multiply(lastDoubleValues, diffTime.toDouble()));
+        } else {
+            numericState.doubleSum = multiply(lastDoubleValues,
+                    diffTime.toDouble());
+        }
+        if (sourceValue instanceof IMinMaxDoubleValue) {
+            // The source samples are already averaged samples. In this case, we
+            // have to consider the minimum and maximum of the original values.
+            IMinMaxDoubleValue minMaxValue = (IMinMaxDoubleValue) sourceValue;
+            double sourceMin = minMaxValue.getMinimum();
+            double sourceMax = minMaxValue.getMaximum();
+            if (numericState.doubleMin == null
+                    || numericState.doubleMax == null) {
+                numericState.doubleMin = sourceMin;
+                numericState.doubleMax = sourceMax;
+            } else {
+                numericState.doubleMin = Math.min(numericState.doubleMin,
+                        sourceMin);
+                numericState.doubleMax = Math.max(numericState.doubleMax,
+                        sourceMax);
+            }
+        } else {
+            numericState.doubleMin = getMin(lastDoubleValues,
+                    numericState.doubleMin);
+            numericState.doubleMax = getMax(lastDoubleValues,
+                    numericState.doubleMax);
+        }
+    }
 
-	private double[] multiply(double[] values, double multiplicator) {
-		double[] newValues = new double[values.length];
-		for (int i = 0; i < values.length; i++) {
-			newValues[i] = values[i] * multiplicator;
-		}
-		return newValues;
-	}
+    private void resetGeneralState(GeneralState generalState) {
+        // We do not change the start, end, nextSampleTimestamp and
+        // skippedLastSample, because these fields are usually not reset but
+        // just updated.
+        generalState.centerValue = null;
+        generalState.maxSeverity = null;
+        generalState.haveNewData = false;
+    }
 
-	private double[] divide(double[] values, double divisor) {
-		double[] newValues = new double[values.length];
-		for (int i = 0; i < values.length; i++) {
-			newValues[i] = values[i] / divisor;
-		}
-		return newValues;
-	}
+    private void resetNumericState(NumericState numericState) {
+        numericState.doubleSum = null;
+        numericState.doubleMin = null;
+        numericState.doubleMax = null;
+    }
 
-	private double[] add(double[] values1, double[] values2) {
-		double[] sum = new double[Math.max(values1.length, values2.length)];
-		for (int i = 0; i < sum.length; i++) {
-			if (i < values1.length && i < values2.length) {
-				sum[i] = values1[i] + values2[i];
-			} else if (i < values1.length) {
-				sum[i] = values1[i];
-			} else {
-				sum[i] = values2[i];
-			}
-		}
-		return sum;
-	}
+    private boolean approximatelyEquals(IValue value1, IValue value2) {
+        ValueType valueType = getValueType(value1);
+        if (!valueType.equals(getValueType(value2))) {
+            return false;
+        }
+        switch (valueType) {
+        case DOUBLE:
+            IDoubleValue doubleValue1 = (IDoubleValue) value1;
+            IDoubleValue doubleValue2 = (IDoubleValue) value2;
+            if (!Arrays.equals(doubleValue1.getValues(),
+                    doubleValue2.getValues())) {
+                return false;
+            }
+            if (doubleValue1 instanceof IMinMaxDoubleValue) {
+                if (!(doubleValue2 instanceof IMinMaxDoubleValue)) {
+                    return false;
+                }
+                IMinMaxDoubleValue minMaxDoubleValue1 = (IMinMaxDoubleValue) value1;
+                IMinMaxDoubleValue minMaxDoubleValue2 = (IMinMaxDoubleValue) value2;
+                if (minMaxDoubleValue1.getMinimum() != minMaxDoubleValue2
+                        .getMinimum()) {
+                    return false;
+                }
+                if (minMaxDoubleValue1.getMaximum() != minMaxDoubleValue2
+                        .getMaximum()) {
+                    return false;
+                }
+            } else {
+                if (doubleValue2 instanceof IMinMaxDoubleValue) {
+                    return false;
+                }
+            }
+            break;
+        case ENUM:
+            IEnumeratedValue enumValue1 = (IEnumeratedValue) value1;
+            IEnumeratedValue enumValue2 = (IEnumeratedValue) value2;
+            if (!Arrays.equals(enumValue1.getValues(), enumValue2.getValues())) {
+                return false;
+            }
+            break;
+        case LONG:
+            ILongValue longValue1 = (ILongValue) value1;
+            ILongValue longValue2 = (ILongValue) value2;
+            if (!Arrays.equals(longValue1.getValues(), longValue2.getValues())) {
+                return false;
+            }
+            break;
+        case STRING:
+            IStringValue stringValue1 = (IStringValue) value1;
+            IStringValue stringValue2 = (IStringValue) value2;
+            if (!Arrays.deepEquals(stringValue1.getValues(),
+                    stringValue2.getValues())) {
+                return false;
+            }
+        }
+        IMetaData metaData1 = value1.getMetaData();
+        IMetaData metaData2 = value2.getMetaData();
+        if (metaData1 != null) {
+            if (metaData2 == null) {
+                return false;
+            }
+            if (!metaData1.equals(metaData2)) {
+                return false;
+            }
+        } else {
+            if (metaData2 != null) {
+                return false;
+            }
+        }
+        if (!severityEquals(value1.getSeverity(), value2.getSeverity())) {
+            return false;
+        }
+        return true;
+    }
 
-	private double[] getDoubleValue(IValue value) {
-		if (value instanceof IDoubleValue) {
-			IDoubleValue doubleValue = (IDoubleValue) value;
-			return doubleValue.getValues();
-		} else if (value instanceof ILongValue) {
-			ILongValue longValue = (ILongValue) value;
-			long[] longValues = longValue.getValues();
-			double[] doubleValues = new double[longValues.length];
-			for (int i = 0; i < longValues.length; i++) {
-				doubleValues[i] = (double) longValues[i];
-			}
-			return doubleValues;
-		} else {
-			return null;
-		}
-	}
+    private boolean severityEquals(ISeverity severity1, ISeverity severity2) {
+        if (severity1 == null && severity2 == null) {
+            return true;
+        }
+        if ((severity1 == null && severity2 != null)
+                || (severity1 != null && severity2 == null)) {
+            return false;
+        }
+        if ((severity1.hasValue() != severity2.hasValue())
+                || (severity1.isOK() != severity2.isOK())
+                || (severity1.isMinor() != severity2.isMinor())
+                || (severity1.isMajor() != severity2.isMajor())
+                || (severity1.isInvalid() != severity2.isInvalid())) {
+            return false;
+        }
+        return true;
+    }
 
-	private boolean isNull(ITimestamp timestamp) {
-		return (timestamp == null)
-				|| (timestamp.seconds() == 0 && timestamp.nanoseconds() == 0);
-	}
+    private Double getMin(double[] values, Double value) {
+        Double arrayMin = getMin(values);
+        if (value == null) {
+            return arrayMin;
+        } else if (arrayMin == null) {
+            return value;
+        } else {
+            return Math.min(arrayMin, value);
+        }
+    }
 
-	private ValueType getValueType(IValue value) {
-		if (value instanceof IDoubleValue) {
-			return ValueType.DOUBLE;
-		} else if (value instanceof IEnumeratedValue) {
-			return ValueType.ENUM;
-		} else if (value instanceof ILongValue) {
-			return ValueType.LONG;
-		} else if (value instanceof IStringValue) {
-			return ValueType.STRING;
-		} else {
-			return null;
-		}
-	}
+    private Double getMax(double[] values, Double value) {
+        Double arrayMax = getMax(values);
+        if (value == null) {
+            return arrayMax;
+        } else if (arrayMax == null) {
+            return value;
+        } else {
+            return Math.max(arrayMax, value);
+        }
+    }
+
+    private Double getMin(double[] values) {
+        if (values.length == 0) {
+            return null;
+        }
+        double min = values[0];
+        for (double value : values) {
+            min = Math.min(value, min);
+        }
+        return min;
+    }
+
+    private Double getMax(double[] values) {
+        if (values.length == 0) {
+            return null;
+        }
+        double max = values[0];
+        for (double value : values) {
+            max = Math.max(value, max);
+        }
+        return max;
+    }
+
+    private ISeverity maximizeSeverity(ISeverity severity1, ISeverity severity2) {
+        if (severity1 == null) {
+            severity1 = ValueFactory.createOKSeverity();
+        }
+        if (severity2 == null) {
+            severity2 = ValueFactory.createOKSeverity();
+        }
+        if (severity1.isOK()) {
+            if (severity2.isMinor()) {
+                return ValueFactory.createMinorSeverity();
+            } else if (severity2.isMajor()) {
+                return ValueFactory.createMajorSeverity();
+            } else if (severity2.isInvalid()) {
+                return ValueFactory.createInvalidSeverity();
+            } else {
+                return ValueFactory.createOKSeverity();
+            }
+        } else if (severity1.isMinor()) {
+            if (severity2.isMajor()) {
+                return ValueFactory.createMajorSeverity();
+            } else if (severity2.isInvalid()) {
+                return ValueFactory.createInvalidSeverity();
+            } else {
+                return ValueFactory.createMinorSeverity();
+            }
+        } else if (severity1.isMajor()) {
+            if (severity2.isInvalid()) {
+                return ValueFactory.createInvalidSeverity();
+            } else {
+                return ValueFactory.createMajorSeverity();
+            }
+        } else if (severity1.isInvalid()) {
+            return ValueFactory.createInvalidSeverity();
+        } else {
+            if (severity1.isOK()) {
+                return ValueFactory.createOKSeverity();
+            } else if (severity1.isMinor()) {
+                return ValueFactory.createMinorSeverity();
+            } else if (severity1.isMajor()) {
+                return ValueFactory.createMajorSeverity();
+            } else {
+                return ValueFactory.createInvalidSeverity();
+            }
+        }
+    }
+
+    private boolean isNumericType(ValueType valueType) {
+        return valueType == ValueType.DOUBLE || valueType == ValueType.LONG;
+    }
+
+    private double[] multiply(double[] values, double multiplicator) {
+        double[] newValues = new double[values.length];
+        for (int i = 0; i < values.length; i++) {
+            newValues[i] = values[i] * multiplicator;
+        }
+        return newValues;
+    }
+
+    private double[] divide(double[] values, double divisor) {
+        double[] newValues = new double[values.length];
+        for (int i = 0; i < values.length; i++) {
+            newValues[i] = values[i] / divisor;
+        }
+        return newValues;
+    }
+
+    private double[] add(double[] values1, double[] values2) {
+        double[] sum = new double[Math.max(values1.length, values2.length)];
+        for (int i = 0; i < sum.length; i++) {
+            if (i < values1.length && i < values2.length) {
+                sum[i] = values1[i] + values2[i];
+            } else if (i < values1.length) {
+                sum[i] = values1[i];
+            } else {
+                sum[i] = values2[i];
+            }
+        }
+        return sum;
+    }
+
+    private double[] getDoubleValue(IValue value) {
+        if (value instanceof IDoubleValue) {
+            IDoubleValue doubleValue = (IDoubleValue) value;
+            return doubleValue.getValues();
+        } else if (value instanceof ILongValue) {
+            ILongValue longValue = (ILongValue) value;
+            long[] longValues = longValue.getValues();
+            double[] doubleValues = new double[longValues.length];
+            for (int i = 0; i < longValues.length; i++) {
+                doubleValues[i] = (double) longValues[i];
+            }
+            return doubleValues;
+        } else {
+            return null;
+        }
+    }
+
+    private ValueType getValueType(IValue value) {
+        if (value instanceof IDoubleValue) {
+            return ValueType.DOUBLE;
+        } else if (value instanceof IEnumeratedValue) {
+            return ValueType.ENUM;
+        } else if (value instanceof ILongValue) {
+            return ValueType.LONG;
+        } else if (value instanceof IStringValue) {
+            return ValueType.STRING;
+        } else {
+            return null;
+        }
+    }
+
+    private <V> V getFirst(Iterable<? extends V> iterable) {
+        Iterator<? extends V> i = iterable.iterator();
+        if (i.hasNext()) {
+            return i.next();
+        } else {
+            return null;
+        }
+    }
 }

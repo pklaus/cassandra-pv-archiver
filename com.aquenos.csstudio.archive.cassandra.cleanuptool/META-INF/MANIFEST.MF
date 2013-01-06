@@ -3,18 +3,25 @@ Bundle-ManifestVersion: 2
 Bundle-Name: Clean-Up Tool for Cassandra Archive
 Bundle-Description: Archive Writer implementation for the Apache Cassandra distributed database system
 Bundle-SymbolicName: com.aquenos.csstudio.archive.cassandra.cleanuptool;singleton:=true
-Bundle-Version: 1.0.0.qualifier
+Bundle-Version: 2.0.0.qualifier
 Bundle-Vendor: aquenos GmbH
 Require-Bundle: org.eclipse.core.runtime;bundle-version="3.6.0",
- com.aquenos.csstudio.archive.cassandra;bundle-version="1.0.0",
- com.aquenos.csstudio.archive.config.cassandra;bundle-version="1.0.0",
+ com.aquenos.csstudio.archive.cassandra;bundle-version="2.0.0",
  org.csstudio.archive.config;bundle-version="1.0.0"
 Bundle-RequiredExecutionEnvironment: JavaSE-1.6
 Bundle-ClassPath: .
-Import-Package: me.prettyprint.cassandra.serializers,
- me.prettyprint.cassandra.service,
- me.prettyprint.hector.api,
- me.prettyprint.hector.api.factory,
- me.prettyprint.hector.api.mutation,
+Import-Package: com.netflix.astyanax,
+ com.netflix.astyanax.connectionpool,
+ com.netflix.astyanax.connectionpool.exceptions,
+ com.netflix.astyanax.connectionpool.impl,
+ com.netflix.astyanax.ddl,
+ com.netflix.astyanax.impl,
+ com.netflix.astyanax.model,
+ com.netflix.astyanax.query,
+ com.netflix.astyanax.retry,
+ com.netflix.astyanax.serializers,
+ com.netflix.astyanax.thrift,
+ com.netflix.astyanax.util,
+ org.apache.cassandra.thrift;version="[1.1.0,1.2.0)",
  org.csstudio.apputil.args,
  org.csstudio.logging

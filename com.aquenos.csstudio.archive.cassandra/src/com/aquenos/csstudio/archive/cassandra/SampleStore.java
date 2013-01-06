@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 aquenos GmbH.
+ * Copyright 2012-2013 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -9,586 +9,392 @@
 
 package com.aquenos.csstudio.archive.cassandra;
 
-import java.util.ArrayList;
 import java.util.HashSet;
-
-import me.prettyprint.cassandra.serializers.BytesArraySerializer;
-import me.prettyprint.cassandra.serializers.StringSerializer;
-import me.prettyprint.hector.api.Keyspace;
-import me.prettyprint.hector.api.beans.ColumnSlice;
-import me.prettyprint.hector.api.beans.HColumn;
-import me.prettyprint.hector.api.beans.OrderedRows;
-import me.prettyprint.hector.api.beans.Row;
-import me.prettyprint.hector.api.factory.HFactory;
-import me.prettyprint.hector.api.mutation.Mutator;
-import me.prettyprint.hector.api.query.RangeSlicesQuery;
-import me.prettyprint.hector.api.query.SliceQuery;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.csstudio.data.values.ITimestamp;
 import org.csstudio.data.values.IValue;
-import org.csstudio.data.values.IValue.Quality;
-import org.csstudio.data.values.TimestampFactory;
 
 import com.aquenos.csstudio.archive.cassandra.internal.ColumnFamilySamples;
-import com.aquenos.csstudio.archive.cassandra.internal.SampleKey;
+import com.aquenos.csstudio.archive.cassandra.internal.ColumnFamilySamplesBucketSize;
+import com.aquenos.csstudio.archive.cassandra.internal.CompressionLevelSampleStore;
 import com.aquenos.csstudio.archive.cassandra.util.Pair;
+import com.aquenos.csstudio.archive.cassandra.util.astyanax.NotifyingMutationBatch;
+import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
+import com.netflix.astyanax.Cluster;
+import com.netflix.astyanax.Keyspace;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
+import com.netflix.astyanax.ddl.ColumnFamilyDefinition;
+import com.netflix.astyanax.model.ConsistencyLevel;
 
 /**
- * Stores samples in the Cassandra database.
+ * Stores samples in the Cassandra database. In general the implementation is
+ * thread-safe, however there should never be two sample stores in the whole
+ * cluster (even across different JVMs) that write to the same channel.
  * 
  * @author Sebastian Marsching
  * @see Sample
  */
 public class SampleStore {
 
-	private Keyspace keyspace;
+    private Cluster cluster;
+    private Keyspace keyspace;
+    private ConsistencyLevel readDataConsistencyLevel;
+    private ConsistencyLevel writeDataConsistencyLevel;
+    private ConsistencyLevel readMetaDataConsistencyLevel;
+    private ConsistencyLevel writeMetaDataConsistencyLevel;
+    private CassandraArchiveConfig archiveConfig;
+    private boolean enableWrites;
+    private boolean enableCache;
+    // We do not expect a high number of concurrent writes to this map, because
+    // it only holds a relatively low number of entries, most of which are
+    // initialized in the startup phase.
+    private ConcurrentHashMap<Long, CompressionLevelSampleStore> compressionPeriodToSampleStore = new ConcurrentHashMap<Long, CompressionLevelSampleStore>();
 
-	/**
-	 * Constructor. Creates a sample store whichs reads data from and writes
-	 * data to the passed keyspace.
-	 * 
-	 * @param keyspace
-	 *            keyspace used for accessing the database.
-	 */
-	public SampleStore(Keyspace keyspace) {
-		this.keyspace = keyspace;
-	}
+    /**
+     * Constructor. Creates a sample store whichs reads data from and writes
+     * data to the passed keyspace.
+     * 
+     * @param cluster
+     *            Cassandra cluster that stores the database.
+     * @param keyspace
+     *            keyspace used for accessing the database.
+     * @param readDataConsistencyLevel
+     *            consistency level used when reading sample data.
+     * @param writeDataConsistencyLevel
+     *            consistency level used when writing sample data.
+     * @param readMetaDataConsistencyLevel
+     *            consistency level used when reading meta-data (that means
+     *            configuration data and sample bucket sizes).
+     * @param writeMetaDataConsistencyLevel
+     *            consistency level used when writing meta-data (that means
+     *            configuration data and sample bucket sizes).
+     * @param enableWrites
+     *            if set to <code>true</code> the sample store will assume that
+     *            it is the only instance that writes to the channels used with
+     *            it. This will allow certain read caches to be enabled and
+     *            certain maintenance operations to be performed.
+     * @param enableCache
+     *            if set to <code>true</code> the sample store will cache
+     *            certain pieces of information in order to improve the read
+     *            performance. This flag should only be set if all channels read
+     *            through this sample store are not written to by other sample
+     *            store instances. Otherwise, it can lead to stale data being
+     *            returned. If set to <code>false</code> all read operations
+     *            will access the database without any caching.
+     */
+    public SampleStore(Cluster cluster, Keyspace keyspace,
+            ConsistencyLevel readDataConsistencyLevel,
+            ConsistencyLevel writeDataConsistencyLevel,
+            ConsistencyLevel readMetaDataConsistencyLevel,
+            ConsistencyLevel writeMetaDataConsistencyLevel,
+            boolean enableWrites, boolean enableCache) {
+        this.cluster = cluster;
+        this.keyspace = keyspace;
+        this.readDataConsistencyLevel = readDataConsistencyLevel;
+        this.writeDataConsistencyLevel = writeDataConsistencyLevel;
+        this.readMetaDataConsistencyLevel = readMetaDataConsistencyLevel;
+        this.writeMetaDataConsistencyLevel = writeMetaDataConsistencyLevel;
+        this.archiveConfig = new CassandraArchiveConfig(this.cluster,
+                this.keyspace, this.readDataConsistencyLevel,
+                this.writeDataConsistencyLevel,
+                this.readMetaDataConsistencyLevel,
+                this.writeMetaDataConsistencyLevel, this);
+        this.enableWrites = enableWrites;
+        this.enableCache = enableCache;
+        if (!this.enableWrites && this.enableCache) {
+            throw new IllegalArgumentException(
+                    "Caching may not be activated on a read-only sample store.");
+        }
+    }
 
-	/**
-	 * Finds a raw sample in the database. This is the same as calling
-	 * <code>findSample(null, channelName, timestamp)</code>.
-	 * 
-	 * @param channelName
-	 *            name of the channel to find the sample for.
-	 * @param timestamp
-	 *            timestamp of the sample.
-	 * @return sample read from the database if no raw sample with the given
-	 *         timestamp exists for the given channel.
-	 */
-	public Sample findSample(String channelName, ITimestamp timestamp) {
-		return findSample(null, channelName, timestamp);
-	}
+    /**
+     * Returns the archive configuration that is associated with this sample
+     * store. This is mainly useful when caching is enabled for this sample
+     * store, because then the archive configuration returned by this method
+     * will also profit from this caching.
+     * 
+     * @return archive configuration for this sample store.
+     */
+    public CassandraArchiveConfig getArchiveConfig() {
+        return this.archiveConfig;
+    }
 
-	/**
-	 * Finds a sample in the database.
-	 * 
-	 * @param compressionLevelName
-	 *            name of the compression level to search the sample in.
-	 * @param channelName
-	 *            name of the channel to find the sample for.
-	 * @param timestamp
-	 *            timestamp of the sample.
-	 * @return sample read from the database or <code>null</code> if no sample
-	 *         for the given channel, compression level and timestamp exists.
-	 */
-	public Sample findSample(String compressionLevelName, String channelName,
-			ITimestamp timestamp) {
-		byte[] key = ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, timestamp);
-		SliceQuery<byte[], String, byte[]> query = HFactory.createSliceQuery(
-				this.keyspace, BytesArraySerializer.get(),
-				StringSerializer.get(), BytesArraySerializer.get());
-		query.setColumnFamily(ColumnFamilySamples.NAME);
-		query.setColumnNames(ColumnFamilySamples.ALL_COLUMNS);
-		query.setKey(key);
-		ColumnSlice<String, byte[]> slice = query.execute().get();
-		return ColumnFamilySamples.readSample(compressionLevelName, key, slice,
-				Quality.Original);
-	}
+    /**
+     * Finds samples in the database. This method actually does not fetch all
+     * the samples from the database. Instead the samples are fetched in chunks
+     * while iterating using the iterator provided. This means that connection
+     * problems that happen after this method has returned might result in a
+     * {@link RuntimeException} being thrown by the iterator's methods.
+     * 
+     * @param compressionPeriod
+     *            compression period of the compression level to find samples
+     *            for.
+     * @param channelName
+     *            name of the channel to find samples for.
+     * @param start
+     *            start timestamp. Only samples whose timestamps are greater
+     *            than or equal the start timestamp are returned. If the start
+     *            timestamp is <code>null</code>, the first sample returned is
+     *            the first sample in the database.
+     * @param end
+     *            end timestamp. Only samples whose timestamps are less than or
+     *            equal the end timestamp are returned. If the end timestamp is
+     *            <code>null</code>, no upper limit is placed on the samples'
+     *            timestamps.
+     * @param numberOfSamples
+     *            maximum number of samples to return. If less samples match the
+     *            predicates specified by <code>start</code> and
+     *            <code>end</code>, only these samples will be returned.
+     *            However, this method will never return more samples than
+     *            specified by this parameter. If this parameter is set to a
+     *            negative number, all samples in the requested range are
+     *            returned.
+     * @param reverse
+     *            if <code>true</code> the samples are returned in reverse order
+     *            (newest first, oldest last). In this case, the
+     *            <code>start</code> timestamp must be greater than or equal to
+     *            the <code>end</code> timestamp. If the parameter is
+     *            <code>false</code>, the samples are returned in the natural
+     *            order of their timestamps.
+     * @return samples matching the predicates, never <code>null</code> .
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     */
+    public Iterable<Sample> findSamples(long compressionPeriod,
+            String channelName, ITimestamp start, ITimestamp end,
+            int numberOfSamples, boolean reverse) throws ConnectionException {
+        CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+        return store.findSamples(channelName, start, end, numberOfSamples,
+                reverse);
+    }
 
-	/**
-	 * Finds the sample preceding another sample. If the
-	 * <code>precedingTimestamp</code> property of the passed sample is not set
-	 * correctly and the <code>mutator</code> is not <code>null</code>, the
-	 * preceding timestamp stored in the database is corrected.
-	 * 
-	 * @param mutator
-	 *            mutator to use for correcting the preceding timestamp stored
-	 *            in the database.
-	 * @param sample
-	 *            sample to find the preceding sample for.
-	 * @return sample preceding the given sample or <code>null</code> if the
-	 *         sample is the first one for its compression level and channel.
-	 */
-	public Sample findPrecedingSample(Mutator<byte[]> mutator, Sample sample) {
-		String compressionLevelName = sample.getCompressionLevelName();
-		String channelName = sample.getChannelName();
-		ITimestamp timestamp = sample.getPrecedingSampleTimestamp();
-		Sample precedingSample = null;
-		if (timestamp != null) {
-			precedingSample = findSample(compressionLevelName, channelName,
-					timestamp);
-		}
-		if (precedingSample != null) {
-			return precedingSample;
-		}
-		// Either timestamp is not set or sample does not exist (any longer).
-		// Thus, we have to search for the closest sample.
-		// First, we look whether any sample exists before the given sample.
-		ITimestamp referenceTime = sample.getValue().getTime();
-		ITimestamp[] samples = findSampleTimestamps(compressionLevelName,
-				channelName, null, referenceTime, 500);
-		if (samples.length <= 1) {
-			// The given sample is already the first sample. If the preceding
-			// timestamp was not null, we set it to null.
-			if (sample.getPrecedingSampleTimestamp() != null) {
-				sample.setPrecedingSampleTimestamp(null);
-				if (mutator != null) {
-					insertSample(mutator, compressionLevelName, channelName,
-							sample.getValue(), null);
-				}
-			}
-			return null;
-		}
-		ITimestamp startTimestamp = null;
-		ITimestamp lowerLimit = null;
-		ITimestamp upperLimit = null;
-		long secondsBack = 5;
-		while (precedingSample == null) {
-			if (samples.length > 1
-					&& samples[samples.length - 1]
-							.isGreaterOrEqual(referenceTime)) {
-				// Preceding sample must be in array.
-				for (int i = samples.length - 1; i >= 0; i--) {
-					if (samples[i].isLessThan(referenceTime)) {
-						precedingSample = findSample(compressionLevelName,
-								channelName, samples[i]);
-						break;
-					}
-				}
-				if (precedingSample == null) {
-					// Actually, this code should never be executed, however not
-					// having it triggers a compiler warning and in fact there
-					// is a very low risk that the sample has been deleted
-					// between finding the timestamp and trying to read the
-					// sample.
-					return null;
-				}
-				ITimestamp precedingSampleTimestamp = precedingSample
-						.getValue().getTime();
-				// Update preceding sample timestamp with correct value.
-				sample.setPrecedingSampleTimestamp(precedingSampleTimestamp);
-				if (mutator != null) {
-					insertSample(mutator, compressionLevelName, channelName,
-							sample.getValue(), precedingSampleTimestamp);
-				}
-				return precedingSample;
-			}
-			if (samples.length <= 1 || startTimestamp == null) {
-				// The last timestamp we used for the start was too high. Or
-				// this is the first iteration.
-				// The last start time can be used as an upper limit.
-				upperLimit = startTimestamp;
-				if (lowerLimit == null) {
-					// If we have not found the lower limit yet, we double the
-					// time we go back.
-					secondsBack *= 2;
-					startTimestamp = TimestampArithmetics.substract(
-							referenceTime,
-							TimestampFactory.createTimestamp(secondsBack, 0));
-				} else {
-					// If we already have a lower limit, we use the time in the
-					// middle between the upper and lower limit as the new
-					// start. Upper limit cannot be null, because it will always
-					// be set if lower limit is set.
-					ITimestamp timeDifference = TimestampArithmetics.substract(
-							upperLimit, lowerLimit);
-					startTimestamp = TimestampArithmetics.add(lowerLimit,
-							TimestampArithmetics.divide(timeDifference, 2));
-				}
-				samples = findSampleTimestamps(compressionLevelName,
-						channelName, startTimestamp, referenceTime, 500);
-			} else {
-				// The startTimestamp was too low (we got too many samples).
-				// Now we know the lower limit.
-				lowerLimit = startTimestamp;
-				// For the next iteration we use the center between the lower
-				// and the upper limit as a start.
-				ITimestamp timeDifference = TimestampArithmetics.substract(
-						upperLimit, lowerLimit);
-				startTimestamp = TimestampArithmetics.add(lowerLimit,
-						TimestampArithmetics.divide(timeDifference, 2));
-			}
-		}
-		return precedingSample;
-	}
+    /**
+     * Inserts a sample into the database using the passed mutator. The sample
+     * will not really be inserted until the mutators <code>execute</code>
+     * method is called.
+     * 
+     * @param mutationBatch
+     *            mutation batch to use for the insertion operation. This
+     *            mutation batch must have the same consistency level that was
+     *            given to this sample store's constructor as the
+     *            <code>writeDataConsistencyLevel</code> parameter.
+     * @param compressionPeriod
+     *            compression period of the compression level to insert the
+     *            sample for.
+     * @param channelName
+     *            name of the channel to insert the sample for.
+     * @param value
+     *            sample's value.
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     * @throws IllegalStateException
+     *             if this method is called on a sample store which does not
+     *             have writes enabled.
+     */
+    public void insertSample(NotifyingMutationBatch mutationBatch,
+            long compressionPeriod, String channelName, IValue value)
+            throws ConnectionException, IllegalStateException {
+        if (!enableWrites) {
+            throw new IllegalStateException("This sample store is read-only.");
+        }
+        CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+        store.insertSample(channelName, value, mutationBatch);
+    }
 
-	/**
-	 * Finds raw samples in the database. This is the same as calling
-	 * <code>findSamples(null, channelName, start, end, numberOfSamples)</code>.
-	 * 
-	 * @param channelName
-	 *            name of the channel to find samples for.
-	 * @param start
-	 *            start timestamp. Only samples whose timestamps are greater
-	 *            than or equal the start timestamp are returned. If the start
-	 *            timestamp is <code>null</code>, the first sample returned is
-	 *            the first sample in the database.
-	 * @param end
-	 *            end timestamp. Only samples whose timestamps are less than or
-	 *            equal the end timestamp are returned. If the end timestamp is
-	 *            <code>null</code>, no upper limit is placed on the samples'
-	 *            timestamps.
-	 * @param numberOfSamples
-	 *            maximum number of samples to return. If less samples match the
-	 *            predicates specified by <code>start</code> and
-	 *            <code>end</code>, only these samples will be returned.
-	 *            However, this method will never return more samples than
-	 *            specified by this parameter.
-	 * @return array of samples matching the predicates, never <code>null</code>
-	 *         .
-	 */
-	public Sample[] findSamples(String channelName, ITimestamp start,
-			ITimestamp end, int numberOfSamples) {
-		return findSamples(null, channelName, start, end, numberOfSamples);
-	}
+    /**
+     * Deletes samples from the database.
+     * 
+     * @param compressionPeriod
+     *            compression period of the compression level to delete the
+     *            sample from.
+     * @param channelName
+     *            name of the channel to delete the sample from.
+     * @param start
+     *            timestamp of the first sample to be deleted (inclusive).
+     * @param end
+     *            timestamp of the last sample to be deleted (inclusive).
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     * @throws IllegalStateException
+     *             if this method is called on a sample store which does not
+     *             have writes enabled.
+     */
+    public void deleteSamples(long compressionPeriod, String channelName,
+            ITimestamp start, ITimestamp end) throws ConnectionException,
+            IllegalStateException {
+        if (!enableWrites) {
+            throw new IllegalStateException("This sample store is read-only.");
+        }
+        CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+        store.deleteSamples(channelName, start, end);
+    }
 
-	/**
-	 * Finds samples in the database.
-	 * 
-	 * @param compressionLevelName
-	 *            name of the compression level to find samples for.
-	 * @param channelName
-	 *            name of the channel to find samples for.
-	 * @param start
-	 *            start timestamp. Only samples whose timestamps are greater
-	 *            than or equal the start timestamp are returned. If the start
-	 *            timestamp is <code>null</code>, the first sample returned is
-	 *            the first sample in the database.
-	 * @param end
-	 *            end timestamp. Only samples whose timestamps are less than or
-	 *            equal the end timestamp are returned. If the end timestamp is
-	 *            <code>null</code>, no upper limit is placed on the samples'
-	 *            timestamps.
-	 * @param numberOfSamples
-	 *            maximum number of samples to return. If less samples match the
-	 *            predicates specified by <code>start</code> and
-	 *            <code>end</code>, only these samples will be returned.
-	 *            However, this method will never return more samples than
-	 *            specified by this parameter.
-	 * @return array of samples matching the predicates, never <code>null</code>
-	 *         .
-	 */
-	public Sample[] findSamples(String compressionLevelName,
-			String channelName, ITimestamp start, ITimestamp end,
-			int numberOfSamples) {
-		if (start == null) {
-			start = TimestampArithmetics.MIN_TIME;
-		}
-		if (end == null) {
-			end = TimestampArithmetics.MAX_TIME;
-		}
-		RangeSlicesQuery<byte[], String, byte[]> query = HFactory
-				.createRangeSlicesQuery(this.keyspace,
-						BytesArraySerializer.get(), StringSerializer.get(),
-						BytesArraySerializer.get());
-		String columnFamilyName = ColumnFamilySamples.NAME;
-		query.setColumnFamily(columnFamilyName);
-		query.setColumnNames(ColumnFamilySamples.ALL_COLUMNS);
-		int remainingSamples = numberOfSamples;
-		ArrayList<Sample> samples = new ArrayList<Sample>(numberOfSamples);
-		byte[] startKey = ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, start);
-		byte[] endKey = ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, end);
-		boolean firstQuery = true;
-		while (remainingSamples > 0) {
-			query.setKeys(startKey, endKey);
-			// Always request at least 50 rows, because there might be
-			// null-rows.
-			int maxRows = Math.max(remainingSamples, 50);
-			query.setRowCount(maxRows);
-			OrderedRows<byte[], String, byte[]> rows = query.execute().get();
-			boolean fullResult = rows.getCount() == maxRows;
-			boolean firstRow = true;
-			for (Row<byte[], String, byte[]> row : rows) {
-				if (!firstQuery && firstRow) {
-					// We see the last row of the last query again, so we skip
-					// it.
-					firstRow = false;
-					continue;
-				}
-				firstRow = false;
-				startKey = row.getKey();
-				Quality quality;
-				if (compressionLevelName == null
-						|| compressionLevelName.length() == 0
-						|| compressionLevelName.equals("raw")) {
-					quality = Quality.Original;
-				} else {
-					quality = Quality.Interpolated;
-				}
-				Sample sample = ColumnFamilySamples.readSample(
-						compressionLevelName, row.getKey(),
-						row.getColumnSlice(), quality);
-				if (sample != null) {
-					samples.add(sample);
-					remainingSamples--;
-				}
-			}
-			firstQuery = false;
-			if (!fullResult) {
-				break;
-			}
-		}
-		return samples.toArray(new Sample[samples.size()]);
-	}
+    /**
+     * Checks which bucket size is currently used for the specified channel and
+     * compression period. If the most recent bucket size is not zero and the
+     * most recent sample is relatively old, a bucket size of zero is inserted
+     * in order to avoid long search processes for newer samples. A call to this
+     * method does have no effect if
+     * {@link #insertSample(NotifyingMutationBatch, long, String, IValue)} has
+     * been called for the same channel and compression period previously. In
+     * this case however, the check has already been performed at the time the
+     * first sample has been inserted.
+     * 
+     * @param compressionPeriod
+     *            compression period to check the bucket size for.
+     * @param channelName
+     *            name of the channel to check the bucket size for.
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     * @throws IllegalStateException
+     *             if this method is called on a sample store which does not
+     *             have writes enabled.
+     */
+    public void verifyZeroBucketSize(long compressionPeriod, String channelName)
+            throws ConnectionException, IllegalStateException {
+        if (!enableWrites) {
+            throw new IllegalStateException("This sample store is read-only.");
+        }
+        CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+        store.verifyZeroBucketSize(channelName);
+    }
 
-	/**
-	 * Finds timestamps of samples in the database.
-	 * 
-	 * @param compressionLevelName
-	 *            name of the compression level to find the samples' timestamps
-	 *            for.
-	 * @param channelName
-	 *            name of the channel to find the samples' timestamps for.
-	 * @param start
-	 *            start timestamp. Only timestamps that are greater than or
-	 *            equal the start timestamp are returned. If the start timestamp
-	 *            is <code>null</code>, the first timestamp returned is the
-	 *            timestamp of the first sample in the database.
-	 * @param end
-	 *            end timestamp. Only timestamps that are less than or equal the
-	 *            end timestamp are returned. If the end timestamp is
-	 *            <code>null</code>, no upper limit is placed on the timestamps.
-	 * @param numberOfTimestamps
-	 *            maximum number of timestamps to return. If less timestamps
-	 *            match the predicates specified by <code>start</code> and
-	 *            <code>end</code>, only these timestamps will be returned.
-	 *            However, this method will never return more timestamps than
-	 *            specified by this parameter.
-	 * @return array of samples' timestamps matching the predicates, never
-	 *         <code>null</code>.
-	 */
-	public ITimestamp[] findSampleTimestamps(String compressionLevelName,
-			String channelName, ITimestamp start, ITimestamp end,
-			int numberOfTimestamps) {
-		if (start == null) {
-			start = TimestampArithmetics.MIN_TIME;
-		}
-		if (end == null) {
-			end = TimestampArithmetics.MAX_TIME;
-		}
-		RangeSlicesQuery<byte[], String, byte[]> query = HFactory
-				.createRangeSlicesQuery(this.keyspace,
-						BytesArraySerializer.get(), StringSerializer.get(),
-						BytesArraySerializer.get());
-		String columnFamilyName = ColumnFamilySamples.NAME;
-		query.setColumnFamily(columnFamilyName);
-		// We are not really interested in the severity column. However,
-		// querying for a column that exists for all valid samples avoids seeing
-		// samples that have been deleted.
-		query.setColumnNames(ColumnFamilySamples.COLUMN_SEVERITY);
-		int remainingSamples = numberOfTimestamps;
-		ArrayList<ITimestamp> timestamps = new ArrayList<ITimestamp>(
-				numberOfTimestamps);
-		byte[] startKey = ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, start);
-		byte[] endKey = ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, end);
-		boolean firstQuery = true;
-		while (remainingSamples > 0) {
-			query.setKeys(startKey, endKey);
-			query.setRowCount(remainingSamples);
-			OrderedRows<byte[], String, byte[]> rows = query.execute().get();
-			boolean fullResult = rows.getCount() == remainingSamples
-					&& remainingSamples > 1;
-			boolean firstRow = true;
-			for (Row<byte[], String, byte[]> row : rows) {
-				if (!firstQuery && firstRow) {
-					// We see the last row of the last query again, so we skip
-					// it.
-					firstRow = false;
-					continue;
-				}
-				firstRow = false;
-				startKey = row.getKey();
-				ITimestamp timestamp = SampleKey.extractTimestamp(startKey);
-				HColumn<String, byte[]> column = row.getColumnSlice()
-						.getColumnByName(ColumnFamilySamples.COLUMN_SEVERITY);
-				if (column != null && column.getValue().length > 0) {
-					timestamps.add(timestamp);
-				}
-			}
-			firstQuery = false;
-			if (!fullResult) {
-				break;
-			}
-		}
-		return timestamps.toArray(new ITimestamp[timestamps.size()]);
-	}
+    /**
+     * Performs a clean-up of the column-families used to store samples. During
+     * the clean-up operation, all samples which have a
+     * channel/compression-level combination not listed in
+     * <code>compressionLevelNames</code> are deleted. This includes raw samples
+     * (compression period equals zero). In order to not delete raw samples, a
+     * pair of ("channel name", 0) has to be present for each channel.
+     * 
+     * @param compressionLevelPeriods
+     *            set of pairs, where the first entry of each pair is the name
+     *            of a channel and the second entry a compression period.
+     * @param printStatus
+     *            if set to <code>true</code>, for each sample being deleted a
+     *            message is printed to the standard output.
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     * @throws IllegalStateException
+     *             if this method is called on a sample store which does not
+     *             have writes enabled.
+     */
+    public void performCleanUp(Set<Pair<String, Long>> compressionLevelPeriods,
+            boolean printStatus) throws ConnectionException,
+            IllegalStateException {
+        if (!enableWrites) {
+            throw new IllegalStateException("This sample store is read-only.");
+        }
+        // We find all compression levels in the database by finding the
+        // corresponding column families.
+        TreeSet<Long> compressionPeriodsInDatabase = new TreeSet<Long>();
+        String cfSamplesPrefix = ColumnFamilySamples.NAME_PREFIX + "_";
+        for (ColumnFamilyDefinition cfDef : keyspace.describeKeyspace()
+                .getColumnFamilyList()) {
+            String cfName = cfDef.getName();
+            if (cfName.startsWith(cfSamplesPrefix)) {
+                cfName = cfName.substring(cfSamplesPrefix.length());
+                compressionPeriodsInDatabase.add(Long.valueOf(cfName));
+            } else if (cfName.equals(ColumnFamilySamples.NAME_PREFIX)) {
+                compressionPeriodsInDatabase.add(0L);
+            }
+        }
+        // We make a list of all the compression levels that are available in
+        // the configuration and for each compression level we make a list of
+        // the channels, which are available for this compression level.
+        TreeMap<Long, TreeSet<String>> compressionPeriodsInConfiguration = new TreeMap<Long, TreeSet<String>>();
+        for (Pair<String, Long> pair : compressionLevelPeriods) {
+            String channelName = pair.getFirst();
+            long compressionPeriod = pair.getSecond();
+            TreeSet<String> channels = compressionPeriodsInConfiguration
+                    .get(compressionPeriod);
+            if (channels == null) {
+                channels = new TreeSet<String>();
+                compressionPeriodsInConfiguration.put(compressionPeriod,
+                        channels);
+            }
+            channels.add(channelName);
+        }
+        for (long compressionPeriod : compressionPeriodsInDatabase) {
+            if (!compressionPeriodsInConfiguration
+                    .containsKey(compressionPeriod)) {
+                // The compression level is not defined in the configuration,
+                // thus we can drop the corresponding column families.
+                if (printStatus) {
+                    System.out
+                            .println("There are no channels for the compression period of "
+                                    + compressionPeriod
+                                    + " seconds, thus the corresponding column families are being dropped.");
+                }
+                ColumnFamilySamples cfSamples = new ColumnFamilySamples(
+                        compressionPeriod);
+                ColumnFamilySamplesBucketSize cfSamplesBucketSize = new ColumnFamilySamplesBucketSize(
+                        compressionPeriod);
+                keyspace.dropColumnFamily(cfSamples.getCF());
+                keyspace.dropColumnFamily(cfSamplesBucketSize.getCF());
+            } else {
+                CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+                HashSet<String> channelNames = new HashSet<String>();
+                for (Pair<String, Long> pair : compressionLevelPeriods) {
+                    if (compressionPeriod == pair.getSecond()) {
+                        channelNames.add(pair.getFirst());
+                    }
+                }
+                store.performCleanUp(channelNames, printStatus);
+            }
+        }
+    }
 
-	/**
-	 * Inserts a raw sample into the database creating and immediately executing
-	 * a {@link Mutator}.
-	 * 
-	 * @param channelName
-	 *            name of the channel to insert the sample for.
-	 * @param value
-	 *            sample's value.
-	 * @param precedingSampleTime
-	 *            timestamp of the sample inserted previously.
-	 */
-	public void insertSample(String channelName, IValue value,
-			ITimestamp precedingSampleTime) {
-		Mutator<byte[]> mutator = HFactory.createMutator(this.keyspace,
-				BytesArraySerializer.get());
-		insertSample(mutator, channelName, value, precedingSampleTime);
-		mutator.execute();
-	}
+    /**
+     * Returns the timestamp of the latest (raw) sample for the given channel or
+     * <code>null</code> if no sample can be found.
+     * 
+     * @param compressionPeriod
+     *            compression period of the compression level to find the newest
+     *            sample's timestamp for.
+     * @param channelName
+     *            name of the channel to get the last timestamp for.
+     * @return timestamp of the newest sample or <code>null</code> if no sample
+     *         is found.
+     * @throws ConnectionException
+     *             if an error occurs while performing an operation in the
+     *             database.
+     */
+    public ITimestamp getLastSampleTimestamp(long compressionPeriod,
+            String channelName) throws ConnectionException {
+        CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
+        return store.getLastSampleTimestamp(channelName);
+    }
 
-	/**
-	 * Inserts a raw sample into the database using the passed mutator. The
-	 * sample will not really be inserted until the mutators
-	 * <code>execute</code> method is called.
-	 * 
-	 * @param mutator
-	 *            mutator to use for the insertion operation.
-	 * @param channelName
-	 *            name of the channel to insert the sample for.
-	 * @param value
-	 *            sample's value.
-	 * @param precedingSampleTime
-	 *            timestamp of the sample inserted previously.
-	 */
-	public void insertSample(Mutator<byte[]> mutator, String channelName,
-			IValue value, ITimestamp precedingSampleTime) {
-		insertSample(mutator, null, channelName, value, precedingSampleTime);
-	}
-
-	/**
-	 * Inserts a sample into the database creating and immediately executing a
-	 * {@link Mutator}.
-	 * 
-	 * @param compressionLevelName
-	 *            name of the compression level to insert the sample for.
-	 * @param channelName
-	 *            name of the channel to insert the sample for.
-	 * @param value
-	 *            sample's value.
-	 * @param precedingSampleTime
-	 *            timestamp of the sample inserted previously.
-	 */
-	public void insertSample(String compressionLevelName, String channelName,
-			IValue value, ITimestamp precedingSampleTime) {
-		Mutator<byte[]> mutator = HFactory.createMutator(this.keyspace,
-				BytesArraySerializer.get());
-		insertSample(mutator, compressionLevelName, channelName, value,
-				precedingSampleTime);
-		mutator.execute();
-	}
-
-	/**
-	 * Inserts a sample into the database using the passed mutator. The sample
-	 * will not really be inserted until the mutators <code>execute</code>
-	 * method is called.
-	 * 
-	 * @param compressionLevelName
-	 *            name of the compression level to insert the sample for.
-	 * @param mutator
-	 *            mutator to use for the insertion operation.
-	 * @param channelName
-	 *            name of the channel to insert the sample for.
-	 * @param value
-	 *            sample's value.
-	 * @param precedingSampleTime
-	 *            timestamp of the sample inserted previously.
-	 */
-	public void insertSample(Mutator<byte[]> mutator,
-			String compressionLevelName, String channelName, IValue value,
-			ITimestamp precedingSampleTime) {
-		ColumnFamilySamples.insertSample(mutator, compressionLevelName,
-				channelName, value, precedingSampleTime);
-	}
-
-	/**
-	 * Deletes a sample from the database.
-	 * 
-	 * @param mutator
-	 *            mutator to use for the delete operation.
-	 * @param compressionLevelName
-	 *            name of the compression level to delete the sample from.
-	 * @param channelName
-	 *            name of the channel to delete the sample from.
-	 * @param timestamp
-	 *            timestamp of the sample.
-	 */
-	public void deleteSample(Mutator<byte[]> mutator,
-			String compressionLevelName, String channelName,
-			ITimestamp timestamp) {
-		mutator.addDeletion(ColumnFamilySamples.getKey(compressionLevelName,
-				channelName, timestamp), ColumnFamilySamples.NAME);
-	}
-
-	/**
-	 * Performs a clean-up of the column-families used to store samples. During
-	 * the clean-up operation, all samples which have a
-	 * channel/compression-level combination not listed in
-	 * <code>compressionLevelNames</code> are deleted. This includes raw
-	 * samples. In order to not delete raw samples, a pair of channel name,
-	 * "raw" has to be present for each channel.
-	 * 
-	 * @param compressionLevelNames
-	 *            set of pairs, where the first entry of each pair is the name
-	 *            of a channel and the second entry of each pair is a
-	 *            compression level name.
-	 * @param printStatus
-	 *            if set to <code>true</code>, for each sample being deleted a
-	 *            message is printed to the standard output.
-	 */
-	public void performCleanUp(
-			HashSet<Pair<String, String>> compressionLevelNames,
-			boolean printStatus) {
-		RangeSlicesQuery<byte[], String, byte[]> query = HFactory
-				.createRangeSlicesQuery(keyspace, BytesArraySerializer.get(),
-						StringSerializer.get(), BytesArraySerializer.get());
-		query.setColumnFamily(ColumnFamilySamples.NAME);
-		// By using a keys-only query, we might see rows which are already
-		// deleted. However, deleting them twice will not hurt and not
-		// requesting any columns will save us I/O and data-transfer.
-		query.setReturnKeysOnly();
-		byte[] rowKey = new byte[0];
-		int rowsRequested = 5000;
-		int rowsReturned = 0;
-		do {
-			query.setRowCount(rowsRequested);
-			query.setKeys(rowKey, null);
-			OrderedRows<byte[], String, byte[]> rows = query.execute().get();
-			rowsReturned = rows.getCount();
-			Mutator<byte[]> mutator = HFactory.createMutator(keyspace,
-					BytesArraySerializer.get());
-			for (Row<byte[], String, byte[]> row : rows) {
-				rowKey = row.getKey();
-				String compressionLevelName = SampleKey
-						.extractCompressionLevelName(rowKey);
-				String channelName = SampleKey.extractChannelName(rowKey);
-				ITimestamp timestamp = SampleKey.extractTimestamp(rowKey);
-				if (compressionLevelName == null || channelName == null
-						|| timestamp == null) {
-					if (printStatus) {
-						System.out.println("Removing invalid sample "
-								+ timestamp + " for channel \"" + channelName
-								+ "\" (compression level \""
-								+ compressionLevelName + "\")");
-					}
-					mutator.addDeletion(rowKey, ColumnFamilySamples.NAME);
-					continue;
-				}
-				if (!compressionLevelNames.contains(new Pair<String, String>(
-						channelName, compressionLevelName))) {
-					if (printStatus) {
-						System.out.println("Removing dangling sample "
-								+ timestamp + " for channel \"" + channelName
-								+ "\" (compression level \""
-								+ compressionLevelName + "\")");
-					}
-					mutator.addDeletion(rowKey, ColumnFamilySamples.NAME);
-					continue;
-				}
-
-			}
-			mutator.execute();
-		} while (rowsReturned == rowsRequested);
-
-	}
+    private CompressionLevelSampleStore getSampleStoreForCompressionLevel(
+            long compressionPeriod) {
+        CompressionLevelSampleStore store = compressionPeriodToSampleStore
+                .get(compressionPeriod);
+        if (store == null) {
+            if (compressionPeriod < 0L) {
+                throw new IllegalArgumentException(
+                        "Compression period must not be negative.");
+            }
+            store = new CompressionLevelSampleStore(cluster, keyspace,
+                    readDataConsistencyLevel, writeDataConsistencyLevel,
+                    readMetaDataConsistencyLevel,
+                    writeMetaDataConsistencyLevel, archiveConfig,
+                    compressionPeriod, enableWrites, enableCache);
+            CompressionLevelSampleStore previousStore = compressionPeriodToSampleStore
+                    .putIfAbsent(compressionPeriod, store);
+            if (previousStore != null) {
+                return previousStore;
+            }
+        }
+        return store;
+    }
 }
