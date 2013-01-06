@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
 
-<product name="ArchiveEngine" uid="archiveEngine" id="com.aquenos.csstudio.archive.engine.cassandra.archiveEngineProduct" application="org.csstudio.archive.engine.application" version="1.2.0.qualifier" useFeatures="false" includeLaunchers="false">
+<product name="ArchiveEngine" uid="archiveEngine" id="com.aquenos.csstudio.archive.engine.cassandra.archiveEngineProduct" application="org.csstudio.archive.engine.application" version="2.0.0.qualifier" useFeatures="false" includeLaunchers="false">
 
    <configIni use="default">
    </configIni>
@@ -24,21 +24,27 @@
    </vm>
 
    <plugins>
+      <plugin id="com.aquenos.com.github.stephenc.eaio.uuid"/>
+      <plugin id="com.aquenos.com.github.stephenc.high.scale.lib"/>
+      <plugin id="com.aquenos.com.netflix.astyanax"/>
       <plugin id="com.aquenos.csstudio.archive.cassandra"/>
-      <plugin id="com.aquenos.csstudio.archive.config.cassandra"/>
       <plugin id="com.aquenos.csstudio.archive.engine.cassandra"/>
       <plugin id="com.aquenos.csstudio.archive.writer.cassandra"/>
-      <plugin id="com.aquenos.me.prettyprint.hector-core"/>
-      <plugin id="com.aquenos.org.apache.cassandra.apache-cassandra-thrift"/>
+      <plugin id="com.aquenos.org.apache.cassandra.including.thrift"/>
       <plugin id="com.aquenos.org.apache.thrift.libthrift"/>
       <plugin id="com.google.guava"/>
       <plugin id="com.springsource.org.apache.commons.lang"/>
+      <plugin id="jackson-core-asl"/>
+      <plugin id="jackson-mapper-asl"/>
       <plugin id="javax.servlet"/>
+      <plugin id="joda-time"/>
+      <plugin id="org.apache.commons.codec"/>
+      <plugin id="org.apache.servicemix.bundles.commons-csv"/>
+      <plugin id="org.codehaus.jettison.jettison"/>
       <plugin id="org.csstudio.apputil"/>
       <plugin id="org.csstudio.archive.config"/>
       <plugin id="org.csstudio.archive.engine"/>
       <plugin id="org.csstudio.archive.writer"/>
-      <plugin id="org.csstudio.auth" fragment=""/>
       <plugin id="org.csstudio.data"/>
       <plugin id="org.csstudio.java"/>
       <plugin id="org.csstudio.logging"/>
@@ -61,8 +67,6 @@
       <plugin id="org.eclipse.equinox.preferences"/>
       <plugin id="org.eclipse.equinox.registry"/>
       <plugin id="org.eclipse.equinox.security"/>
-      <plugin id="org.eclipse.equinox.security.macosx" fragment="true"/>
-      <plugin id="org.eclipse.equinox.security.win32.x86" fragment="true"/>
       <plugin id="org.eclipse.osgi"/>
       <plugin id="org.eclipse.osgi.services"/>
       <plugin id="org.hamcrest.core"/>

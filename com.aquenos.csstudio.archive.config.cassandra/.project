@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>com.aquenos.csstudio.archive.config.cassandra</name>
+	<name>com.aquenos.csstudio.archive.cassandra.configtool</name>
 	<comment></comment>
 	<projects>
 	</projects>
