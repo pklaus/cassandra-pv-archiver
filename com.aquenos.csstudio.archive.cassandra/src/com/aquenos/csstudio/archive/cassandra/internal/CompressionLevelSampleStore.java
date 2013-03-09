@@ -64,6 +64,8 @@ public class CompressionLevelSampleStore {
             .createTimestamp(14400L, 0L);
     private final static ITimestamp ONE_NANOSECOND = TimestampFactory
             .createTimestamp(0L, 1L);
+    private final static ITimestamp ZERO_TIMESTAMP = TimestampFactory
+            .createTimestamp(0L, 0L);
 
     private final static Iterable<Sample> EMPTY_SAMPLES = new Iterable<Sample>() {
         private final Iterator<Sample> emptyIterator = new Iterator<Sample>() {
@@ -464,6 +466,11 @@ public class CompressionLevelSampleStore {
                 if (bucketSize.equals(BigInteger.ZERO)) {
                     // A bucket size of zero is special because it indicates
                     // that there are no samples in this range.
+                    if (bucketSizeTime.equals(ZERO_TIMESTAMP)) {
+                        // There cannot be an older bucket size, thus we do not
+                        // have to continue our search.
+                        return null;
+                    }
                     maxTime = TimestampArithmetics.substract(bucketSizeTime,
                             ONE_NANOSECOND);
                     continue;
@@ -502,6 +509,12 @@ public class CompressionLevelSampleStore {
                     // We can take a shortcut for generating the next key here,
                     // because we known that the old key is already aligned to
                     // the bucket size.
+                    if (nextBucketKey.getBucketStartTime().equals(
+                            ZERO_TIMESTAMP)) {
+                        // There is no older bucket, thus we can stop the
+                        // search.
+                        break;
+                    }
                     nextBucketKey = new SampleBucketKey(channelName,
                             bucketSize, TimestampArithmetics.substract(
                                     nextBucketKey.getBucketStartTime(),
@@ -716,6 +729,13 @@ public class CompressionLevelSampleStore {
                                                         : 5000);
                                 ITimestamp nextBucketTimestamp;
                                 if (reverse) {
+                                    if (nextBucketKey.getBucketStartTime()
+                                            .equals(ZERO_TIMESTAMP)) {
+                                        // We already have the oldest possible
+                                        // bucket.
+                                        nextBucketKey = null;
+                                        return hasNext();
+                                    }
                                     nextBucketTimestamp = TimestampArithmetics
                                             .substract(nextBucketKey
                                                     .getBucketStartTime(),
@@ -754,6 +774,10 @@ public class CompressionLevelSampleStore {
                                 if (nextBucketSizeTimestamp != null) {
                                     if (reverse) {
                                         if (currentBucketSizeEnd != null) {
+                                            // We know that there is a bucket
+                                            // size with a smaller timestamp,
+                                            // thus it is safe to substract from
+                                            // the current timestamp.
                                             currentBucketSizeStart = TimestampArithmetics
                                                     .substract(
                                                             currentBucketSizeEnd,
@@ -828,13 +852,17 @@ public class CompressionLevelSampleStore {
                                 return hasNext();
                             } else {
                                 if (nextBucketSizeTimestamp != null) {
-                                    // The store next bucket size is the last
-                                    // bucket size. Thus we set it for the the
-                                    // current bucket size and use the end
-                                    // timestamp of the sample query as the end
-                                    // timestamp of the bucket size.
+                                    // The next bucket size is the last bucket
+                                    // size. Thus we set it for the current
+                                    // bucket size and use the end timestamp
+                                    // of the sample query as the end timestamp
+                                    // of the bucket size.
                                     if (reverse) {
                                         if (currentBucketSizeEnd != null) {
+                                            // We know that there is a bucket
+                                            // size with a smaller timestamp,
+                                            // thus it is safe to substract from
+                                            // the current timestamp.
                                             currentBucketSizeStart = TimestampArithmetics
                                                     .substract(
                                                             currentBucketSizeEnd,
@@ -948,6 +976,11 @@ public class CompressionLevelSampleStore {
         // Limit end to the timestamp of the last sample in order to avoid
         // undesirable effects, when we are inserting samples in parallel.
         ITimestamp lastSampleTimestamp = getLastSampleTimestamp(channelName);
+        if (lastSampleTimestamp == null
+                || (start != null && start.isGreaterThan(lastSampleTimestamp))) {
+            // There are no samples, that we can delete.
+            return;
+        }
         if (end == null
                 || (lastSampleTimestamp != null && lastSampleTimestamp
                         .isLessThan(end))) {
@@ -973,7 +1006,7 @@ public class CompressionLevelSampleStore {
         // start of the period we just deleted. If no such bucket size exists,
         // we do not need to insert a zero bucket size.
         ITimestamp startDeleteBucketSizes = null;
-        if (start != null) {
+        if (start != null && start.isGreaterThan(ZERO_TIMESTAMP)) {
             ColumnList<ITimestamp> bucketSizeColumns = keyspace
                     .prepareQuery(cfSamplesBucketSize.getCF())
                     .getKey(channelName)
@@ -998,6 +1031,9 @@ public class CompressionLevelSampleStore {
         // using the end timestamp. Subsequently we can delete all bucket sizes
         // between the start and the end timestamp. If there is no bucket size
         // preceding the end timestamp, we do not have to do anything.
+        if (end.equals(ZERO_TIMESTAMP)) {
+            return;
+        }
         ITimestamp endMinusOne = TimestampArithmetics.substract(end,
                 ONE_NANOSECOND);
         ColumnList<ITimestamp> bucketSizeColumns = keyspace
@@ -1048,7 +1084,8 @@ public class CompressionLevelSampleStore {
                 if (printStatus) {
                     System.out
                             .println("Removing sample bucket for non-existent channel \""
-                                    + channelName + "\""
+                                    + channelName
+                                    + "\""
                                     + (compressionPeriod != 0 ? " (compression period "
                                             + compressionPeriod + " seconds)"
                                             : "") + ".");

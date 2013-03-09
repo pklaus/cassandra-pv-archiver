@@ -37,6 +37,8 @@ public class CassandraMultiCompressionLevelValueIterator implements
         ValueIterator, Cancelable {
     private final static ITimestamp ONE_NANOSECOND = TimestampFactory
             .createTimestamp(0L, 1L);
+    private final static ITimestamp ZERO_TIMESTAMP = TimestampFactory
+            .createTimestamp(0L, 0L);
 
     private CassandraArchiveConfig config;
     private SampleStore sampleStore;
@@ -87,6 +89,10 @@ public class CassandraMultiCompressionLevelValueIterator implements
                 IValue firstValue = iterator.next();
                 usableIterators.push(new Pair<CassandraValueIterator, IValue>(
                         iterator, firstValue));
+                if (firstValue.getTime().equals(ZERO_TIMESTAMP)) {
+                    // There cannot be a sample with a smaller timestamp.
+                    break;
+                }
                 nextTimestamp = TimestampArithmetics.substract(
                         firstValue.getTime(), ONE_NANOSECOND);
                 if (firstValue.getTime().isLessOrEqual(start)) {
