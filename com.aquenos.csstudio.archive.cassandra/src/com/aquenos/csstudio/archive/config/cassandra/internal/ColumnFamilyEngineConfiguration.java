@@ -20,6 +20,7 @@ import com.netflix.astyanax.Cluster;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.MutationBatch;
 import com.netflix.astyanax.ddl.ColumnDefinition;
+import com.netflix.astyanax.model.Column;
 import com.netflix.astyanax.model.ColumnFamily;
 import com.netflix.astyanax.model.ColumnList;
 import com.netflix.astyanax.serializers.StringSerializer;
@@ -57,11 +58,14 @@ public abstract class ColumnFamilyEngineConfiguration {
 
     public static EngineConfig readEngineConfig(String engineName,
             ColumnList<String> columns) {
-        String description = columns.getStringValue(COLUMN_DESCRIPTION, null);
-        String url = columns.getStringValue(COLUMN_URL, null);
-        if (description != null && url != null) {
+        Column<String> descriptionColumn = columns
+                .getColumnByName(COLUMN_DESCRIPTION);
+        Column<String> urlColumn = columns.getColumnByName(COLUMN_URL);
+        if (descriptionColumn != null && urlColumn != null) {
             try {
-                return new EngineConfig(engineName, description, url);
+                return new EngineConfig(engineName,
+                        descriptionColumn.getStringValue(),
+                        urlColumn.getStringValue());
             } catch (URISyntaxException e) {
                 return null;
             }

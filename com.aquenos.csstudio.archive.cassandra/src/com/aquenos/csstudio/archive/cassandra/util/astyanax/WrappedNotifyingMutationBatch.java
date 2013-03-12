@@ -10,15 +10,14 @@
 package com.aquenos.csstudio.archive.cassandra.util.astyanax;
 
 import java.nio.ByteBuffer;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Future;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.util.concurrent.ListenableFuture;
 import com.netflix.astyanax.ColumnListMutation;
 import com.netflix.astyanax.MutationBatch;
 import com.netflix.astyanax.WriteAheadLog;
@@ -66,8 +65,8 @@ public class WrappedNotifyingMutationBatch implements NotifyingMutationBatch {
     }
 
     @Override
-    public <K> void deleteRow(Collection<ColumnFamily<K, ?>> columnFamilies,
-            K rowKey) {
+    public <K> void deleteRow(
+            Iterable<? extends ColumnFamily<K, ?>> columnFamilies, K rowKey) {
         wrappedMutationBatch.deleteRow(columnFamilies, rowKey);
     }
 
@@ -222,7 +221,7 @@ public class WrappedNotifyingMutationBatch implements NotifyingMutationBatch {
     }
 
     @Override
-    public Future<OperationResult<Void>> executeAsync()
+    public ListenableFuture<OperationResult<Void>> executeAsync()
             throws ConnectionException {
         return wrappedMutationBatch.executeAsync();
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
 
-<product name="ArchiveEngine" uid="archiveEngine" id="com.aquenos.csstudio.archive.engine.cassandra.archiveEngineProduct" application="org.csstudio.archive.engine.application" version="2.0.0.qualifier" useFeatures="false" includeLaunchers="false">
+<product name="ArchiveEngine" uid="archiveEngine" id="com.aquenos.csstudio.archive.engine.cassandra.archiveEngineProduct" application="org.csstudio.archive.engine.application" version="2.1.0.qualifier" useFeatures="false" includeLaunchers="false">
 
    <configIni use="default">
    </configIni>
@@ -26,13 +26,15 @@
    <plugins>
       <plugin id="com.aquenos.com.github.stephenc.eaio.uuid"/>
       <plugin id="com.aquenos.com.github.stephenc.high.scale.lib"/>
-      <plugin id="com.aquenos.com.netflix.astyanax"/>
+      <plugin id="com.aquenos.com.netflix.astyanax.all"/>
+      <plugin id="com.aquenos.com.yammer.metrics.core"/>
       <plugin id="com.aquenos.csstudio.archive.cassandra"/>
       <plugin id="com.aquenos.csstudio.archive.engine.cassandra"/>
       <plugin id="com.aquenos.csstudio.archive.writer.cassandra"/>
       <plugin id="com.aquenos.org.apache.cassandra.including.thrift"/>
       <plugin id="com.aquenos.org.apache.thrift.libthrift"/>
       <plugin id="com.google.guava"/>
+      <plugin id="com.springsource.javax.persistence"/>
       <plugin id="com.springsource.org.apache.commons.lang"/>
       <plugin id="jackson-core-asl"/>
       <plugin id="jackson-mapper-asl"/>
@@ -64,12 +66,14 @@
       <plugin id="org.eclipse.equinox.http.jetty"/>
       <plugin id="org.eclipse.equinox.http.servlet"/>
       <plugin id="org.eclipse.equinox.launcher"/>
+      <plugin id="org.eclipse.equinox.launcher.gtk.linux.x86_64" fragment="true"/>
       <plugin id="org.eclipse.equinox.preferences"/>
       <plugin id="org.eclipse.equinox.registry"/>
       <plugin id="org.eclipse.equinox.security"/>
       <plugin id="org.eclipse.osgi"/>
       <plugin id="org.eclipse.osgi.services"/>
       <plugin id="org.hamcrest.core"/>
+      <plugin id="org.jboss.netty"/>
       <plugin id="org.junit"/>
       <plugin id="org.junit4"/>
       <plugin id="org.mortbay.jetty.server"/>
