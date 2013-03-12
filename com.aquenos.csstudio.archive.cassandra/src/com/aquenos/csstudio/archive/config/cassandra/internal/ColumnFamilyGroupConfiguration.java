@@ -24,6 +24,7 @@ import com.netflix.astyanax.Cluster;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.MutationBatch;
 import com.netflix.astyanax.ddl.ColumnDefinition;
+import com.netflix.astyanax.model.Column;
 import com.netflix.astyanax.model.ColumnFamily;
 import com.netflix.astyanax.model.ColumnList;
 import com.netflix.astyanax.serializers.StringSerializer;
@@ -68,11 +69,12 @@ public abstract class ColumnFamilyGroupConfiguration {
 
     public static CassandraGroupConfig readGroupConfig(String engineName,
             String groupName, ColumnList<String> columns) {
-        String enablingChannel = columns.getStringValue(
-                ColumnFamilyGroupConfiguration.COLUMN_ENABLING_CHANNEL, null);
-        if (groupName != null && enablingChannel != null) {
+        Column<String> enablingChannelColumn = columns
+                .getColumnByName(COLUMN_ENABLING_CHANNEL);
+        if (engineName != null && groupName != null
+                && enablingChannelColumn != null) {
             return new CassandraGroupConfig(engineName, groupName,
-                    enablingChannel);
+                    enablingChannelColumn.getStringValue());
         } else {
             return null;
         }

@@ -71,6 +71,24 @@
         availability trade-off between read and write scenarios.
       </para>
     </section>
+    <section>
+      <title>What's New in Cassandra Archiver 2.1</title>
+      <para>
+        Version 2.1 of the Cassandra Archiver uses Apache Cassandra 1.2 instead
+        of version 1.1 that was used for earlier releases. This way users of the
+        Cassandra Archiver can benefit from the many useful features that are
+        new in Cassandra 1.2 (e.g. virtual nodes).
+      </para>
+      <para>
+        Another change affects the format that channel values are stored in.
+        This format has been optimized, so that integers typically need
+        considerably less space than before. Cassandra Archiver 2.1 can read
+        values in the old format, but values written by Cassandra Archiver 2.0
+        cannot be read by previous versions. This change does not affect the
+        database structure, thus no special actions have to be taken when
+        upgrading.
+      </para>
+    </section>
   </chapter>
   
   <chapter xml:id="concept">
@@ -135,7 +153,7 @@
         If you want to setup a cluster of Cassandra servers or are interested in
         advanced configuration options and performance tuning, you should read
         the
-        <link xlink:href="http://www.datastax.com/docs/1.1/index">Apache Cassandra Documentation</link>
+        <link xlink:href="http://www.datastax.com/docs/1.2/index">Apache Cassandra Documentation</link>
         provided by DataStax. However, this manual describes the basic steps
         needed to setup a single-node Cassandra cluster for getting started with
         the Cassandra Archiver.
@@ -404,7 +422,7 @@
           or use one of the builds provided by
           <link xlink:href="http://www.datastax.com/download/community">DataStax</link>.
           You should choose the newest version of the binary download from the
-          1.1 branch. Apache 
+          1.2 branch. Apache 
           Cassandra is implemented in Java, so that the binary download is the
           same for all platforms. You need a Java Runtime Environment version 6
           or higher in order to run Cassandra.
@@ -702,6 +720,15 @@ CREATE KEYSPACE cssArchive;
           be copied to the <filename>plugins</filename> directory of your
           Control System Studio installation. The plugins have been developed
           for version 3.1 of CSS, so they might not work with other versions.
+        </para>
+        <para>
+          In order to keep your CSS installation small you might want to
+          consider using the
+          <link xlink:href="http://oss.aquenos.com/epics/json-archive-proxy/">JSON Archive Proxy</link>
+          instead of installing the Cassandra Archiver plugins in CSS directly.
+          The JSON Archive Proxy only needs two plugins (instead of about twenty
+          for the Cassandra Archiver) and can help you decouple the actual store
+          type and version used from your CSS installation.
         </para>
       </section>
       <section xml:id="installation.archiveengine.configuration">

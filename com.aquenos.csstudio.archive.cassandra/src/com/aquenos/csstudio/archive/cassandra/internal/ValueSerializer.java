@@ -42,13 +42,17 @@ public abstract class ValueSerializer {
 
     private final static Charset CHARSET_UTF8 = Charset.forName("UTF-8");
 
-    private final static byte VERSION_NUMBER = 0x01;
+    private final static byte VERSION_NUMBER = 0x02;
 
     private final static byte TYPE_DOUBLE = 0x01;
     private final static byte TYPE_MIN_MAX_DOUBLE = 0x02;
     private final static byte TYPE_ENUM = 0x03;
     private final static byte TYPE_LONG = 0x04;
     private final static byte TYPE_STRING = 0x05;
+    private final static byte VALUE_TYPE_BYTE = 0x00;
+    private final static byte VALUE_TYPE_SHORT = 0x01;
+    private final static byte VALUE_TYPE_INT = 0x02;
+    private final static byte VALUE_TYPE_LONG = 0x03;
 
     public static ByteBuffer toByteBuffer(IValue value) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
@@ -147,17 +151,11 @@ public abstract class ValueSerializer {
             } else if (value instanceof IEnumeratedValue) {
                 IEnumeratedValue specificValue = (IEnumeratedValue) value;
                 int[] values = specificValue.getValues();
-                writeSmallPositiveInt(dos, values.length);
-                for (int i : values) {
-                    dos.writeInt(i);
-                }
+                writeIntArray(dos, values);
             } else if (value instanceof ILongValue) {
                 ILongValue specificValue = (ILongValue) value;
                 long[] values = specificValue.getValues();
-                writeSmallPositiveInt(dos, values.length);
-                for (long l : values) {
-                    dos.writeLong(l);
-                }
+                writeLongArray(dos, values);
             } else if (value instanceof IStringValue) {
                 IStringValue specificValue = (IStringValue) value;
                 String[] values = specificValue.getValues();
@@ -183,7 +181,7 @@ public abstract class ValueSerializer {
         try {
             // First we check that the data format has the expected version.
             byte versionByte = dis.readByte();
-            if (versionByte != VERSION_NUMBER) {
+            if (versionByte != VERSION_NUMBER && versionByte != 0x01) {
                 throw new IOException("Expected version number "
                         + VERSION_NUMBER + " but got version number "
                         + versionByte + ".");
@@ -240,20 +238,12 @@ public abstract class ValueSerializer {
                         minValue, maxValue);
             }
             case TYPE_ENUM: {
-                int numberOfElements = readSmallPositiveInt(dis);
-                int[] values = new int[numberOfElements];
-                for (int i = 0; i < numberOfElements; i++) {
-                    values[i] = dis.readInt();
-                }
+                int[] values = readIntArray(dis, versionByte);
                 return ValueFactory.createEnumeratedValue(timestamp, severity,
                         status, enumeratedMetaData, quality, values);
             }
             case TYPE_LONG: {
-                int numberOfElements = readSmallPositiveInt(dis);
-                long[] values = new long[numberOfElements];
-                for (int i = 0; i < numberOfElements; i++) {
-                    values[i] = dis.readLong();
-                }
+                long[] values = readLongArray(dis, versionByte);
                 return ValueFactory.createLongValue(timestamp, severity,
                         status, numericMetaData, quality, values);
             }
@@ -325,6 +315,136 @@ public abstract class ValueSerializer {
         double[] values = new double[numberOfElements];
         for (int i = 0; i < numberOfElements; i++) {
             values[i] = dis.readDouble();
+        }
+        return values;
+    }
+
+    private static void writeLongArray(DataOutputStream dos, long[] longs)
+            throws IOException {
+        writeSmallPositiveInt(dos, longs.length);
+        long min = 0;
+        long max = 0;
+        for (long l : longs) {
+            min = Math.min(l, min);
+            max = Math.max(l, max);
+        }
+        if (min >= Byte.MIN_VALUE && max <= Byte.MAX_VALUE) {
+            dos.writeByte(VALUE_TYPE_BYTE);
+            for (long l : longs) {
+                dos.writeByte((byte) l);
+            }
+        } else if (min >= Short.MIN_VALUE && max <= Short.MAX_VALUE) {
+            dos.writeByte(VALUE_TYPE_SHORT);
+            for (long l : longs) {
+                dos.writeShort((short) l);
+            }
+        } else if (min <= Integer.MIN_VALUE && max <= Integer.MAX_VALUE) {
+            dos.writeByte(VALUE_TYPE_INT);
+            for (long l : longs) {
+                dos.writeInt((int) l);
+            }
+        } else {
+            dos.writeByte(VALUE_TYPE_LONG);
+            for (long l : longs) {
+                dos.writeLong(l);
+            }
+        }
+    }
+
+    private static long[] readLongArray(DataInputStream dis, byte version)
+            throws IOException {
+        int numberOfElements = readSmallPositiveInt(dis);
+        long[] values = new long[numberOfElements];
+        byte valueType;
+        if (version == 0x01) {
+            valueType = VALUE_TYPE_LONG;
+        } else {
+            valueType = dis.readByte();
+        }
+        switch (valueType) {
+        case VALUE_TYPE_BYTE:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readByte();
+            }
+            break;
+        case VALUE_TYPE_SHORT:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readShort();
+            }
+            break;
+        case VALUE_TYPE_INT:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readInt();
+            }
+            break;
+        case VALUE_TYPE_LONG:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readLong();
+            }
+            break;
+        default:
+            throw new IOException("Found unsupported value type " + valueType
+                    + ".");
+        }
+        return values;
+    }
+
+    private static void writeIntArray(DataOutputStream dos, int[] ints)
+            throws IOException {
+        writeSmallPositiveInt(dos, ints.length);
+        int min = 0;
+        int max = 0;
+        for (int i : ints) {
+            min = Math.min(i, min);
+            max = Math.max(i, max);
+        }
+        if (min >= Byte.MIN_VALUE && max <= Byte.MAX_VALUE) {
+            dos.writeByte(VALUE_TYPE_BYTE);
+            for (int i : ints) {
+                dos.writeByte((byte) i);
+            }
+        } else if (min >= Short.MIN_VALUE && max <= Short.MAX_VALUE) {
+            dos.writeByte(VALUE_TYPE_SHORT);
+            for (int i : ints) {
+                dos.writeShort((short) i);
+            }
+        } else {
+            dos.writeByte(VALUE_TYPE_INT);
+            for (int i : ints) {
+                dos.writeInt(i);
+            }
+        }
+    }
+
+    private static int[] readIntArray(DataInputStream dis, byte version)
+            throws IOException {
+        int numberOfElements = readSmallPositiveInt(dis);
+        int[] values = new int[numberOfElements];
+        byte valueType;
+        if (version == 0x01) {
+            valueType = VALUE_TYPE_INT;
+        } else {
+            valueType = dis.readByte();
+        }
+        switch (valueType) {
+        case VALUE_TYPE_BYTE:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readByte();
+            }
+            break;
+        case VALUE_TYPE_SHORT:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readShort();
+            }
+            break;
+        case VALUE_TYPE_INT:
+            for (int i = 0; i < numberOfElements; i++) {
+                values[i] = dis.readInt();
+            }
+            break;
+        default:
+            throw new IOException("Found unsupported value type " + valueType
+                    + ".");
         }
         return values;
     }
