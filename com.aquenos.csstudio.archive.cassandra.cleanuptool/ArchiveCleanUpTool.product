@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
 
-<product name="ArchiveCleanUpTool" uid="cleanUpTool" id="com.aquenos.csstudio.archive.cassandra.cleanuptool.cleanUpToolProduct" application="com.aquenos.csstudio.archive.cassandra.cleanuptool.cleanUpToolApp" version="2.1.0.qualifier" useFeatures="false" includeLaunchers="false">
+<product name="ArchiveCleanUpTool" uid="cleanUpTool" id="com.aquenos.csstudio.archive.cassandra.cleanuptool.cleanUpToolProduct" application="com.aquenos.csstudio.archive.cassandra.cleanuptool.cleanUpToolApp" version="2.2.0.qualifier" useFeatures="false" includeLaunchers="false">
 
    <configIni use="default">
    </configIni>

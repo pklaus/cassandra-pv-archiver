@@ -9,16 +9,33 @@
 
 package com.aquenos.csstudio.archive.writer.cassandra.internal;
 
-import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.csstudio.archive.config.ChannelConfig;
+import org.csstudio.archive.config.EngineConfig;
+import org.csstudio.archive.config.GroupConfig;
+
+import com.aquenos.csstudio.archive.cassandra.EngineNameHolder;
+import com.aquenos.csstudio.archive.cassandra.Sample;
 import com.aquenos.csstudio.archive.cassandra.SampleStore;
+import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
+import com.aquenos.csstudio.archive.config.cassandra.CompressionLevelConfig;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.CompressorPerLevelState;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.GeneralState;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.NumericState;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.model.ConsistencyLevel;
 
@@ -29,6 +46,22 @@ import com.netflix.astyanax.model.ConsistencyLevel;
  * @author Sebastian Marsching
  */
 public class SampleCompressor {
+
+    private static class ChannelInfo {
+        CompressorPerChannelState state;
+        HashMap<Long, LinkedList<Sample>> compressionLevelToSampleQueue;
+        HashMap<Long, Boolean> compressionLevelToSamplesLost;
+        boolean needsPeriodicRun;
+        long nextPeriodicRunTime;
+    }
+
+    private enum ScheduleRequestResult {
+        SUCCESS, QUEUE_IS_FULL, ALREADY_QUEUED
+    }
+
+    private final static int MAX_QUEUE_SIZE = 1024;
+    private final static long PERIODIC_RUN_INTERVAL = 14400000L;
+
     private final Logger logger = Logger.getLogger(WriterBundle.NAME);
 
     private Keyspace keyspace;
@@ -39,11 +72,11 @@ public class SampleCompressor {
     private State state = State.STOPPED;
     private final Object stateLock = new Object();
 
-    private BlockingQueue<String> inboundChannelNameQueue = new LinkedBlockingQueue<String>();
-    private BlockingQueue<String> outboundChannelNameQueue;
+    private BlockingQueue<Sample> inboundSampleQueue = new LinkedBlockingQueue<Sample>();
+    private BlockingQueue<CompressionRequest> outboundCompressionRequestQueue;
     private LinkedHashSet<String> internalChannelNameQueue = new LinkedHashSet<String>();
     private HashSet<String> unacknowledgedChannelNames = new HashSet<String>();
-    private BlockingQueue<String> acknowledgeChannelNameQueue = new LinkedBlockingQueue<String>();
+    private BlockingQueue<CompressionResponse> inboundCompressionResponseQueue = new LinkedBlockingQueue<CompressionResponse>();
 
     private ThreadGroup compressorThreadGroup;
     private Thread managementThread;
@@ -51,6 +84,8 @@ public class SampleCompressor {
 
     private long lastStatisticsTimestamp;
     private int channelCountSinceLastStatistics;
+
+    private HashMap<String, ChannelInfo> channelInfoMap;
 
     private final Runnable compressionRunner = new Runnable() {
         @Override
@@ -77,7 +112,7 @@ public class SampleCompressor {
         // enough to make it unlikely that a request for the same channel is
         // rescheduled, while the channel is still waiting in the outbound
         // queue.
-        outboundChannelNameQueue = new LinkedBlockingQueue<String>(
+        outboundCompressionRequestQueue = new LinkedBlockingQueue<CompressionRequest>(
                 numCompressorWorkers * 10);
     }
 
@@ -96,8 +131,8 @@ public class SampleCompressor {
                     Thread workerThread = new Thread(compressorThreadGroup,
                             new SampleCompressorWorker(keyspace,
                                     writeDataConsistencyLevel, sampleStore,
-                                    outboundChannelNameQueue,
-                                    acknowledgeChannelNameQueue),
+                                    this, outboundCompressionRequestQueue,
+                                    inboundCompressionResponseQueue),
                             "compressor-worker-thread-" + i);
                     workerThread.start();
                     workerThreads.add(workerThread);
@@ -150,73 +185,217 @@ public class SampleCompressor {
         }
     }
 
-    public void queueChannelProcessRequest(String channelName) {
+    public void queueSample(Sample sample) {
         // As the inbound queue is only restricted by the integer range, we do
         // not expect the add action to fail. Therefore we use add instead of
         // put or offer.
-        inboundChannelNameQueue.add(channelName);
-    }
-
-    public void queueChannelProcessRequests(Collection<String> channelNames) {
-        // As the inbound queue is only restricted by the integer range, we do
-        // not expect the add action to fail. Therefore we use add instead of
-        // put or offer.
-        inboundChannelNameQueue.addAll(channelNames);
+        inboundSampleQueue.add(sample);
     }
 
     private void run() {
         try {
+            boolean initialized = false;
+            while (!initialized && !Thread.currentThread().isInterrupted()) {
+                try {
+                    channelInfoMap = new HashMap<String, SampleCompressor.ChannelInfo>();
+                    CassandraArchiveConfig archiveConfig = sampleStore
+                            .getArchiveConfig();
+                    String engineName = EngineNameHolder.getEngineName();
+                    if (engineName == null) {
+                        // Throwing an exception will ensure that the thread
+                        // will sleep for some time and then retry to get the
+                        // engine name.
+                        throw new NullPointerException();
+                    }
+                    EngineConfig engineConfig = archiveConfig
+                            .findEngine(engineName);
+                    GroupConfig[] groupConfigs = archiveConfig
+                            .getGroups(engineConfig);
+                    for (GroupConfig groupConfig : groupConfigs) {
+                        ChannelConfig[] channelConfigs = archiveConfig
+                                .getChannels(groupConfig);
+                        for (ChannelConfig channelConfig : channelConfigs) {
+                            String channelName = channelConfig.getName();
+                            channelInfoMap
+                                    .put(channelName,
+                                            createChannelInfo(
+                                                    channelName,
+                                                    archiveConfig
+                                                            .findCompressionLevelConfigs(channelName)));
+                        }
+                    }
+                    // We also want to process all disabled channels once, so
+                    // that newly added compression levels are filled with data.
+                    GroupConfig disabledGroupConfig = archiveConfig
+                            .getDisabledChannelsGroup(engineConfig);
+                    ChannelConfig[] disabledChannelConfigs = archiveConfig
+                            .getChannels(disabledGroupConfig);
+                    for (ChannelConfig channelConfig : disabledChannelConfigs) {
+                        String channelName = channelConfig.getName();
+                        ChannelInfo channelInfo = createChannelInfo(
+                                channelName,
+                                archiveConfig
+                                        .findCompressionLevelConfigs(channelName));
+                        channelInfoMap.put(channelName, channelInfo);
+                    }
+                    // Periodically we want to perform a compression and
+                    // retention run. We only have to do this, when new data has
+                    // been added, however for each channel we want to execute
+                    // this task at least once, because processing might not
+                    // have finished on the last run. We want to spread out this
+                    // initial run over a longer time period in order to avoid
+                    // peaks in CPU usage.
+                    LinkedList<String> allChannels = new LinkedList<String>(
+                            channelInfoMap.keySet());
+                    Collections.shuffle(allChannels);
+                    int channelNumber = 0;
+                    double numberOfChannels = allChannels.size();
+                    long currentTime = System.currentTimeMillis();
+                    for (String channelName : allChannels) {
+                        ChannelInfo channelInfo = channelInfoMap
+                                .get(channelName);
+                        long offset = Math
+                                .round((channelNumber / numberOfChannels)
+                                        * PERIODIC_RUN_INTERVAL);
+                        channelInfo.nextPeriodicRunTime = currentTime + offset;
+                        channelInfo.needsPeriodicRun = true;
+                        channelNumber++;
+                    }
+
+                    // Set the initialized flag so that the loop will not be
+                    // executed again.
+                    initialized = true;
+                } catch (Exception e) {
+                    // The initialization might fail because the database is not
+                    // available (yet). Therefore we wait some time before we
+                    // retry.
+                    try {
+                        Thread.sleep(10000L);
+                    } catch (InterruptedException e1) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
             // Reset timestamp and counter for statistics.
             lastStatisticsTimestamp = System.currentTimeMillis();
             channelCountSinceLastStatistics = 0;
             while (!Thread.currentThread().isInterrupted()) {
                 long startTime = System.currentTimeMillis();
-                // Read channel names from the inbound queue and add them to the
-                // internal queue. If they are already listed in the internal
+                // Read samples from the inbound queue and add them to their
+                // respective queue. If they are already listed in the internal
                 // queue, this add method will have no effect.
-                String channelName;
-                while ((channelName = inboundChannelNameQueue.poll()) != null) {
+                Sample sample;
+                while ((sample = inboundSampleQueue.poll()) != null) {
+                    String channelName = sample.getChannelName();
+                    long compressionPeriod = sample.getCompressionPeriod();
+                    ChannelInfo channelInfo = channelInfoMap.get(channelName);
+                    if (channelInfo == null) {
+                        CompressionLevelConfig[] compressionLevelConfigs;
+                        try {
+                            compressionLevelConfigs = sampleStore
+                                    .getArchiveConfig()
+                                    .findCompressionLevelConfigs(channelName);
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING,
+                                    "Could not get compression-level configurations for channel \""
+                                            + channelName + "\".", e);
+                            continue;
+                        }
+                        channelInfo = createChannelInfo(channelName,
+                                compressionLevelConfigs);
+                        channelInfoMap.put(channelName, channelInfo);
+                    }
+                    LinkedList<Sample> sampleQueue = channelInfo.compressionLevelToSampleQueue
+                            .get(compressionPeriod);
+                    channelInfo.needsPeriodicRun = true;
+                    if (sampleQueue == null) {
+                        // We do not need samples for this channel and
+                        // compression level, thus we can just continue.
+                        continue;
+                    }
+                    sampleQueue.add(sample);
+                    while (sampleQueue.size() > MAX_QUEUE_SIZE) {
+                        sampleQueue.poll();
+                        channelInfo.compressionLevelToSamplesLost.put(
+                                compressionPeriod, true);
+                    }
                     internalChannelNameQueue.add(channelName);
                 }
                 // Read acknowledgments for processed channels from queue and
                 // remove the from the list of unacknowledged channels. This
                 // will ensure that the channels can be queued again.
-                while ((channelName = acknowledgeChannelNameQueue.poll()) != null) {
+                CompressionResponse response;
+                while ((response = inboundCompressionResponseQueue.poll()) != null) {
+                    String channelName = response.request.channelName;
                     unacknowledgedChannelNames.remove(channelName);
+                    // If this was a periodic run and it failed, we have to make
+                    // sure another run is scheduled.
+                    if (response.request.deleteOldSamples && !response.success) {
+                        ChannelInfo channelInfo = channelInfoMap
+                                .get(channelName);
+                        channelInfo.needsPeriodicRun = true;
+                    }
                 }
-                // Fill the outbound queue with requests from the internal
-                // queue.
-                for (Iterator<String> i = internalChannelNameQueue.iterator(); i
-                        .hasNext();) {
-                    String nextChannelName = i.next();
-                    if (unacknowledgedChannelNames.contains(nextChannelName)) {
+                // Schedule periodic processing for all channels due.
+                long currentTime = System.currentTimeMillis();
+                for (Map.Entry<String, ChannelInfo> entry : channelInfoMap
+                        .entrySet()) {
+                    String channelName = entry.getKey();
+                    ChannelInfo channelInfo = entry.getValue();
+                    if (unacknowledgedChannelNames.contains(channelName)) {
                         // A request for this channel has already been send to
                         // the worker queue and not been acknowledged yet, so
                         // it is not sent again.
                         continue;
                     }
-                    try {
-                        if (outboundChannelNameQueue.offer(nextChannelName,
-                                500, TimeUnit.MILLISECONDS)) {
-                            // Channel name has been added to the outbound
-                            // queue, so we can remove it from the internal
-                            // queue.
-                            i.remove();
-                            // We also have to add the channel to the list of
-                            // unacknowledged channels, so that it will not
-                            // be queued again.
-                            unacknowledgedChannelNames.add(nextChannelName);
-                            // Increase statistics counter.
-                            channelCountSinceLastStatistics++;
-                        } else {
+                    if (channelInfo.needsPeriodicRun
+                            && channelInfo.nextPeriodicRunTime <= currentTime) {
+                        ScheduleRequestResult result = scheduleRequest(
+                                channelName, true);
+                        if (result == ScheduleRequestResult.SUCCESS) {
+                            // We increment the time for the next run and set
+                            // the run-needed flag to false. If another run is
+                            // needed (either because data has been added to the
+                            // channel or because the request failed), the flag
+                            // will be set again later.
+                            channelInfo.nextPeriodicRunTime += PERIODIC_RUN_INTERVAL;
+                            channelInfo.needsPeriodicRun = false;
+                        } else if (result == ScheduleRequestResult.QUEUE_IS_FULL) {
                             // Outbound queue is full, so we break the loop.
                             // Otherwise we could stay in this loop for a
                             // very long time.
                             break;
+                        } else if (result == ScheduleRequestResult.ALREADY_QUEUED) {
+                            // The channel is already queued for processing,
+                            // thus we do not add it again (otherwise two
+                            // threads might process the same channel).
+                            continue;
                         }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                    }
+                }
+
+                // Fill the outbound queue with requests from the internal
+                // queue.
+                for (Iterator<String> i = internalChannelNameQueue.iterator(); i
+                        .hasNext();) {
+                    String nextChannelName = i.next();
+                    ScheduleRequestResult result = scheduleRequest(
+                            nextChannelName, false);
+                    if (result == ScheduleRequestResult.SUCCESS) {
+                        // Channel name has been added to the outbound
+                        // queue, so we can remove it from the internal
+                        // queue.
+                        i.remove();
+                    } else if (result == ScheduleRequestResult.QUEUE_IS_FULL) {
+                        // Outbound queue is full, so we break the loop.
+                        // Otherwise we could stay in this loop for a
+                        // very long time.
                         break;
+                    } else if (result == ScheduleRequestResult.ALREADY_QUEUED) {
+                        // The channel is already queued for processing, thus we
+                        // do not add it again (otherwise two threads might
+                        // process the same channel).
+                        continue;
                     }
                 }
 
@@ -224,7 +403,7 @@ public class SampleCompressor {
                 long statisticsTimeDiff = System.currentTimeMillis()
                         - lastStatisticsTimestamp;
                 if (statisticsTimeDiff >= 300000L) {
-                    int channelsInQueueOrBeingProcessed = outboundChannelNameQueue
+                    int channelsInQueueOrBeingProcessed = outboundCompressionRequestQueue
                             .size() + numCompressorWorkers;
                     int finishedCount = channelCountSinceLastStatistics
                             - channelsInQueueOrBeingProcessed;
@@ -289,6 +468,135 @@ public class SampleCompressor {
                 state = State.STOPPED;
             }
         }
+    }
+
+    private ScheduleRequestResult scheduleRequest(String channelName,
+            boolean deleteOldSamples) {
+        if (unacknowledgedChannelNames.contains(channelName)) {
+            // A request for this channel has already been send to
+            // the worker queue and not been acknowledged yet, so
+            // it is not sent again.
+            return ScheduleRequestResult.ALREADY_QUEUED;
+        }
+        try {
+            CompressionRequest request = new CompressionRequest();
+            request.channelName = channelName;
+            ChannelInfo channelInfo = channelInfoMap.get(channelName);
+            request.compressorState = channelInfo.state;
+            request.sourceSamples = channelInfo.compressionLevelToSampleQueue;
+            request.sourceSamplesLost = channelInfo.compressionLevelToSamplesLost;
+            request.deleteOldSamples = deleteOldSamples;
+            if (outboundCompressionRequestQueue.offer(request, 500,
+                    TimeUnit.MILLISECONDS)) {
+                // We have to use new maps for the sample queues and
+                // lost sample information, because the original
+                // maps may now be used by one of the worker
+                // threads.
+                channelInfo.compressionLevelToSampleQueue = new HashMap<Long, LinkedList<Sample>>();
+                for (long compressionLevel : request.sourceSamples.keySet()) {
+                    channelInfo.compressionLevelToSampleQueue.put(
+                            compressionLevel, new LinkedList<Sample>());
+                }
+                channelInfo.compressionLevelToSamplesLost = new HashMap<Long, Boolean>();
+                // We also have to add the channel to the list of
+                // unacknowledged channels, so that it will not
+                // be queued again.
+                unacknowledgedChannelNames.add(channelName);
+                // Increase statistics counter.
+                channelCountSinceLastStatistics++;
+                return ScheduleRequestResult.SUCCESS;
+            } else {
+                return ScheduleRequestResult.QUEUE_IS_FULL;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ScheduleRequestResult.QUEUE_IS_FULL;
+        }
+    }
+
+    private ChannelInfo createChannelInfo(String channelName,
+            CompressionLevelConfig[] compressionLevelConfigs) {
+        ChannelInfo channelInfo = new ChannelInfo();
+        channelInfo.compressionLevelToSampleQueue = new HashMap<Long, LinkedList<Sample>>();
+        channelInfo.compressionLevelToSamplesLost = new HashMap<Long, Boolean>();
+        channelInfo.state = new CompressorPerChannelState();
+        // The information needed for periodic runs is added later, thus we
+        // initialize it in a way that no periodic run would be executed.
+        channelInfo.needsPeriodicRun = false;
+        channelInfo.nextPeriodicRunTime = Long.MAX_VALUE;
+        // First we sort the compression levels in the order of their
+        // compression period (from short too long). We do this, so that
+        // compression levels with a longer period can use the data from
+        // compression levels with a shorter period, instead of having to use
+        // raw data. The raw compression level is handled separately, as it is
+        // never compressed.
+        LinkedList<CompressionLevelConfig> retentionOnly = new LinkedList<CompressionLevelConfig>();
+        TreeMap<Long, CompressionLevelConfig> compressionPeriodToConfig = new TreeMap<Long, CompressionLevelConfig>();
+        for (CompressionLevelConfig config : compressionLevelConfigs) {
+            long compressionPeriod = config.getCompressionPeriod();
+            if (compressionPeriod <= 0) {
+                // No compression
+                retentionOnly.add(config);
+            } else {
+                // There can never be two compression level configurations with
+                // the same compression period, so this is safe.
+                compressionPeriodToConfig.put(compressionPeriod, config);
+            }
+        }
+        // We use a linked hash map so that the iteration order is retained.
+        channelInfo.state.perLevelStates = new LinkedHashMap<Long, CompressorPerChannelState.CompressorPerLevelState>();
+        for (CompressionLevelConfig compressionLevelConfig : compressionPeriodToConfig
+                .values()) {
+            long compressionPeriod = compressionLevelConfig
+                    .getCompressionPeriod();
+            CompressorPerLevelState levelState = new CompressorPerLevelState();
+            levelState = new CompressorPerLevelState();
+            levelState.generalState = new GeneralState();
+            levelState.numericState = new NumericState();
+            levelState.retentionPeriod = compressionLevelConfig
+                    .getRetentionPeriod();
+            Long nextCompressionPeriod = compressionPeriod;
+            while (nextCompressionPeriod != null) {
+                nextCompressionPeriod = compressionPeriodToConfig
+                        .lowerKey(nextCompressionPeriod);
+                if (nextCompressionPeriod != null
+                        && compressionPeriod % (nextCompressionPeriod * 2) == 0) {
+                    // Found a compression level with a shorter compression
+                    // period, that the current compression period is an even
+                    // integer multiple of. In this case, we will benefit from
+                    // using that compression level instead of the raw samples,
+                    // because the samples from the compression level are
+                    // exactly aligned to the start and end of the intervals
+                    // used to calculate the samples of this compression level.
+                    break;
+                }
+            }
+            if (nextCompressionPeriod == null) {
+                // If no matching compression level is found, we have to use
+                // the raw samples.
+                levelState.sourceCompressionPeriod = 0L;
+            } else {
+                levelState.sourceCompressionPeriod = nextCompressionPeriod;
+            }
+            channelInfo.state.perLevelStates.put(compressionPeriod, levelState);
+            channelInfo.compressionLevelToSampleQueue.put(
+                    levelState.sourceCompressionPeriod,
+                    new LinkedList<Sample>());
+        }
+        // Process remaining compression levels for retention
+        for (CompressionLevelConfig compressionLevelConfig : retentionOnly) {
+            boolean enableRetention = compressionLevelConfig
+                    .getRetentionPeriod() > 0;
+            if (enableRetention) {
+                CompressorPerLevelState levelState = new CompressorPerLevelState();
+                levelState.retentionPeriod = compressionLevelConfig
+                        .getRetentionPeriod();
+                channelInfo.state.perLevelStates.put(
+                        compressionLevelConfig.getCompressionPeriod(),
+                        levelState);
+            }
+        }
+        return channelInfo;
     }
 
 }

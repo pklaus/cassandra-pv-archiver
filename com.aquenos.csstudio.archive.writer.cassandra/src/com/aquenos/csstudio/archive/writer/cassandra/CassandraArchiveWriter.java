@@ -9,7 +9,6 @@
 
 package com.aquenos.csstudio.archive.writer.cassandra;
 
-import java.util.LinkedList;
 import java.util.UUID;
 
 import org.csstudio.archive.config.ChannelConfig;
@@ -25,6 +24,7 @@ import org.csstudio.data.values.IValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.aquenos.csstudio.archive.cassandra.Sample;
 import com.aquenos.csstudio.archive.cassandra.SampleStore;
 import com.aquenos.csstudio.archive.cassandra.util.astyanax.NotifyingMutationBatch;
 import com.aquenos.csstudio.archive.cassandra.util.astyanax.WrappedNotifyingMutationBatch;
@@ -54,7 +54,6 @@ public class CassandraArchiveWriter implements ArchiveWriter {
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     private NotifyingMutationBatch mutationBatch;
-    private LinkedList<String> affectedChannels = new LinkedList<String>();
 
     private AstyanaxContext<Cluster> context;
     private Cluster cluster;
@@ -292,15 +291,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
             for (ChannelConfig channelConfig : archiveConfig
                     .getChannels(disabledChannelsGroup)) {
                 String channelName = channelConfig.getName();
-                // Schedule a compression for the channel. This ensures that
-                // missing compressed samples will be generated, even if no
-                // sample is written to the channel (e.g. because the group is
-                // not enabled).
-                if (sampleCompressor != null) {
-                    affectedChannels.add(channelName);
-                }
-                // We also want to make sure that a zero bucket size is inserted
-                // if the most recent sample for the channel is very old.
+                // We want to make sure that a zero bucket size is inserted if
+                // the most recent sample for the channel is very old.
                 // Therefore we call SampleStore#verifyZeroBucketSize(...) once
                 // for each compression level.
                 sampleStore.verifyZeroBucketSize(0L, channelName);
@@ -323,16 +315,10 @@ public class CassandraArchiveWriter implements ArchiveWriter {
 
     @Override
     public WriteChannel getChannel(String name) throws Exception {
-        // Schedule a compression for the channel. This ensures that missing
-        // compressed samples will be generated, even if no sample is written
-        // to the channel (e.g. because the group is not enabled).
-        if (sampleCompressor != null) {
-            affectedChannels.add(name);
-        }
-        // We also want to make sure that a zero bucket size is inserted if
-        // the most recent sample for the channel is very old. Therefore we
-        // call SampleStore#verifyZeroBucketSize(...) once for each
-        // compression level.
+        // We want to make sure that a zero bucket size is inserted if the most
+        // recent sample for the channel is very old. Therefore we call
+        // SampleStore#verifyZeroBucketSize(...) once for each compression
+        // level.
         sampleStore.verifyZeroBucketSize(0L, name);
         for (CompressionLevelConfig compressionLevelConfig : archiveConfig
                 .findCompressionLevelConfigs(name)) {
@@ -404,8 +390,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
         String channelName = channel.getName();
         sampleStore.insertSample(mutationBatch, 0L, channelName, sample);
         if (sampleCompressor != null) {
-            // Mark channel for processing by sample compressor.
-            affectedChannels.add(channelName);
+            // Add channel to sample compressor queue.
+            sampleCompressor.queueSample(new Sample(0L, channelName, sample));
         }
     }
 
@@ -419,13 +405,6 @@ public class CassandraArchiveWriter implements ArchiveWriter {
                 mutationBatch.execute();
             }
             success = true;
-            // If we have a sample compressor, it should process the channels we
-            // wrote samples for at its next run.
-            if (this.sampleCompressor != null) {
-                this.sampleCompressor
-                        .queueChannelProcessRequests(affectedChannels);
-                affectedChannels.clear();
-            }
         } finally {
             if (!success) {
                 // If there was a problem we should clean up the mutation batch
