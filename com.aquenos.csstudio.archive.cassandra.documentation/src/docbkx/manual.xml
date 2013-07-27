@@ -89,6 +89,26 @@
         upgrading.
       </para>
     </section>
+    <section>
+      <title>What's New in Cassandra Archiver 2.2</title>
+      <para>
+        Version 2.2 of the Cassandra Archiver brings an improved version of the
+        sample compressor algorithm. Instead of polling the database for new
+        samples, new samples are now send to the compressor thread using a
+        queue, thus significantly reducing the number of read requests needed.
+        The retention mechanism has also been optimized, so that samples are now
+        deleted once about every four hours instead of constantly. These
+        retention runs and compression runs for channels without new samples are
+        spread out over a period of about 4 hours, thus avoiding load peaks. In
+        summary these changes reduce the system load for compressed samples
+        significantly.
+      </para>
+      <para>
+        The database structure and format have not changed compared to version
+        2.1, thus older versions of the reader can be used in combination with
+        version 2.2 of the archive engine.
+      </para>
+    </section>
   </chapter>
   
   <chapter xml:id="concept">
@@ -541,115 +561,39 @@
             to any principal.
           </para>
           <para>
-            The <classname>SimpleAuthenticator</classname> and
-            <classname>SimpleAuthority</classname> are part of the Cassandra
-            source code but are not distributed with the binary distribution.
-          </para>
-          <para>
-            For your convenience, a JAR file with the compiled versions of the
-            two classes is distributed with the Cassandra Archiver in the
-            <filename>cassandra-simpleauth</filename> directory.
-          </para>
-          <para>
-            Copy this JAR to the <filename>lib</filename> directory of the
-            Cassandra installation and add the following two lines to the end
-            of the <filename>cassandra-env.sh</filename> configuration file:
-          </para>
-<programlisting><![CDATA[
-JVM_OPTS="$JVM_OPTS -Dpasswd.properties=$CASSANDRA_CONF/passwd.properties"
-JVM_OPTS="$JVM_OPTS -Daccess.properties=$CASSANDRA_CONF/access.properties"
-]]></programlisting>
-          <para>
-            Besides adding these system properties, you also have to adjust
-            the <literal>authenticator</literal> and
-            <literal>authority</literal> options in
-            <filename>cassandra.yaml</filename> to refer to
-            <classname>org.apache.cassandra.auth.SimpleAuthenticator</classname>
+            If you want to enable authentication and authorization starting with
+            Cassandra 1.2 there is a built-in mechanism that stores the required
+            data in the Cassandra database. Please refer to the Cassandra manual
+            for configuring
+            <link xlink:href="www.datastax.com/documentation/cassandra/1.2/index.html#cassandra/security/secure_about_native_authenticate_c.html">authentication</link>
             and
-            <classname>org.apache.cassandra.auth.SimpleAuthority</classname>
-            respectively.
+            <link xlink:href="http://www.datastax.com/documentation/cassandra/1.2/index.html#cassandra/security/secure_about_native_authorize_c.html">authorization</link>.
           </para>
           <para>
-            You also have to create the configuration files
-            <filename>passwd.properties</filename> and
-            <filename>access.properties</filename> in the
-            <filename>conf</filename> directory of the Cassandra installation.
+            You usually will want to configure two users for the Cassandra
+            archiver: One with read-access, used by the archive reader, and one
+            with write-access, used by the archive engine, configuration tool
+            and clean-up tool.
           </para>
           <para>
-            The <filename>passwd.properties</filename> file uses a simple
-            syntax where the property name is the username and the property
-            value is the clear-text password for the user. The following
-            examples defines four users with different passwords:
+            You can create the two users using the following commands in
+            <command>cqlsh</command>:
           </para>
 <programlisting><![CDATA[
-admin=superSafePassword
-archive-read=somePassword
-archive-write=someDifferentPassword
-archive-config=anotherPassword
+CREATE USER archive_write with PASSWORD 'somePassword' NOSUPERUSER;
+CREATE USER archive_read with PASSWORD 'anotherPassword' NOSUPERUSER;
 ]]></programlisting>
           <para>
-            The <filename>access.properties</filename> uses a syntax, where the
-            property name represents a privilege and the property value is a
-            comma-separated list of principals, which are granted that
-            privilege. The following example assigns four levels of privileges:
-            The user <literal>admin</literal> may perform any operation, the
-            user <literal>archive-read</literal> may read data from the
-            column-families in the <literal>cssArchive</literal> keyspace and
-            the user <literal>archive-write</literal> may write data to the
-            column-families <literal>samples</literal>,
-            <literal>channelConfigurations</literal> and
-            <literal>compressionLevelConfigurations</literal> in the 
-            <literal>cssArchive</literal> keyspace, and the user
-            <literal>archive-config</literal> may write data to any column 
-            family in the <literal>cssArchive</literal> keyspace:
+            You can grant the privileges using the following commands:
           </para>
 <programlisting><![CDATA[
-<modify-keyspaces>=admin
-cssArchive.<ro>=archive-read,archive-write,archive-config
-cssArchive.<rw>=admin
-cssArchive.engineConfiguration.<ro>=archive-read,archive-write
-cssArchive.engineConfiguration.<rw>=archive-config,admin
-cssArchive.engineConfigurationToGroups.<ro>=archive-read,archive-write
-cssArchive.engineConfigurationToGroups.<rw>=archive-config,admin
-cssArchive.groupConfiguration.<ro>=archive-read,archive-write
-cssArchive.groupConfiguration.<rw>=archive-config,admin
-cssArchive.groupConfigurationToChannels.<ro>=archive-read,archive-write
-cssArchive.groupConfigurationToChannels.<rw>=archive-config,admin
-cssArchive.channelConfiguration.<ro>=archive-read,archive-write
-cssArchive.channelConfiguration.<rw>=archive-config,admin
-cssArchive.channelConfigurationToCompressionLevels.<ro>=archive-read,archive-write
-cssArchive.channelConfigurationToCompressionLevels.<rw>=archive-config,admin
-cssArchive.samples.<ro>=archive-read,archive-config
-cssArchive.samples.<rw>=archive-write,admin
-cssArchive.samplesBucketSize.<ro>=archive-read,archive-config
-cssArchive.samplesBucketSize.<rw>=archive-write,admin
+GRANT ALTER PERMISSION on KEYSPACE "cssArchive" to archive_write;
+GRANT CREATE PERMISSION on KEYSPACE "cssArchive" to archive_write;
+GRANT DROP PERMISSION on KEYSPACE "cssArchive" to archive_write;
+GRANT MODIFY PERMISSION on KEYSPACE "cssArchive" to archive_write;
+GRANT SELECT PERMISSION on KEYSPACE "cssArchive" to archive_write;
+GRANT SELECT PERMISSION on KEYSPACE "cssArchive" to archive_read;
 ]]></programlisting>
-          <para>
-            The lines for the <literal>samples</literal> and
-            <literal>samplesBucketSize</literal> families have to be repeated
-            for all the column families used for compression levels (e.g.
-            <literal>samples_5</literal> and
-            <literal>samplesBucketSize_5</literal> for the compression level
-            with a compression period of five seconds).
-          </para>
-          <para>
-            While you can grant write permissions for the whole keyspace to the
-            <literal>archive-write</literal> user, this does not work for read
-            permissions due to the limitations of the
-            <classname>SimpleAuthority</classname>.
-          </para>
-          <warning>
-            <para>
-              The <classname>SimpleAuthenticator</classname> and
-              <classname>SimpleAuthority</classname> are not designed for
-              production use and should not be used in a production environment.
-              They are only meant for testing and as a starting point to
-              implement your own authenticator and authority. An authenticator
-              and authority that uses a highly-available data-source that is
-              automatically replicated might be a good choice (e.g. an LDAP
-              directory that has a read-only replica on each Cassandra node).
-            </para>
-          </warning>
         </section>
         <section>
           <title>Starting the Server</title>

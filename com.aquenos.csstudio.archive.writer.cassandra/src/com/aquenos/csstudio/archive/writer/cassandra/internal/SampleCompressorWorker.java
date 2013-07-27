@@ -10,9 +10,11 @@
 package com.aquenos.csstudio.archive.writer.cassandra.internal;
 
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.TreeMap;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -37,8 +39,9 @@ import com.aquenos.csstudio.archive.cassandra.SampleStore;
 import com.aquenos.csstudio.archive.cassandra.util.TimestampArithmetics;
 import com.aquenos.csstudio.archive.cassandra.util.astyanax.NotifyingMutationBatch;
 import com.aquenos.csstudio.archive.cassandra.util.astyanax.WrappedNotifyingMutationBatch;
-import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
-import com.aquenos.csstudio.archive.config.cassandra.CompressionLevelConfig;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.CompressorPerLevelState;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.GeneralState;
+import com.aquenos.csstudio.archive.writer.cassandra.internal.CompressorPerChannelState.NumericState;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.netflix.astyanax.model.ConsistencyLevel;
@@ -57,290 +60,363 @@ public class SampleCompressorWorker implements Runnable {
     private Keyspace keyspace;
     private ConsistencyLevel writeDataConsistencyLevel;
     private SampleStore sampleStore;
-    private CassandraArchiveConfig archiveConfig;
-    private BlockingQueue<String> receiveChannelNameQueue;
-    private BlockingQueue<String> acknowledgeChannelNameQueue;
+    private SampleCompressor sampleCompressor;
+    private BlockingQueue<CompressionRequest> receiveCompressionRequestQueue;
+    private BlockingQueue<CompressionResponse> sendCompressionResponseQueue;
 
     private enum ValueType {
         DOUBLE, ENUM, LONG, STRING
     }
 
-    private class GeneralState {
-        ITimestamp start;
-        ITimestamp end;
-        ITimestamp nextSampleTime;
-        boolean skippedLastSample = false;
-        int insertCounter = 0;
-        ISeverity maxSeverity;
-        IValue centerValue;
-        boolean haveNewData = false;
-    }
+    private class SampleIterator implements Iterator<Sample> {
 
-    private class NumericState {
-        Double doubleMin;
-        Double doubleMax;
-        double[] doubleSum;
+        private Sample next;
+        private Deque<Sample> sampleQueue;
+        private Iterator<Sample> sampleIterator;
+
+        public SampleIterator(Deque<Sample> sampleQueue,
+                Iterator<Sample> sampleIterator) {
+            this.sampleQueue = sampleQueue;
+            this.sampleIterator = sampleIterator;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (next != null) {
+                return true;
+            }
+            if (sampleIterator != null && sampleIterator.hasNext()) {
+                next = sampleIterator.next();
+                if (sampleQueue.isEmpty()
+                        || next.getValue()
+                                .getTime()
+                                .isLessThan(
+                                        sampleQueue.peek().getValue().getTime())) {
+                    return true;
+                } else {
+                    next = null;
+                    sampleIterator = null;
+                }
+            }
+            if (!sampleQueue.isEmpty()) {
+                next = sampleQueue.poll();
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public Sample next() {
+            if (next != null) {
+                Sample sample = next;
+                next = null;
+                return sample;
+            } else {
+                throw new NoSuchElementException();
+            }
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
     }
 
     public SampleCompressorWorker(Keyspace keyspace,
             ConsistencyLevel writeDataConsistencyLevel,
-            SampleStore sampleStore,
-            BlockingQueue<String> receiveChannelNameQueue,
-            BlockingQueue<String> acknowledgeChannelNameQueue) {
+            SampleStore sampleStore, SampleCompressor sampleCompressor,
+            BlockingQueue<CompressionRequest> receiveCompressionRequestQueue,
+            BlockingQueue<CompressionResponse> sendCompressionResponseQueue) {
         this.keyspace = keyspace;
         this.writeDataConsistencyLevel = writeDataConsistencyLevel;
         this.sampleStore = sampleStore;
-        this.archiveConfig = sampleStore.getArchiveConfig();
-        this.receiveChannelNameQueue = receiveChannelNameQueue;
-        this.acknowledgeChannelNameQueue = acknowledgeChannelNameQueue;
+        this.sampleCompressor = sampleCompressor;
+        this.receiveCompressionRequestQueue = receiveCompressionRequestQueue;
+        this.sendCompressionResponseQueue = sendCompressionResponseQueue;
     }
 
     @Override
     public void run() {
         while (!Thread.currentThread().isInterrupted()) {
-            String channelName;
+            CompressionRequest request;
             try {
-                channelName = receiveChannelNameQueue.take();
+                request = receiveCompressionRequestQueue.take();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 // We can return, because we did not take a channel name from
                 // the queue, so there is nothing left to do.
                 return;
             }
+            boolean exceptionOccurred = true;
             try {
-                processChannel(channelName);
+                processChannel(request);
+                exceptionOccurred = false;
             } catch (Throwable e) {
                 // Log exception and continue with next channel
                 logger.log(Level.WARNING,
                         "Error while compressing samples for channel "
-                                + channelName + ": " + e.getMessage(), e);
+                                + request.channelName + ": " + e.getMessage(),
+                        e);
             } finally {
                 // Notify the management thread that the processing of the
                 // channel has finished and the channel might be processed
                 // again.
-                acknowledgeChannelNameQueue.add(channelName);
+                CompressionResponse response = new CompressionResponse();
+                response.request = request;
+                response.success = !exceptionOccurred;
+                sendCompressionResponseQueue.add(response);
             }
         }
     }
 
-    private void processChannel(String channelName) throws ConnectionException {
-        CompressionLevelConfig[] compressionLevelConfigs = archiveConfig
-                .findCompressionLevelConfigs(channelName);
-        // First we sort the compression levels in the order of their
-        // compression period (from short too long). We do this, so that
-        // compression levels with a longer period can use the data from
-        // compression levels with a shorter period, instead of having to use
-        // raw data. The raw compression level is handled separately, as it is
-        // never compressed.
-        LinkedList<CompressionLevelConfig> retentionOnly = new LinkedList<CompressionLevelConfig>();
-        TreeMap<Long, CompressionLevelConfig> compressionPeriodToConfig = new TreeMap<Long, CompressionLevelConfig>();
-        for (CompressionLevelConfig config : compressionLevelConfigs) {
-            long compressionPeriod = config.getCompressionPeriod();
-            if (compressionPeriod <= 0) {
-                // No compression
-                retentionOnly.add(config);
-            } else {
-                // There can never be two compression level configurations with
-                // the same compression period, so this is safe.
-                compressionPeriodToConfig.put(compressionPeriod, config);
-            }
-        }
-        for (CompressionLevelConfig compressionLevelConfig : compressionPeriodToConfig
-                .values()) {
-            long compressionPeriod = compressionLevelConfig
-                    .getCompressionPeriod();
-            Long nextCompressionPeriod = compressionPeriod;
-            while (nextCompressionPeriod != null) {
-                nextCompressionPeriod = compressionPeriodToConfig
-                        .lowerKey(nextCompressionPeriod);
-                if (nextCompressionPeriod != null
-                        && compressionPeriod % (nextCompressionPeriod * 2) == 0) {
-                    // Found a compression level with a shorter compression
-                    // period, that the current compression period is an even
-                    // integer multiple of. In this case, we will benefit
-                    // from using that compression level instead of the raw
-                    // samples, because the samples from the compression level
-                    // are exactly aligned to the start and end of the intervals
-                    // used to calculate the samples of this compression level.
-                    break;
+    private void processChannel(CompressionRequest request)
+            throws ConnectionException {
+        String channelName = request.channelName;
+        CompressorPerChannelState channelState = request.compressorState;
+        for (Map.Entry<Long, CompressorPerLevelState> entry : channelState.perLevelStates
+                .entrySet()) {
+            long compressionPeriod = entry.getKey();
+            CompressorPerLevelState compressionState = entry.getValue();
+            // Only compression levels with a compression period greater than
+            // zero store compressed samples.
+            if (compressionPeriod > 0L) {
+                // Generate compressed samples for this compression level and
+                // channel.
+                boolean exceptionOccurred = true;
+                try {
+                    long sourceCompressionPeriod = compressionState.sourceCompressionPeriod;
+                    Boolean sourceSamplesLost = request.sourceSamplesLost
+                            .get(sourceCompressionPeriod);
+                    if (sourceSamplesLost == null) {
+                        sourceSamplesLost = false;
+                    }
+                    compressChannel(
+                            channelName,
+                            compressionPeriod,
+                            sourceCompressionPeriod,
+                            new LinkedList<Sample>(request.sourceSamples
+                                    .get(sourceCompressionPeriod)),
+                            sourceSamplesLost, compressionState.generalState,
+                            compressionState.numericState);
+                    exceptionOccurred = false;
+                } finally {
+                    if (exceptionOccurred) {
+                        compressionState.generalState.reset();
+                        compressionState.numericState.reset();
+                    }
                 }
             }
-            long sourceCompressionPeriod;
-            if (nextCompressionPeriod == null) {
-                // If no matching compression level is found, we have to use the
-                // raw samples.
-                sourceCompressionPeriod = 0L;
-            } else {
-                sourceCompressionPeriod = nextCompressionPeriod;
-            }
-            boolean enableRetention = compressionLevelConfig
-                    .getRetentionPeriod() > 0;
-            // Generate compressed samples for this compression level and
-            // channel.
-            compressChannel(compressionLevelConfig, sourceCompressionPeriod);
             // Delete old samples if retention is enabled.
-            if (enableRetention) {
-                deleteOldSamples(compressionLevelConfig);
-            }
-        }
-        // Process remaining compression levels for retention
-        for (CompressionLevelConfig compressionLevelConfig : retentionOnly) {
-            boolean enableRetention = compressionLevelConfig
-                    .getRetentionPeriod() > 0;
-            if (enableRetention) {
-                deleteOldSamples(compressionLevelConfig);
+            if (request.deleteOldSamples
+                    && compressionState.retentionPeriod > 0) {
+                deleteOldSamples(channelName, compressionPeriod,
+                        compressionState.retentionPeriod);
             }
         }
     }
 
-    private void deleteOldSamples(CompressionLevelConfig compressionLevelConfig)
-            throws ConnectionException {
-        String channelName = compressionLevelConfig.getChannelName();
-        long compressionPeriod = compressionLevelConfig.getCompressionPeriod();
+    private void deleteOldSamples(String channelName, long compressionPeriod,
+            long retentionPeriod) throws ConnectionException {
         ITimestamp end = TimestampFactory.createTimestamp(sampleStore
                 .getLastSampleTimestamp(compressionPeriod, channelName)
                 .seconds()
-                - compressionLevelConfig.getRetentionPeriod(), 0L);
+                - retentionPeriod, 0L);
         if (end.seconds() < 0 || (end.seconds() == 0 && end.nanoseconds() == 0)) {
             return;
         }
         sampleStore.deleteSamples(compressionPeriod, channelName, null, end);
     }
 
-    private void compressChannel(CompressionLevelConfig compressionLevelConfig,
-            long sourceCompressionPeriod) throws ConnectionException {
-        String channelName = compressionLevelConfig.getChannelName();
-        long compressionPeriod = compressionLevelConfig.getCompressionPeriod();
-        ITimestamp compressionPeriodAsTimestamp = TimestampFactory
-                .createTimestamp(compressionPeriod, 0L);
-        ITimestamp halfCompressionPeriodAsTimestamp = TimestampArithmetics
-                .divide(compressionPeriodAsTimestamp, 2);
-        ITimestamp lastSampleTime = sampleStore.getLastSampleTimestamp(
-                compressionPeriod, channelName);
-        // We store most of the state in two structures, so that we can
-        // manipulate the state from other methods, that we use to concentrate
-        // some common code.
-        GeneralState generalState = new GeneralState();
-        NumericState numericState = new NumericState();
-        // We have to determine the timestamp of the next compressed sample to
-        // be calculated.
-        if (lastSampleTime != null) {
-            generalState.nextSampleTime = TimestampArithmetics.add(
-                    lastSampleTime, compressionPeriodAsTimestamp);
-            // We want to make sure that the next sample time is aligned, even
-            // if for some reason we have an unaligned sample in the database.
-            generalState.nextSampleTime = alignNextSampleTime(
-                    generalState.nextSampleTime, compressionPeriod);
-        } else {
-            // calculateNextSampleTime already takes care of aligning the time,
-            // so we do not have to do this here.
-            generalState.nextSampleTime = calculateNextSampleTime(channelName,
-                    compressionPeriod, sourceCompressionPeriod);
-        }
-        if (generalState.nextSampleTime == null) {
-            // If there are no source samples and no compressed samples have
-            // been stored yet, the nextSampleTime is null. In this case we
-            // cannot create a compressed sample and just return.
-            return;
-        }
-        // For calculating the compressed sample we need source samples starting
-        // half a compression period before the compressed sample.
-        // In addition to that, we need one earlier sample, so that we know the
-        // source sample value for the complete compression period (otherwise a
-        // period in the start would be missing, if the first sample was not
-        // exactly at the start).
-        Sample lastSourceSample;
-        do {
-            generalState.start = TimestampArithmetics.substract(
-                    generalState.nextSampleTime,
-                    halfCompressionPeriodAsTimestamp);
-            lastSourceSample = getFirst(sampleStore.findSamples(
-                    sourceCompressionPeriod, channelName, generalState.start,
-                    null, 1, true));
-            if (lastSourceSample == null) {
-                // There is no sample that is old enough. This can happen if we
-                // already have compressed samples and relatively new source
-                // samples have been deleted. In this case, we calculate the
-                // time for the next compressed sample based on the timestamp of
-                // the oldest available source sample.
+    private void compressChannel(String channelName, long compressionPeriod,
+            long sourceCompressionPeriod, Deque<Sample> sourceSamples,
+            boolean sourceSamplesLost, GeneralState generalState,
+            NumericState numericState) throws ConnectionException {
+        // The two state objects are reused between invocations, however we have
+        // to reset the insert counter, because the mutation batch is always
+        // executed at the end of an invocation.
+        generalState.insertCounter = 0;
+        // If this is the first time that this method is run, we have to
+        // initialize some state information.
+        if (generalState.firstRun) {
+            // Ensure that the state is reset in case it was initialized
+            // incompletely.
+            generalState.reset();
+            numericState.reset();
+            ITimestamp compressionPeriodAsTimestamp = TimestampFactory
+                    .createTimestamp(compressionPeriod, 0L);
+            ITimestamp halfCompressionPeriodAsTimestamp = TimestampArithmetics
+                    .divide(compressionPeriodAsTimestamp, 2);
+            ITimestamp lastSampleTime = sampleStore.getLastSampleTimestamp(
+                    compressionPeriod, channelName);
+            // We have to determine the timestamp of the next compressed sample
+            // to be calculated.
+            if (lastSampleTime != null) {
+                generalState.nextSampleTime = TimestampArithmetics.add(
+                        lastSampleTime, compressionPeriodAsTimestamp);
+                // We want to make sure that the next sample time is aligned,
+                // even if for some reason we have an unaligned sample in the
+                // database.
+                generalState.nextSampleTime = alignNextSampleTime(
+                        generalState.nextSampleTime, compressionPeriod);
+            } else {
+                // calculateNextSampleTime already takes care of aligning the
+                // time, so we do not have to do this here.
                 generalState.nextSampleTime = calculateNextSampleTime(
                         channelName, compressionPeriod, sourceCompressionPeriod);
-                if (generalState.nextSampleTime == null) {
-                    // There are no source samples, thus we cannot calculate any
-                    // compressed samples.
-                    return;
-                }
             }
-        } while (lastSourceSample == null);
-        // The end of the compression period is defined by the start plus the
-        // compression period. We update the start and end in order to reflect
-        // the compressed sample currently being built while we iterate over the
-        // source samples.
-        generalState.end = TimestampArithmetics.add(generalState.start,
-                compressionPeriodAsTimestamp);
-        // We also need the last compressed sample in order to decide whether
-        // the value has changed and thus the new compressed sample should be
-        // saved. It is okay, if we do not find any such sample. We just save
-        // the new compressed sample without comparing it.
-        Sample lastCompressedSample = getFirst(sampleStore.findSamples(
-                compressionPeriod, channelName, TimestampArithmetics.substract(
-                        generalState.nextSampleTime, ONE_NANOSECOND), null, 1,
-                true));
+            if (generalState.nextSampleTime == null) {
+                // If there are no source samples and no compressed samples have
+                // been stored yet, the nextSampleTime is null. In this case we
+                // cannot create a compressed sample and just return.
+                return;
+            }
+            // For calculating the compressed sample we need source samples
+            // starting half a compression period before the compressed sample.
+            // In addition to that, we need one earlier sample, so that we know
+            // the source sample value for the complete compression period
+            // (otherwise a period in the start would be missing, if the first
+            // sample was not exactly at the start).
+            do {
+                generalState.start = TimestampArithmetics.substract(
+                        generalState.nextSampleTime,
+                        halfCompressionPeriodAsTimestamp);
+                generalState.lastSourceSample = getFirst(sampleStore
+                        .findSamples(sourceCompressionPeriod, channelName,
+                                generalState.start, null, 1, true));
+                if (generalState.lastSourceSample == null) {
+                    // There is no sample that is old enough. This can happen if
+                    // we already have compressed samples and relatively new
+                    // source samples have been deleted. In this case, we
+                    // calculate the time for the next compressed sample based
+                    // on the timestamp of the oldest available source sample.
+                    generalState.nextSampleTime = calculateNextSampleTime(
+                            channelName, compressionPeriod,
+                            sourceCompressionPeriod);
+                    if (generalState.nextSampleTime == null) {
+                        // There are no source samples, thus we cannot calculate
+                        // any compressed samples.
+                        return;
+                    }
+                }
+            } while (generalState.lastSourceSample == null);
+            // The end of the compression period is defined by the start plus
+            // the compression period. We update the start and end in order to
+            // reflect the compressed sample currently being built while we
+            // iterate over the source samples.
+            generalState.end = TimestampArithmetics.add(generalState.start,
+                    compressionPeriodAsTimestamp);
+            // We also need the last compressed sample in order to decide
+            // whether the value has changed and thus the new compressed sample
+            // should be saved. It is okay, if we do not find any such sample.
+            // We just save the new compressed sample without comparing it.
+            generalState.lastCompressedSample = getFirst(sampleStore
+                    .findSamples(compressionPeriod, channelName,
+                            TimestampArithmetics
+                                    .substract(generalState.nextSampleTime,
+                                            ONE_NANOSECOND), null, 1, true));
+        }
         // Now that we have a sample before the compression period, we can start
         // collecting all the samples in the compression period and create the
         // compressed sample. We do this until we run out of source samples.
         NotifyingMutationBatch mutationBatch = new WrappedNotifyingMutationBatch(
                 keyspace.prepareMutationBatch().withConsistencyLevel(
                         writeDataConsistencyLevel));
-        // We use the iterator directly, because sometimes we have to do a loop
-        // iteration without incrementing the iterator.
-        Iterator<Sample> sourceSampleIterator = sampleStore.findSamples(
-                sourceCompressionPeriod, channelName, generalState.start, null,
-                -1, false).iterator();
-        Sample sourceSample = null;
+        // We use a virtual iterator that combines the data from the database
+        // with the data we got from the queue.
+        ITimestamp queryStart;
+        if (generalState.sourceSample == null) {
+            queryStart = TimestampArithmetics.add(generalState.lastSourceSample
+                    .getValue().getTime(), ONE_NANOSECOND);
+        } else {
+            queryStart = TimestampArithmetics.add(generalState.sourceSample
+                    .getValue().getTime(), ONE_NANOSECOND);
+        }
+        // We have to remove source samples from the queue that are too old.
+        // This can happen because samples might have been added to the queue,
+        // while we were already reading them from the database.
+        while (!sourceSamples.isEmpty()
+                && sourceSamples.peek().getValue().getTime()
+                        .isLessThan(queryStart)) {
+            sourceSamples.poll();
+        }
+        Iterator<Sample> sourceSampleIterator;
+        if (generalState.firstRun || sourceSamplesLost) {
+            ITimestamp queryEnd;
+            if (sourceSamples.isEmpty()) {
+                queryEnd = null;
+            } else {
+                queryEnd = sourceSamples.peek().getValue().getTime();
+            }
+            Iterator<Sample> sourceSampleFromStoreIterator = sampleStore
+                    .findSamples(sourceCompressionPeriod, channelName,
+                            queryStart, queryEnd, -1, false).iterator();
+            sourceSampleIterator = new SampleIterator(sourceSamples,
+                    sourceSampleFromStoreIterator);
+        } else {
+            sourceSampleIterator = new SampleIterator(sourceSamples, null);
+        }
+        // Now we have initialized everything and do not have to do this again
+        // the next time.
+        generalState.firstRun = false;
+
+        // Now we can actually actually process the samples.
+        processSourceSamples(channelName, compressionPeriod, generalState,
+                numericState, mutationBatch, sourceSampleIterator);
+
+        // Finally we want to execute the remaining inserts in the mutation
+        // batch.
+        mutationBatch.execute();
+    }
+
+    private void processSourceSamples(String channelName,
+            long compressionPeriod, GeneralState generalState,
+            NumericState numericState, NotifyingMutationBatch mutationBatch,
+            Iterator<Sample> sourceSampleIterator) throws ConnectionException {
+        ITimestamp compressionPeriodAsTimestamp = TimestampFactory
+                .createTimestamp(compressionPeriod, 0L);
         while (sourceSampleIterator.hasNext()) {
-            // We only want to increment the iterator if the next sample is the
-            // first sample, or if the current sample is within the current
+            // We only want to increment the iterator if the next sample is
+            // the first sample, or if the current sample is within the current
             // compression period. If the current sample is ahead of the current
             // compression period, the start and end of the compression period
             // will be incremented below, when we insert the compressed sample.
             // Thus, the timestamp of the current sample will be less than the
             // end of the compression period in one of the future iterations.
-            if (sourceSample == null) {
-                sourceSample = sourceSampleIterator.next();
-            } else if (sourceSample.getValue().getTime()
+            if (generalState.sourceSample == null) {
+                generalState.sourceSample = sourceSampleIterator.next();
+            } else if (generalState.sourceSample.getValue().getTime()
                     .isLessThan(generalState.end)) {
                 // If sourceSample was already set, we want to save it in
                 // lastSourceSample.
-                lastSourceSample = sourceSample;
-                sourceSample = sourceSampleIterator.next();
+                generalState.lastSourceSample = generalState.sourceSample;
+                generalState.sourceSample = sourceSampleIterator.next();
             }
             // If the new source sample is still before the compression period
             // we want to calculate, we skip it. This way the newest sample
             // right before the compression period will be in lastSourceSample.
-            IValue sourceValue = sourceSample.getValue();
+            IValue sourceValue = generalState.sourceSample.getValue();
             if (sourceValue.getTime().isLessOrEqual(generalState.start)) {
-                lastSourceSample = sourceSample;
+                generalState.lastSourceSample = generalState.sourceSample;
                 continue;
             }
 
-            IValue lastSourceValue = lastSourceSample.getValue();
+            IValue lastSourceValue = generalState.lastSourceSample.getValue();
             ValueType lastValueType = getValueType(lastSourceValue);
 
             // First we handle the generic properties of the last sample.
-            // We update our intermediate value when the last value was
-            // in the current or the last compression period or the next
-            // sample is in the current compression period. We have to
-            // do the latter because the older sample might still
-            // contribute to the compressed value of the current
-            // compression period.
+            // We update our intermediate value when the last value was in the
+            // current or the last compression period or the next sample is in
+            // the current compression period. We have to do the latter because
+            // the older sample might still contribute to the compressed value
+            // of the current compression period.
             if (lastSourceValue.getTime().isGreaterThan(
                     TimestampArithmetics.substract(generalState.start,
                             compressionPeriodAsTimestamp))
                     || sourceValue.getTime().isLessThan(generalState.end)) {
                 updateGeneralState(generalState, lastSourceValue);
-                // The numeric state is only updated if the value-type of the
-                // last sample is numeric.
+                // The numeric state is only updated if the value-type of
+                // the last sample is numeric.
                 if (isNumericType(lastValueType)) {
                     updateNumericState(numericState, lastSourceValue,
                             sourceValue.getTime(), generalState.start,
@@ -353,9 +429,9 @@ public class SampleCompressorWorker implements Runnable {
             // current period.
             if (sourceValue.getTime().isGreaterOrEqual(generalState.end)) {
                 // Insert compressed sample based on the aggregated data.
-                lastCompressedSample = insertCompressedSample(mutationBatch,
-                        generalState, numericState, lastValueType,
-                        lastCompressedSample, channelName, compressionPeriod);
+                insertCompressedSample(mutationBatch, generalState,
+                        numericState, lastValueType, channelName,
+                        compressionPeriod);
                 // Reset state data.
                 resetGeneralState(generalState);
                 resetNumericState(numericState);
@@ -414,9 +490,8 @@ public class SampleCompressorWorker implements Runnable {
                     // Insert compressed sample based on the data we have
                     // aggregated so far.
                     generalState.end = sourceValue.getTime();
-                    lastCompressedSample = insertCompressedSample(
-                            mutationBatch, generalState, numericState,
-                            lastValueType, lastCompressedSample, channelName,
+                    insertCompressedSample(mutationBatch, generalState,
+                            numericState, lastValueType, channelName,
                             compressionPeriod);
                     // Reset state data. We do not update the state because this
                     // will happen in the next iteration (or a subsequent
@@ -443,10 +518,6 @@ public class SampleCompressorWorker implements Runnable {
                 mutationBatch.execute();
             }
         }
-
-        // Finally we want to execute the remaining inserts in the mutation
-        // batch.
-        mutationBatch.execute();
     }
 
     private ITimestamp calculateNextSampleTime(String channelName,
@@ -495,10 +566,9 @@ public class SampleCompressorWorker implements Runnable {
         return TimestampFactory.createTimestamp(seconds, 0L);
     }
 
-    private Sample insertCompressedSample(NotifyingMutationBatch mutationBatch,
+    private void insertCompressedSample(NotifyingMutationBatch mutationBatch,
             GeneralState generalState, NumericState numericState,
-            ValueType lastValueType, Sample lastCompressedSample,
-            String channelName, long compressionPeriod)
+            ValueType lastValueType, String channelName, long compressionPeriod)
             throws ConnectionException {
         ITimestamp compressionPeriodAsTimestamp = TimestampFactory
                 .createTimestamp(compressionPeriod, 0L);
@@ -507,12 +577,13 @@ public class SampleCompressorWorker implements Runnable {
         // Calculate the compressed value.
         IValue compressedValue;
         ITimestamp nextSampleTime = generalState.nextSampleTime;
-        if (!generalState.haveNewData && lastCompressedSample != null) {
+        if (!generalState.haveNewData
+                && generalState.lastCompressedSample != null) {
             // If we do not have any new data, we can save some time by just
             // using the values from the last compressed sample and only
             // updating the timestamp. This can save considerable time when we
             // are skipping a long period without source samples.
-            IValue lastValue = lastCompressedSample.getValue();
+            IValue lastValue = generalState.lastCompressedSample.getValue();
             if (lastValue instanceof IMinMaxDoubleValue) {
                 IMinMaxDoubleValue value = (IMinMaxDoubleValue) lastValue;
                 compressedValue = ValueFactory.createMinMaxDoubleValue(
@@ -615,8 +686,9 @@ public class SampleCompressorWorker implements Runnable {
         }
         if (compressedValue != null) {
             if (generalState.haveNewData
-                    && (lastCompressedSample == null || !approximatelyEquals(
-                            lastCompressedSample.getValue(), compressedValue))) {
+                    && (generalState.lastCompressedSample == null || !approximatelyEquals(
+                            generalState.lastCompressedSample.getValue(),
+                            compressedValue))) {
                 // If we skipped the last compressed sample and now the next
                 // compressed sample has changed, we also insert the last
                 // skipped sample. We have to do this, because the trend tool in
@@ -624,12 +696,17 @@ public class SampleCompressorWorker implements Runnable {
                 // a funny display (value is not interpolated).
                 if (generalState.skippedLastSample) {
                     sampleStore.insertSample(mutationBatch, compressionPeriod,
-                            channelName, lastCompressedSample.getValue());
+                            channelName,
+                            generalState.lastCompressedSample.getValue());
                     generalState.insertCounter++;
+                    sampleCompressor
+                            .queueSample(generalState.lastCompressedSample);
                 }
                 sampleStore.insertSample(mutationBatch, compressionPeriod,
                         channelName, compressedValue);
                 generalState.insertCounter++;
+                sampleCompressor.queueSample(new Sample(compressionPeriod,
+                        channelName, compressedValue));
                 generalState.skippedLastSample = false;
             } else {
                 generalState.skippedLastSample = true;
@@ -637,8 +714,8 @@ public class SampleCompressorWorker implements Runnable {
             // Even if we did not insert the sample, we want to use the new
             // timestamp, so that we have the right timestamp if we insert it
             // later.
-            lastCompressedSample = new Sample(compressionPeriod, channelName,
-                    compressedValue);
+            generalState.lastCompressedSample = new Sample(compressionPeriod,
+                    channelName, compressedValue);
         }
         // We update the timestamps so that they point to the next compression
         // period.
@@ -648,7 +725,6 @@ public class SampleCompressorWorker implements Runnable {
                 generalState.nextSampleTime, halfCompressionPeriodAsTimestamp);
         generalState.end = TimestampArithmetics.add(
                 generalState.nextSampleTime, halfCompressionPeriodAsTimestamp);
-        return lastCompressedSample;
     }
 
     private void updateGeneralState(GeneralState generalState,

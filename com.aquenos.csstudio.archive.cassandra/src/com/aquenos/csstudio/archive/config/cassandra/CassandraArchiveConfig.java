@@ -23,6 +23,7 @@ import org.csstudio.archive.config.EngineConfig;
 import org.csstudio.archive.config.GroupConfig;
 import org.csstudio.archive.config.SampleMode;
 
+import com.aquenos.csstudio.archive.cassandra.EngineNameHolder;
 import com.aquenos.csstudio.archive.cassandra.SampleStore;
 import com.aquenos.csstudio.archive.cassandra.util.Pair;
 import com.aquenos.csstudio.archive.config.cassandra.internal.ColumnFamilyChannelConfiguration;
@@ -286,6 +287,9 @@ public class CassandraArchiveConfig implements ArchiveConfig {
 
     @Override
     public EngineConfig findEngine(String name) throws Exception {
+        // Store the engine name so that other components have the chance to
+        // find out, for which engine this instance is running.
+        EngineNameHolder.setEngineName(name);
         ColumnList<String> columns = keyspace
                 .prepareQuery(ColumnFamilyEngineConfiguration.CF)
                 .setConsistencyLevel(readMetaDataConsistencyLevel).getKey(name)
