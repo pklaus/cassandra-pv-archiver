@@ -243,4 +243,10 @@ public class WrappedNotifyingMutationBatch implements NotifyingMutationBatch {
         temporaryListeners.remove(listener);
     }
 
+    @Override
+    public NotifyingMutationBatch withAtomicBatch(boolean condition) {
+        wrappedMutationBatch.withAtomicBatch(condition);
+        return this;
+    }
+
 }

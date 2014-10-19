@@ -122,7 +122,8 @@ public class ArchiveConfigApplication implements IApplication {
                         CassandraArchivePreferences
                                 .getWriteMetaDataConsistencyLevel(),
                         CassandraArchivePreferences.getRetryPolicy(),
-                        cassandra_username.get(), cassandra_password.get());
+                        cassandra_username.get(), cassandra_password.get(),
+                        true);
                 final EngineConfig[] engines = config.getEngines();
                 for (EngineConfig engine : engines)
                     System.out.println(engine);
@@ -147,12 +148,17 @@ public class ArchiveConfigApplication implements IApplication {
                 final CassandraArchiveConfig config = new CassandraArchiveConfig(
                         cassandra_hosts.get(), cassandra_port.get(),
                         cassandra_keyspace.get(),
-                        CassandraArchivePreferences.getReadDataConsistencyLevel(),
-                        CassandraArchivePreferences.getWriteDataConsistencyLevel(),
-                        CassandraArchivePreferences.getReadMetaDataConsistencyLevel(),
-                        CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
+                        CassandraArchivePreferences
+                                .getReadDataConsistencyLevel(),
+                        CassandraArchivePreferences
+                                .getWriteDataConsistencyLevel(),
+                        CassandraArchivePreferences
+                                .getReadMetaDataConsistencyLevel(),
+                        CassandraArchivePreferences
+                                .getWriteMetaDataConsistencyLevel(),
                         CassandraArchivePreferences.getRetryPolicy(),
-                        cassandra_username.get(), cassandra_password.get());
+                        cassandra_username.get(), cassandra_password.get(),
+                        false);
                 try {
                     final EngineConfig engine = config.findEngine(engine_name
                             .get());

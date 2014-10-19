@@ -102,13 +102,24 @@ public class CassandraArchiveConfig implements ArchiveConfig {
      * @param password
      *            password to use for authentication or <code>null</code> to use
      *            no authentication.
+     * @param readOnly
+     *            flag indicating that the configuration should only be read. In
+     *            particular, this will prevent the initialization code from
+     *            looking for column families and trying to create them. In
+     *            read-only mode, this object should be created even when the
+     *            connection to the database fails.
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     public CassandraArchiveConfig(String cassandraHosts, int cassandraPort,
             String keyspaceName, ConsistencyLevel readDataConsistencyLevel,
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            RetryPolicy retryPolicy, String username, String password) {
+            RetryPolicy retryPolicy, String username, String password,
+            boolean readOnly) throws ConnectionException {
+        // TODO Support "read-only" constructor that can initialize even if the
+        // server is down.
         this.readDataConsistencyLevel = readDataConsistencyLevel;
         this.writeDataConsistencyLevel = writeDataConsistencyLevel;
         this.readMetaDataConsistencyLevel = readMetaDataConsistencyLevel;
@@ -136,13 +147,15 @@ public class CassandraArchiveConfig implements ArchiveConfig {
                 .buildCluster(ThriftFamilyFactory.getInstance());
         this.context = context;
         this.context.start();
-        this.cluster = this.context.getEntity();
+        this.cluster = this.context.getClient();
         this.keyspace = this.cluster.getKeyspace(keyspaceName);
         this.sampleStore = new SampleStore(this.cluster, this.keyspace,
                 this.readDataConsistencyLevel, this.writeDataConsistencyLevel,
                 this.readMetaDataConsistencyLevel,
                 this.writeMetaDataConsistencyLevel, false, false);
-        checkOrCreateColumnFamilies();
+        if (!readOnly) {
+            checkOrCreateColumnFamilies();
+        }
     }
 
     /**
@@ -164,15 +177,21 @@ public class CassandraArchiveConfig implements ArchiveConfig {
      * @param writeMetaDataConsistencyLevel
      *            consistency level used when writing meta-data (that means
      *            configuration data and sample bucket sizes).
+     * @param readOnly
+     *            flag indicating that the configuration should only be read. In
+     *            particular, this will prevent the initialization code from
+     *            looking for column families and trying to create them. In
+     *            read-only mode, this object should be created even when the
+     *            connection to the database fails.
      */
     public CassandraArchiveConfig(Cluster cluster, Keyspace keyspace,
             ConsistencyLevel readDataConsistencyLevel,
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
-            ConsistencyLevel writeMetaDataConsistencyLevel) {
+            ConsistencyLevel writeMetaDataConsistencyLevel, boolean readOnly) {
         this(cluster, keyspace, readDataConsistencyLevel,
                 writeDataConsistencyLevel, readMetaDataConsistencyLevel,
-                writeMetaDataConsistencyLevel, null);
+                writeMetaDataConsistencyLevel, null, readOnly);
     }
 
     /**
@@ -201,13 +220,19 @@ public class CassandraArchiveConfig implements ArchiveConfig {
      *            created for this purpose. The sample store must use the same
      *            consistency levels that are supplied to this configuration
      *            object.
+     * @param readOnly
+     *            flag indicating that the configuration should only be read. In
+     *            particular, this will prevent the initialization code from
+     *            looking for column families and trying to create them. In
+     *            read-only mode, this object should be created even when the
+     *            connection to the database fails.
      */
     public CassandraArchiveConfig(Cluster cluster, Keyspace keyspace,
             ConsistencyLevel readDataConsistencyLevel,
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            SampleStore sampleStore) {
+            SampleStore sampleStore, boolean readOnly) {
         this.cluster = cluster;
         this.keyspace = keyspace;
         this.readDataConsistencyLevel = readDataConsistencyLevel;
@@ -223,7 +248,9 @@ public class CassandraArchiveConfig implements ArchiveConfig {
         } else {
             this.sampleStore = sampleStore;
         }
-        checkOrCreateColumnFamilies();
+        if (!readOnly) {
+            checkOrCreateColumnFamilies();
+        }
     }
 
     private void checkOrCreateColumnFamilies() {
@@ -924,6 +951,7 @@ public class CassandraArchiveConfig implements ArchiveConfig {
                 .execute().getResult();
         MutationBatch mutationBatch = keyspace.prepareMutationBatch()
                 .withConsistencyLevel(writeMetaDataConsistencyLevel);
+        int processedRows = 0;
         for (Row<String, ?> row : rows) {
             String name = row.getKey();
             if (!configs.containsKey(name)) {
@@ -933,7 +961,13 @@ public class CassandraArchiveConfig implements ArchiveConfig {
                 }
                 mutationBatch.withRow(columnFamily, name).delete();
             }
-
+            // Execute the queued actions after processing 500 rows, so that the
+            // lost results are limited if the process is interrupted.
+            processedRows++;
+            if (processedRows >= 2000) {
+                mutationBatch.execute();
+                processedRows = 0;
+            }
         }
         mutationBatch.execute();
     }
@@ -951,6 +985,7 @@ public class CassandraArchiveConfig implements ArchiveConfig {
                 .execute().getResult();
         MutationBatch mutationBatch = keyspace.prepareMutationBatch()
                 .withConsistencyLevel(writeMetaDataConsistencyLevel);
+        int processedRows = 0;
         for (Row<Pair<String, String>, ?> row : rows) {
             Pair<String, String> rowKey = row.getKey();
             String firstName = rowKey.getFirst();
@@ -965,7 +1000,13 @@ public class CassandraArchiveConfig implements ArchiveConfig {
                 }
                 mutationBatch.withRow(columnFamily, rowKey).delete();
             }
-
+            // Execute the queued actions after processing 500 rows, so that the
+            // lost results are limited if the process is interrupted.
+            processedRows++;
+            if (processedRows >= 2000) {
+                mutationBatch.execute();
+                processedRows = 0;
+            }
         }
         mutationBatch.execute();
     }

@@ -148,7 +148,7 @@ public class XMLImport extends DefaultHandler {
                 CassandraArchivePreferences.getReadMetaDataConsistencyLevel(),
                 CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
                 CassandraArchivePreferences.getRetryPolicy(),
-                cassandra_username, cassandra_password);
+                cassandra_username, cassandra_password, false);
     }
 
     /**

@@ -11,6 +11,7 @@ package com.aquenos.csstudio.archive.config.cassandra.internal;
 
 import com.aquenos.csstudio.archive.cassandra.CassandraArchivePreferences;
 import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 
 /**
  * Subclass of {@link CassandraArchiveConfig} that provides a
@@ -24,7 +25,7 @@ import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
  */
 public class DefaultCassandraArchiveConfig extends CassandraArchiveConfig {
 
-    public DefaultCassandraArchiveConfig() {
+    public DefaultCassandraArchiveConfig() throws ConnectionException {
         super(CassandraArchivePreferences.getHosts(),
                 CassandraArchivePreferences.getPort(),
                 CassandraArchivePreferences.getKeyspace(),
@@ -34,7 +35,7 @@ public class DefaultCassandraArchiveConfig extends CassandraArchiveConfig {
                 CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
                 CassandraArchivePreferences.getRetryPolicy(),
                 CassandraArchivePreferences.getUsername(),
-                CassandraArchivePreferences.getPassword());
+                CassandraArchivePreferences.getPassword(), false);
     }
 
 }

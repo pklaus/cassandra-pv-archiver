@@ -225,7 +225,7 @@ public class SampleCompressorWorker implements Runnable {
         if (end.seconds() < 0 || (end.seconds() == 0 && end.nanoseconds() == 0)) {
             return;
         }
-        sampleStore.deleteSamples(compressionPeriod, channelName, null, end);
+        sampleStore.deleteSamples(compressionPeriod, channelName, end);
     }
 
     private void compressChannel(String channelName, long compressionPeriod,

@@ -102,7 +102,7 @@ public class SampleStore {
                 this.keyspace, this.readDataConsistencyLevel,
                 this.writeDataConsistencyLevel,
                 this.readMetaDataConsistencyLevel,
-                this.writeMetaDataConsistencyLevel, this);
+                this.writeMetaDataConsistencyLevel, this, !enableWrites);
         this.enableWrites = enableWrites;
         this.enableCache = enableCache;
         if (!this.enableWrites && this.enableCache) {
@@ -215,10 +215,9 @@ public class SampleStore {
      *            sample from.
      * @param channelName
      *            name of the channel to delete the sample from.
-     * @param start
-     *            timestamp of the first sample to be deleted (inclusive).
-     * @param end
-     *            timestamp of the last sample to be deleted (inclusive).
+     * @param until
+     *            timestamp of the last sample to be deleted (inclusive). Must
+     *            not be <code>null</code>.
      * @throws ConnectionException
      *             if an error occurs while performing an operation in the
      *             database.
@@ -227,13 +226,12 @@ public class SampleStore {
      *             have writes enabled.
      */
     public void deleteSamples(long compressionPeriod, String channelName,
-            ITimestamp start, ITimestamp end) throws ConnectionException,
-            IllegalStateException {
+            ITimestamp until) throws ConnectionException, IllegalStateException {
         if (!enableWrites) {
             throw new IllegalStateException("This sample store is read-only.");
         }
         CompressionLevelSampleStore store = getSampleStoreForCompressionLevel(compressionPeriod);
-        store.deleteSamples(channelName, start, end);
+        store.deleteSamples(channelName, until);
     }
 
     /**
@@ -355,16 +353,22 @@ public class SampleStore {
     }
 
     /**
-     * Returns the timestamp of the latest (raw) sample for the given channel or
-     * <code>null</code> if no sample can be found.
+     * Returns the timestamp of the latest sample for the given channel or the
+     * latest bucket size for this channel (if it is more recent than the latest
+     * sample). Returns <code>null</code> if no sample and bucket size can be
+     * found. Please not that the value returned might not necessarily represent
+     * the timestamp of a sample. Instead, it could just be the timestamp of a
+     * bucket size. However, for technical reasons, this has to be treated like
+     * there was a sample with this timestamp (e.g. no samples with timestamps
+     * older than this timestamp can be inserted).
      * 
      * @param compressionPeriod
      *            compression period of the compression level to find the newest
      *            sample's timestamp for.
      * @param channelName
      *            name of the channel to get the last timestamp for.
-     * @return timestamp of the newest sample or <code>null</code> if no sample
-     *         is found.
+     * @return timestamp of the newest sample or bucket size or
+     *         <code>null</code> if no sample is found.
      * @throws ConnectionException
      *             if an error occurs while performing an operation in the
      *             database.
