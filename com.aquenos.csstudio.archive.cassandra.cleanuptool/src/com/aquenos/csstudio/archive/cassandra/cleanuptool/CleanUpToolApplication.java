@@ -36,6 +36,8 @@ import com.netflix.astyanax.connectionpool.NodeDiscoveryType;
 import com.netflix.astyanax.connectionpool.impl.ConnectionPoolConfigurationImpl;
 import com.netflix.astyanax.connectionpool.impl.SimpleAuthenticationCredentials;
 import com.netflix.astyanax.impl.AstyanaxConfigurationImpl;
+import com.netflix.astyanax.retry.BoundedExponentialBackoff;
+import com.netflix.astyanax.retry.RetryPolicy;
 import com.netflix.astyanax.thrift.ThriftFamilyFactory;
 
 /**
@@ -101,6 +103,9 @@ public class CleanUpToolApplication implements IApplication {
             cpConfig.setAuthenticationCredentials(new SimpleAuthenticationCredentials(
                     cassandraUsername.get(), cassandraPassword.get()));
         }
+        // For clean-up, we use a different retry policy: We will try
+        // indefinitely, however, with each attempt we increase the sleep time.
+        RetryPolicy retryPolicy = new BoundedExponentialBackoff(100L, 15000L, -1);
         AstyanaxConfiguration asConfig = new AstyanaxConfigurationImpl()
                 .setDefaultReadConsistencyLevel(
                         CassandraArchivePreferences
@@ -108,7 +113,7 @@ public class CleanUpToolApplication implements IApplication {
                 .setDefaultWriteConsistencyLevel(
                         CassandraArchivePreferences
                                 .getWriteDataConsistencyLevel())
-                .setRetryPolicy(CassandraArchivePreferences.getRetryPolicy())
+                .setRetryPolicy(retryPolicy)
                 .setDiscoveryType(NodeDiscoveryType.RING_DESCRIBE);
         AstyanaxContext<Cluster> astyanaxContext = new AstyanaxContext.Builder()
                 .forCluster(uuid).forKeyspace(cassandraKeyspace.get())
@@ -116,7 +121,7 @@ public class CleanUpToolApplication implements IApplication {
                 .withAstyanaxConfiguration(asConfig)
                 .buildCluster(ThriftFamilyFactory.getInstance());
         astyanaxContext.start();
-        Cluster cluster = astyanaxContext.getEntity();
+        Cluster cluster = astyanaxContext.getClient();
         Keyspace keyspace = cluster.getKeyspace(cassandraKeyspace.get());
 
         SampleStore sampleStore = new SampleStore(cluster, keyspace,

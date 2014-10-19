@@ -44,6 +44,7 @@ import com.netflix.astyanax.AstyanaxContext;
 import com.netflix.astyanax.Cluster;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.connectionpool.NodeDiscoveryType;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.netflix.astyanax.connectionpool.impl.ConnectionPoolConfigurationImpl;
 import com.netflix.astyanax.connectionpool.impl.SimpleAuthenticationCredentials;
 import com.netflix.astyanax.impl.AstyanaxConfigurationImpl;
@@ -128,13 +129,15 @@ public class CassandraArchiveReader implements ArchiveReader {
      *            configuration data and sample bucket sizes).
      * @param retryPolicy
      *            retry policy to use for the Cassandra client.
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     public CassandraArchiveReader(String url,
             ConsistencyLevel readDataConsistencyLevel,
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            RetryPolicy retryPolicy) {
+            RetryPolicy retryPolicy) throws ConnectionException {
         this.url = url;
         String hostsList;
         int port = 9160;
@@ -227,13 +230,16 @@ public class CassandraArchiveReader implements ArchiveReader {
      * @param password
      *            password to use for authentication or <code>null</code> to use
      *            no authentication.
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     public CassandraArchiveReader(String cassandraHosts, int cassandraPort,
             String keyspaceName, ConsistencyLevel readDataConsistencyLevel,
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            RetryPolicy retryPolicy, String username, String password) {
+            RetryPolicy retryPolicy, String username, String password)
+            throws ConnectionException {
         initialize(cassandraHosts, cassandraPort, keyspaceName,
                 readDataConsistencyLevel, writeDataConsistencyLevel,
                 readMetaDataConsistencyLevel, writeMetaDataConsistencyLevel,
@@ -259,6 +265,8 @@ public class CassandraArchiveReader implements ArchiveReader {
      * @param writeMetaDataConsistencyLevel
      *            consistency level used when writing meta-data (that means
      *            configuration data and sample bucket sizes).
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     public CassandraArchiveReader(Cluster cluster, Keyspace keyspace,
             ConsistencyLevel readDataConsistencyLevel,
@@ -275,7 +283,8 @@ public class CassandraArchiveReader implements ArchiveReader {
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            RetryPolicy retryPolicy, String username, String password) {
+            RetryPolicy retryPolicy, String username, String password)
+            throws ConnectionException {
         // We use a random identifier for the cluster, because there might be
         // several instances of the archive reader. If we used the same
         // cluster for all of them, a cluster still being used might be shutdown
@@ -298,7 +307,7 @@ public class CassandraArchiveReader implements ArchiveReader {
                 .withAstyanaxConfiguration(asConfig)
                 .buildCluster(ThriftFamilyFactory.getInstance());
         this.context.start();
-        Cluster cluster = this.context.getEntity();
+        Cluster cluster = this.context.getClient();
         initialize(cluster, cluster.getKeyspace(keyspaceName),
                 readDataConsistencyLevel, writeDataConsistencyLevel,
                 readMetaDataConsistencyLevel, writeMetaDataConsistencyLevel);

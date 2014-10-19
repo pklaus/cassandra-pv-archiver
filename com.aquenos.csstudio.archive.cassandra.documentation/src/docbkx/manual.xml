@@ -8,6 +8,7 @@
     <copyright>
       <year>2012</year>
       <year>2013</year>
+      <year>2014</year>
       <holder>aquenos GmbH</holder>
     </copyright>
     <author>
@@ -107,6 +108,29 @@
         The database structure and format have not changed compared to version
         2.1, thus older versions of the reader can be used in combination with
         version 2.2 of the archive engine.
+      </para>
+    </section>
+    <section>
+      <title>What's New in Cassandra Archiver 2.3</title>
+      <para>
+        Version 2.3 of the Cassandra Archiver improves the way how the retention
+        period is applied. In earlier versions, individual samples would be
+        deleted when they expired. This caused many tombstones to accumulate in
+        the Cassandra database, affecting performance and possibly even making
+        queries for the corresponding channel impossible due to limitations in
+        Apache Cassandra.
+      </para>
+      <para>
+        The new algorithm only deletes complete “buckets” of samples, thus
+        reducing the number of tombstones created significantly. In addition to
+        that, the way how the archive reader reads samples has been improved
+        slightly, so that it is less prone to be affected by tombstones due to
+        the deletion of old samples.
+      </para>
+      <para>
+        The database structure and format have not changed compared to version
+        2.1 and 2.2, thus older versions of the reader can be used in
+        combination with version 2.2 of the archive engine.
       </para>
     </section>
   </chapter>
@@ -343,7 +367,7 @@
         </para>
         <para>
           This database structure is used, because Cassandra does not perform
-          well if many "skinny" rows are stored.
+          well if many “skinny” rows are stored.
           Therefore several samples have to be aggregated in one row.
           On the other hand, a maximum number of
           2<superscript>31</superscript>-1 columns can be stored in a row,
@@ -626,11 +650,19 @@ GRANT SELECT PERMISSION on KEYSPACE "cssArchive" to archive_read;
 CREATE KEYSPACE cssArchive;
 ]]></programlisting>
           <para>
-           Instead of <literal>cssArchive</literal> you can use a different name
-           for the keyspace. However, you will have to configure the keyspace
-           name for the tools using the Cassandra server, if you do not use the
-           default keyspace name. The column-family names are fixed and cannot
-           be changed.
+            For compatibility with older versions of the Cassandra Archiver, the
+            default keyspace name used is <literal>cssArchive</literal>.
+            However, the use of mixed-case keyspace names is discouraged in
+            recent Apache Cassandra versions and can cause problems when using
+            CQL to access the keyspace. Therefore, you should prefer the
+            keyspace name <literal>css_archive</literal> when deploying a new
+            cluster. However, you will have to configure the keyspace name for
+            the tools using the Cassandra server, if you do not use the keyspace
+            name <literal>cssArchive</literal>. See
+            <xref linkend="installation.archiveengine.configuration"/> for
+            instructions on how to configure the keyspace name by creating a
+            <filename>plugin_customization.ini</filename> for the archive
+            engine, archive clean-up tool and archive configuration tool.
           </para>
         </section>
       </section>
@@ -673,6 +705,13 @@ CREATE KEYSPACE cssArchive;
           The JSON Archive Proxy only needs two plugins (instead of about twenty
           for the Cassandra Archiver) and can help you decouple the actual store
           type and version used from your CSS installation.
+        </para>
+        <para>
+          If you want to use the Cassandra Archiver with version 3.2 of CSS, you
+          can use version 1.x of the JSON Archive Proxy Server together with the
+          reader plugins of the Cassandra archiver. You can then install version
+          2.x of the JSON Archive Proxy reader plugins into CSS 3.2 and connect
+          them to the version 1.x server.
         </para>
       </section>
       <section xml:id="installation.archiveengine.configuration">
@@ -849,7 +888,7 @@ com.aquenos.csstudio.archive.writer.cassandra/numCompressorWorkers=1
         <productionset>
           <production>
             <lhs>url</lhs>
-            <rhs>"cassandra://", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txtt">host</nonterminal>, { ",", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">host</nonterminal> }, [":", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">port</nonterminal> ], <nonterminal def="#ebnf.cassandra.url.keyspace">keyspace</nonterminal>, [ "?", "username", "=", <nonterminal def="#ebnf.cassandra.url.username">username</nonterminal>, "&amp;", "password", "=", <nonterminal def="#ebnf.cassandra.url.password">password</nonterminal> ] ;</rhs>
+            <rhs>"cassandra://", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">host</nonterminal>, { ",", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">host</nonterminal> }, [":", <nonterminal def="http://www.rfc-editor.org/rfc/rfc3986.txt">port</nonterminal> ], "/", <nonterminal def="#ebnf.cassandra.url.keyspace">keyspace</nonterminal>, [ "?", "username", "=", <nonterminal def="#ebnf.cassandra.url.username">username</nonterminal>, "&amp;", "password", "=", <nonterminal def="#ebnf.cassandra.url.password">password</nonterminal> ] ;</rhs>
           </production>
           <production xml:id="ebnf.cassandra.url.keyspace">
             <lhs>keyspace</lhs>

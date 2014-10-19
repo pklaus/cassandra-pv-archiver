@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 import org.csstudio.archive.config.ChannelConfig;
 import org.csstudio.data.values.ITimestamp;
+import org.csstudio.data.values.ITimestamp.Format;
 import org.csstudio.data.values.IValue;
 import org.csstudio.data.values.IValue.Quality;
 import org.csstudio.data.values.TimestampFactory;
@@ -60,6 +61,8 @@ public class CompressionLevelSampleStore {
             .valueOf(1000000000L);
     private final static BigDecimal ONE_BILLION_DECIMAL = new BigDecimal(
             ONE_BILLION);
+    private final static ITimestamp TEN_DAYS = TimestampFactory
+            .createTimestamp(864000L, 0L);
     private final static ITimestamp FOUR_HOURS = TimestampFactory
             .createTimestamp(14400L, 0L);
     private final static ITimestamp ONE_NANOSECOND = TimestampFactory
@@ -67,31 +70,47 @@ public class CompressionLevelSampleStore {
     private final static ITimestamp ZERO_TIMESTAMP = TimestampFactory
             .createTimestamp(0L, 0L);
 
-    private final static Iterable<Sample> EMPTY_SAMPLES = new Iterable<Sample>() {
-        private final Iterator<Sample> emptyIterator = new Iterator<Sample>() {
+    private static <T> Iterable<T> emptyIterable() {
+        return new Iterable<T>() {
+            private final Iterator<T> emptyIterator = new Iterator<T>() {
 
-            @Override
-            public boolean hasNext() {
-                return false;
-            }
+                @Override
+                public boolean hasNext() {
+                    return false;
+                }
 
-            @Override
-            public Sample next() {
-                throw new NoSuchElementException();
-            }
+                @Override
+                public T next() {
+                    throw new NoSuchElementException();
+                }
 
-            @Override
-            public void remove() {
-                throw new IllegalStateException(
-                        "The iterator's next() method must be called first.");
+                @Override
+                public void remove() {
+                    throw new IllegalStateException(
+                            "The iterator's next() method must be called first.");
+                }
+
+            };
+
+            public Iterator<T> iterator() {
+                return emptyIterator;
             }
         };
-
-        @Override
-        public Iterator<Sample> iterator() {
-            return emptyIterator;
-        }
     };
+
+    private class SampleBucket {
+        private SampleBucketKey key;
+        // If reverse traversal is used, start is greater than or equal to end.
+        private ITimestamp start;
+        private ITimestamp end;
+
+        public SampleBucket(SampleBucketKey key, ITimestamp start,
+                ITimestamp end) {
+            this.key = key;
+            this.start = start;
+            this.end = end;
+        }
+    }
 
     private Keyspace keyspace;
     private ConsistencyLevel readDataConsistencyLevel;
@@ -441,8 +460,13 @@ public class CompressionLevelSampleStore {
     private ITimestamp getLastSampleTimestampFromDatabase(String channelName)
             throws ConnectionException {
         // We iterate over all bucket sizes for this channel in reverse order
-        // until we find a sample or hit the start of the first bucket with a
-        // non-zero bucket size.
+        // until we find a sample or hit the start of the most recent bucket.
+        // We cannot ignore empty buckets (zero size), because this would be
+        // problematic when inserting a sample into such a bucket. By returning
+        // the start of this bucket, only samples with a more recent time-stamp
+        // can be inserted.
+        // We cannot use findSampleBuckets(...) because this method might call
+        // getLastSampleTimestamp(...) leading to an indefinite loop.
         RowQuery<String, ITimestamp> query = keyspace
                 .prepareQuery(cfSamplesBucketSize.getCF())
                 .setConsistencyLevel(readMetaDataConsistencyLevel)
@@ -466,22 +490,25 @@ public class CompressionLevelSampleStore {
                 if (bucketSize.equals(BigInteger.ZERO)) {
                     // A bucket size of zero is special because it indicates
                     // that there are no samples in this range.
-                    if (bucketSizeTime.equals(ZERO_TIMESTAMP)) {
-                        // There cannot be an older bucket size, thus we do not
-                        // have to continue our search.
-                        return null;
-                    }
-                    maxTime = TimestampArithmetics.substract(bucketSizeTime,
-                            ONE_NANOSECOND);
-                    continue;
+                    return bucketSizeTime;
                 }
-                SampleBucketKey minBucketKey = getBucketKey(channelName,
-                        bucketSizeTime, bucketSize);
                 ITimestamp bucketSizeAsTimestamp = TimestampArithmetics
                         .bigIntegerToTimestamp(bucketSize);
                 if (bucketSizeTime.isGreaterThan(maxTime)) {
-                    // The bucket size is more than four hours in the future,
-                    // so use this timestamp.
+                    // The bucket size is more than four hours in the future.
+                    // This means that the clock must be messed up in some way.
+                    // We cannot continue safely because we do not know how much
+                    // further we have to look into the future.
+                    throw new RuntimeException(
+                            "Found a bucket size starting at "
+                                    + bucketSizeTime
+                                            .format(Format.DateTimeSeconds)
+                                    + " which is more than four hours into the future. Most likely the system clock is messed up.");
+                }
+                // If the bucket size is zero, there can be no samples in the
+                // bucket. Thus, we simply return the time-stamp of the bucket
+                // size.
+                if (bucketSize.equals(BigInteger.ZERO)) {
                     return bucketSizeTime;
                 }
                 // We look for all buckets with this bucket size in reverse
@@ -489,41 +516,53 @@ public class CompressionLevelSampleStore {
                 // bucket for the timestamp of the bucket size.
                 SampleBucketKey nextBucketKey = getBucketKey(channelName,
                         maxTime, bucketSize);
-                while (nextBucketKey.getBucketStartTime().isGreaterOrEqual(
-                        minBucketKey.getBucketStartTime())) {
-                    ColumnList<ITimestamp> sampleColumns = keyspace
-                            .prepareQuery(cfSamples.getCF())
-                            .setConsistencyLevel(readDataConsistencyLevel)
-                            .getKey(nextBucketKey)
-                            .withColumnRange(
-                                    new RangeBuilder()
-                                            .setStart(maxTime,
-                                                    TimestampSerializer.get())
-                                            .setEnd(bucketSizeTime,
-                                                    TimestampSerializer.get())
-                                            .setLimit(1).setReversed(true)
-                                            .build()).execute().getResult();
-                    if (!sampleColumns.isEmpty()) {
-                        return sampleColumns.getColumnByIndex(0).getName();
+                SampleBucket nextBucket = new SampleBucket(nextBucketKey,
+                        maxTime, (bucketSizeTime.isGreaterOrEqual(nextBucketKey
+                                .getBucketStartTime())) ? bucketSizeTime
+                                : nextBucketKey.getBucketStartTime());
+                while (nextBucket.start.isGreaterThan(bucketSizeTime)) {
+                    Iterator<Sample> sampleIterator = findSamplesForBucket(
+                            nextBucket, null, null, true, 1).iterator();
+                    if (sampleIterator.hasNext()) {
+                        return sampleIterator.next().getValue().getTime();
+                    }
+                    if (nextBucket.key.getBucketStartTime().equals(
+                            ZERO_TIMESTAMP)) {
+                        // There is no sample in the oldest possible bucket,
+                        // thus we can stop the search.
+                        break;
+                    }
+                    if (nextBucket.end.isLessOrEqual(bucketSizeTime)) {
+                        // There is no sample in the oldest bucket for the
+                        // current bucket size, thus we can stop the search.
+                        break;
                     }
                     // We can take a shortcut for generating the next key here,
                     // because we known that the old key is already aligned to
                     // the bucket size.
-                    if (nextBucketKey.getBucketStartTime().equals(
-                            ZERO_TIMESTAMP)) {
-                        // There is no older bucket, thus we can stop the
-                        // search.
-                        break;
-                    }
                     nextBucketKey = new SampleBucketKey(channelName,
                             bucketSize, TimestampArithmetics.substract(
                                     nextBucketKey.getBucketStartTime(),
                                     bucketSizeAsTimestamp));
+                    // The start of the next bucket is the end of the current
+                    // bucket minus one nanosecond.
+                    ITimestamp nextBucketStart = TimestampArithmetics
+                            .substract(nextBucket.key.getBucketStartTime(),
+                                    ONE_NANOSECOND);
+                    // The end of the next bucket is the time-stamp of the next
+                    // bucket (we are iterating reversely), unless the
+                    // time-stamp of the bucket size is newer.
+                    ITimestamp nextBucketEnd = nextBucketKey
+                            .getBucketStartTime();
+                    if (nextBucketEnd.isLessThan(bucketSizeAsTimestamp)) {
+                        nextBucketEnd = bucketSizeAsTimestamp;
+                    }
+                    nextBucket = new SampleBucket(nextBucketKey,
+                            nextBucketStart, nextBucketEnd);
                 }
                 // If we are here, we have not found any samples for the current
                 // bucket size. In this case (by definition) the latest
-                // timestamp is the timestamp of the bucket size itself, because
-                // we checked earlier that it is non-zero.
+                // timestamp is the timestamp of the bucket size itself.
                 return bucketSizeTime;
             }
         }
@@ -533,15 +572,9 @@ public class CompressionLevelSampleStore {
         return null;
     }
 
-    public Iterable<Sample> findSamples(String channelName, ITimestamp start,
-            ITimestamp end, int limit, boolean reverse)
+    private Iterable<SampleBucket> findSampleBuckets(String channelName,
+            ITimestamp start, ITimestamp end, boolean reverse)
             throws ConnectionException {
-        return findSamples(channelName, start, end, limit, reverse, null);
-    }
-
-    private Iterable<Sample> findSamples(String channelName, ITimestamp start,
-            ITimestamp end, int limit, boolean reverse,
-            MutationBatch mutationBatch) throws ConnectionException {
         // The first bucket size we have to look for is the one with a timestamp
         // less than or equal to the requested start timestamp. If the start
         // timestamp is null, it is just the first bucket size at all.
@@ -595,18 +628,23 @@ public class CompressionLevelSampleStore {
         // correct timestamps, which we checked above), but just return an empty
         // iterable.
         if (start != null && end != null && start.isGreaterThan(end)) {
-            return EMPTY_SAMPLES;
+            return emptyIterable();
         }
 
         ITimestamp bucketSizeSmallestTimestamp = smallestTimestamp;
         if (bucketSizeSmallestTimestamp != null) {
+            // It would be nice to set a lower limit on this query in order to
+            // avoid congestion with tombstones that might have accumulated.
+            // Unfortunately, there is no way to know how long we have to look
+            // into the past. Therefore, we rather have to limit the creation
+            // of tombstones when deleting samples.
             ColumnList<ITimestamp> bucketSizeColumns = keyspace
                     .prepareQuery(cfSamplesBucketSize.getCF())
                     .setConsistencyLevel(readMetaDataConsistencyLevel)
                     .getKey(channelName)
                     .withColumnRange(
                             new RangeBuilder()
-                                    .setStart(reverse ? end : start,
+                                    .setStart(smallestTimestamp,
                                             TimestampSerializer.get())
                                     .setLimit(1).setReversed(true).build())
                     .execute().getResult();
@@ -614,7 +652,7 @@ public class CompressionLevelSampleStore {
                 Column<ITimestamp> column = bucketSizeColumns
                         .getColumnByIndex(0);
                 ITimestamp timestamp = column.getName();
-                if (timestamp.isLessThan(reverse ? end : start)) {
+                if (timestamp.isLessThan(smallestTimestamp)) {
                     bucketSizeSmallestTimestamp = timestamp;
                 }
             }
@@ -622,145 +660,83 @@ public class CompressionLevelSampleStore {
 
         final ITimestamp finalStart = start;
         final ITimestamp finalEnd = end;
-        final int finalLimit = limit;
         final boolean finalReverse = reverse;
         final String finalChannelName = channelName;
-        final MutationBatch finalMutationBatch = mutationBatch;
         final ITimestamp finalBucketSizeSmallestTimestamp = bucketSizeSmallestTimestamp;
 
-        return new Iterable<Sample>() {
-            private String channelName = finalChannelName;
-            private ITimestamp start = finalStart;
-            private ITimestamp end = finalEnd;
-            private int limit = finalLimit;
-            private boolean reverse = finalReverse;
-            private MutationBatch mutationBatch = finalMutationBatch;
-            private ITimestamp bucketSizeSmallestTimestamp = finalBucketSizeSmallestTimestamp;
-
+        return new Iterable<SampleBucket>() {
             @Override
-            public Iterator<Sample> iterator() {
-                return new Iterator<Sample>() {
+            public Iterator<SampleBucket> iterator() {
+                return new Iterator<SampleBucket>() {
 
                     private RowQuery<String, ITimestamp> bucketSizeQuery = keyspace
                             .prepareQuery(cfSamplesBucketSize.getCF())
                             .setConsistencyLevel(readMetaDataConsistencyLevel)
-                            .getKey(channelName)
+                            .getKey(finalChannelName)
                             .autoPaginate(true)
                             .withColumnRange(
-                                    reverse ? start
-                                            : bucketSizeSmallestTimestamp,
-                                    reverse ? bucketSizeSmallestTimestamp : end,
-                                    reverse, 50);
+                                    finalReverse ? finalStart
+                                            : finalBucketSizeSmallestTimestamp,
+                                    finalReverse ? finalBucketSizeSmallestTimestamp
+                                            : finalEnd, finalReverse, 50);
                     private Iterator<Column<ITimestamp>> bucketSizeIterator = null;
                     private SampleBucketKey nextBucketKey = null;
+                    private SampleBucketKey currentBucketKey = null;
                     private ITimestamp currentBucketSizeStart = null;
                     private ITimestamp currentBucketSizeEnd = null;
                     private BigInteger currentBucketSize = null;
                     private ITimestamp currentBucketSizeAsTimestamp = null;
                     private ITimestamp nextBucketSizeTimestamp = null;
                     private BigInteger nextBucketSize = null;
-                    private SampleBucketKey sampleQueryBucketKey = null;
-                    private RowQuery<SampleBucketKey, ITimestamp> sampleQuery = null;
-                    private Iterator<Column<ITimestamp>> sampleIterator = null;
-                    private Sample nextSample = null;
-                    private SampleBucketKey bucketKeyForNextSample = null;
-                    private Sample lastReturnedSample = null;
-                    private SampleBucketKey bucketKeyForLastReturnedSample = null;
-                    private int count = 0;
 
                     @Override
                     public boolean hasNext() {
                         try {
-                            // If a limit is set, we return at most the number
-                            // of samples defined by the limit.
-                            if (limit >= 0 && count >= limit) {
-                                return false;
-                            }
-                            if (nextSample != null) {
-                                // We already have the next sample, so there is
-                                // nothing left to be done.
+                            // If we have have the next bucket key, we can
+                            // simply return it.
+                            if (nextBucketKey != null) {
                                 return true;
                             }
-                            // Try to find the next sample.
-                            if (sampleIterator != null
-                                    && sampleIterator.hasNext()) {
-                                Column<ITimestamp> sampleColumn = sampleIterator
-                                        .next();
-                                ITimestamp sampleTimestamp = sampleColumn
-                                        .getName();
-                                IValue sampleValue = ValueSerializer
-                                        .fromByteBuffer(sampleColumn
-                                                .getByteBufferValue(),
-                                                sampleTimestamp, quality);
-                                nextSample = new Sample(compressionPeriod,
-                                        channelName, sampleValue);
-                                bucketKeyForNextSample = sampleQueryBucketKey;
-                                return true;
-                            }
-                            // Get next page of samples in current bucket.
-                            if (sampleQuery != null) {
-                                ColumnList<ITimestamp> sampleColumns = sampleQuery
-                                        .execute().getResult();
-                                if (!sampleColumns.isEmpty()) {
-                                    sampleIterator = sampleColumns.iterator();
-                                    return hasNext();
-                                } else {
-                                    sampleIterator = null;
-                                }
-                            }
-                            // Get the next sample bucket. Skip parts with a
-                            // zero bucket size (we use this to indicate periods
-                            // without any samples).
-                            if (nextBucketKey != null
-                                    && !nextBucketKey.getBucketSize().equals(
-                                            BigInteger.ZERO)) {
-                                sampleQueryBucketKey = nextBucketKey;
-                                sampleQuery = keyspace
-                                        .prepareQuery(cfSamples.getCF())
-                                        .setConsistencyLevel(
-                                                readDataConsistencyLevel)
-                                        .getKey(sampleQueryBucketKey)
-                                        .autoPaginate(true)
-                                        .withColumnRange(
-                                                currentBucketSizeStart,
-                                                currentBucketSizeEnd,
-                                                reverse,
-                                                (limit >= 0) ? (limit - count + 1)
-                                                        : 5000);
+
+                            // We calculate the next bucket key by incrementing
+                            // or decrementing the last bucket key by the
+                            // current bucket size.
+                            if (currentBucketKey != null) {
                                 ITimestamp nextBucketTimestamp;
-                                if (reverse) {
-                                    if (nextBucketKey.getBucketStartTime()
+                                if (finalReverse) {
+                                    if (currentBucketKey.getBucketStartTime()
                                             .equals(ZERO_TIMESTAMP)) {
                                         // We already have the oldest possible
                                         // bucket.
-                                        nextBucketKey = null;
-                                        return hasNext();
+                                        return false;
                                     }
                                     nextBucketTimestamp = TimestampArithmetics
-                                            .substract(nextBucketKey
+                                            .substract(currentBucketKey
                                                     .getBucketStartTime(),
                                                     currentBucketSizeAsTimestamp);
                                 } else {
                                     nextBucketTimestamp = TimestampArithmetics
-                                            .add(nextBucketKey
+                                            .add(currentBucketKey
                                                     .getBucketStartTime(),
                                                     currentBucketSizeAsTimestamp);
                                 }
-                                if ((!reverse && nextBucketTimestamp
+                                if ((!finalReverse && nextBucketTimestamp
                                         .isGreaterThan(currentBucketSizeEnd))
-                                        || (reverse && nextBucketTimestamp
+                                        || (finalReverse && nextBucketTimestamp
                                                 .isLessOrEqual(TimestampArithmetics
                                                         .substract(
                                                                 currentBucketSizeEnd,
                                                                 currentBucketSizeAsTimestamp)))) {
-                                    nextBucketKey = null;
+                                    currentBucketKey = null;
                                 } else {
                                     nextBucketKey = new SampleBucketKey(
-                                            channelName, currentBucketSize,
+                                            finalChannelName,
+                                            currentBucketSize,
                                             nextBucketTimestamp);
                                 }
                                 return hasNext();
                             }
+
                             // Get the next bucket size.
                             if (bucketSizeIterator != null
                                     && bucketSizeIterator.hasNext()) {
@@ -772,7 +748,7 @@ public class CompressionLevelSampleStore {
                                 Column<ITimestamp> bucketSizeColumn = bucketSizeIterator
                                         .next();
                                 if (nextBucketSizeTimestamp != null) {
-                                    if (reverse) {
+                                    if (finalReverse) {
                                         if (currentBucketSizeEnd != null) {
                                             // We know that there is a bucket
                                             // size with a smaller timestamp,
@@ -783,7 +759,7 @@ public class CompressionLevelSampleStore {
                                                             currentBucketSizeEnd,
                                                             ONE_NANOSECOND);
                                         } else {
-                                            currentBucketSizeStart = start;
+                                            currentBucketSizeStart = finalStart;
                                         }
                                     } else {
                                         currentBucketSizeStart = nextBucketSizeTimestamp;
@@ -791,7 +767,7 @@ public class CompressionLevelSampleStore {
                                     currentBucketSize = nextBucketSize;
                                     currentBucketSizeAsTimestamp = TimestampArithmetics
                                             .bigIntegerToTimestamp(currentBucketSize);
-                                    if (reverse) {
+                                    if (finalReverse) {
                                         currentBucketSizeEnd = nextBucketSizeTimestamp;
                                     }
                                     nextBucketSizeTimestamp = bucketSizeColumn
@@ -799,7 +775,7 @@ public class CompressionLevelSampleStore {
                                     nextBucketSize = bucketSizeColumn
                                             .getValue(BigIntegerSerializer
                                                     .get());
-                                    if (!reverse) {
+                                    if (!finalReverse) {
                                         currentBucketSizeEnd = TimestampArithmetics
                                                 .substract(
                                                         nextBucketSizeTimestamp,
@@ -815,23 +791,23 @@ public class CompressionLevelSampleStore {
                                         nextBucketKey = null;
                                     } else {
                                         nextBucketKey = getBucketKey(
-                                                channelName,
+                                                finalChannelName,
                                                 currentBucketSizeStart,
                                                 currentBucketSize);
                                     }
                                 } else {
                                     nextBucketSizeTimestamp = bucketSizeColumn
                                             .getName();
-                                    if (!reverse) {
+                                    if (!finalReverse) {
                                         // Only the first bucket size that we
                                         // get can have a timestamp that is less
                                         // than the requested start timestamp.
                                         // Thus it is sufficient if we perform
                                         // this check here.
-                                        if (start != null
+                                        if (finalStart != null
                                                 && nextBucketSizeTimestamp
-                                                        .isLessThan(start)) {
-                                            nextBucketSizeTimestamp = start;
+                                                        .isLessThan(finalStart)) {
+                                            nextBucketSizeTimestamp = finalStart;
                                         }
                                     }
                                     nextBucketSize = bucketSizeColumn
@@ -840,12 +816,16 @@ public class CompressionLevelSampleStore {
                                 }
                                 return hasNext();
                             }
+
                             // If the bucket size iterator has run out of
                             // columns, there are two possible causes: Either
                             // we have to request the next page, or we have hit
                             // the last bucket size.
                             ColumnList<ITimestamp> bucketSizeColumns = bucketSizeQuery
                                     .execute().getResult();
+                            // For a paginated query, execute().getResult()
+                            // returns an empty column list to indicate that
+                            // there are no more columns.
                             if (!bucketSizeColumns.isEmpty()) {
                                 bucketSizeIterator = bucketSizeColumns
                                         .iterator();
@@ -857,7 +837,7 @@ public class CompressionLevelSampleStore {
                                     // bucket size and use the end timestamp
                                     // of the sample query as the end timestamp
                                     // of the bucket size.
-                                    if (reverse) {
+                                    if (finalReverse) {
                                         if (currentBucketSizeEnd != null) {
                                             // We know that there is a bucket
                                             // size with a smaller timestamp,
@@ -868,7 +848,7 @@ public class CompressionLevelSampleStore {
                                                             currentBucketSizeEnd,
                                                             ONE_NANOSECOND);
                                         } else {
-                                            currentBucketSizeStart = start;
+                                            currentBucketSizeStart = finalStart;
                                         }
                                     } else {
                                         currentBucketSizeStart = nextBucketSizeTimestamp;
@@ -876,7 +856,7 @@ public class CompressionLevelSampleStore {
                                     currentBucketSize = nextBucketSize;
                                     currentBucketSizeAsTimestamp = TimestampArithmetics
                                             .bigIntegerToTimestamp(currentBucketSize);
-                                    if (reverse) {
+                                    if (finalReverse) {
                                         // If the end of the requested range is
                                         // before the end of the bucket, we
                                         // limit the queries to this end.
@@ -885,14 +865,15 @@ public class CompressionLevelSampleStore {
                                         // happen for the last bucket size, thus
                                         // is is sufficient to make this check
                                         // here.
-                                        if (end != null
-                                                && end.isGreaterThan(nextBucketSizeTimestamp)) {
-                                            currentBucketSizeEnd = end;
+                                        if (finalEnd != null
+                                                && finalEnd
+                                                        .isGreaterThan(nextBucketSizeTimestamp)) {
+                                            currentBucketSizeEnd = finalEnd;
                                         } else {
                                             currentBucketSizeEnd = nextBucketSizeTimestamp;
                                         }
                                     } else {
-                                        currentBucketSizeEnd = end;
+                                        currentBucketSizeEnd = finalEnd;
                                     }
                                     nextBucketSizeTimestamp = null;
                                     nextBucketSize = null;
@@ -906,7 +887,7 @@ public class CompressionLevelSampleStore {
                                         nextBucketKey = null;
                                     } else {
                                         nextBucketKey = getBucketKey(
-                                                channelName,
+                                                finalChannelName,
                                                 currentBucketSizeStart,
                                                 currentBucketSize);
                                     }
@@ -923,8 +904,138 @@ public class CompressionLevelSampleStore {
                         } catch (ConnectionException e) {
                             throw new RuntimeException(
                                     "Error while trying to retrieve data for channel \""
-                                            + channelName + "\": "
+                                            + finalChannelName + "\": "
                                             + e.getMessage(), e);
+                        }
+                    }
+
+                    @Override
+                    public SampleBucket next() {
+                        if (!hasNext()) {
+                            throw new NoSuchElementException();
+                        }
+                        currentBucketKey = nextBucketKey;
+                        nextBucketKey = null;
+                        // The limits of the bucket might be smaller than the
+                        // size of the bucket indicates, because the validity
+                        // period of the size might be smaller.
+                        ITimestamp bucketStart, bucketEnd;
+                        if (finalReverse) {
+                            bucketStart = TimestampArithmetics.add(
+                                    currentBucketKey.getBucketStartTime(),
+                                    currentBucketSizeAsTimestamp);
+                            bucketStart = TimestampArithmetics.substract(
+                                    bucketStart, ONE_NANOSECOND);
+                            if (bucketStart
+                                    .isGreaterThan(currentBucketSizeStart)) {
+                                bucketStart = currentBucketSizeStart;
+                            }
+                            if (currentBucketSizeEnd
+                                    .isGreaterOrEqual(currentBucketKey
+                                            .getBucketStartTime())) {
+                                bucketEnd = currentBucketSizeEnd;
+                            } else {
+                                bucketEnd = currentBucketKey
+                                        .getBucketStartTime();
+                            }
+                        } else {
+                            if (currentBucketSizeStart
+                                    .isGreaterOrEqual(currentBucketKey
+                                            .getBucketStartTime())) {
+                                bucketStart = currentBucketSizeStart;
+                            } else {
+                                bucketStart = currentBucketKey
+                                        .getBucketStartTime();
+                            }
+                            bucketEnd = TimestampArithmetics.add(
+                                    currentBucketKey.getBucketStartTime(),
+                                    currentBucketSizeAsTimestamp);
+                            bucketEnd = TimestampArithmetics.substract(
+                                    bucketEnd, ONE_NANOSECOND);
+                            if (bucketEnd.isGreaterThan(currentBucketSizeEnd)) {
+                                bucketEnd = currentBucketSizeEnd;
+                            }
+                        }
+                        return new SampleBucket(currentBucketKey, bucketStart,
+                                bucketEnd);
+                    }
+
+                    @Override
+                    public void remove() {
+                        throw new UnsupportedOperationException(
+                                "This iterator is read-only.");
+                    }
+
+                };
+            }
+        };
+    }
+
+    private Iterable<Sample> findSamplesForBucket(final SampleBucket bucket,
+            ITimestamp start, ITimestamp end, final boolean reverse,
+            final int limit) {
+        // We expect limit to be non-negative (the calling code should decide
+        // on the block size for paginated queries.
+        assert (limit >= 0);
+
+        final ITimestamp realStart;
+        final ITimestamp realEnd;
+        if (reverse) {
+            realStart = (start != null && start.isLessOrEqual(bucket.start)) ? start
+                    : bucket.start;
+            realEnd = (end != null && end.isGreaterOrEqual(bucket.end)) ? end
+                    : bucket.end;
+        } else {
+            realStart = (start != null && start.isGreaterOrEqual(bucket.start)) ? start
+                    : bucket.start;
+            realEnd = (end != null && end.isLessOrEqual(bucket.end)) ? end
+                    : bucket.end;
+        }
+        return new Iterable<Sample>() {
+
+            @Override
+            public Iterator<Sample> iterator() {
+                return new Iterator<Sample>() {
+
+                    private Sample nextSample;
+                    private RowQuery<SampleBucketKey, ITimestamp> sampleQuery = keyspace
+                            .prepareQuery(cfSamples.getCF())
+                            .setConsistencyLevel(readDataConsistencyLevel)
+                            .getKey(bucket.key)
+                            .autoPaginate(true)
+                            .withColumnRange(realStart, realEnd, reverse, limit);
+                    private Iterator<Column<ITimestamp>> sampleIterator = null;
+
+                    @Override
+                    public boolean hasNext() {
+                        if (nextSample != null) {
+                            return true;
+                        }
+                        if (sampleIterator != null && sampleIterator.hasNext()) {
+                            Column<ITimestamp> sampleColumn = sampleIterator
+                                    .next();
+                            ITimestamp sampleTimestamp = sampleColumn.getName();
+                            IValue sampleValue = ValueSerializer
+                                    .fromByteBuffer(
+                                            sampleColumn.getByteBufferValue(),
+                                            sampleTimestamp, quality);
+                            nextSample = new Sample(compressionPeriod,
+                                    bucket.key.getChannelName(), sampleValue);
+                            return true;
+                        }
+                        try {
+                            ColumnList<ITimestamp> columns = sampleQuery
+                                    .execute().getResult();
+                            if (columns.isEmpty()) {
+                                return false;
+                            }
+                            sampleIterator = columns.iterator();
+                            return hasNext();
+                        } catch (ConnectionException e) {
+                            throw new RuntimeException(
+                                    "Error while trying to retrieve data for channel \""
+                                            + bucket.key.getChannelName()
+                                            + "\": " + e.getMessage(), e);
                         }
                     }
 
@@ -933,34 +1044,151 @@ public class CompressionLevelSampleStore {
                         if (!hasNext()) {
                             throw new NoSuchElementException();
                         }
-                        lastReturnedSample = nextSample;
-                        bucketKeyForLastReturnedSample = bucketKeyForNextSample;
+                        Sample currentSample = nextSample;
                         nextSample = null;
-                        bucketKeyForNextSample = null;
-                        if (limit >= 0) {
-                            count++;
-                        }
-                        return lastReturnedSample;
+                        return currentSample;
                     }
 
                     @Override
                     public void remove() {
-                        if (mutationBatch == null) {
-                            throw new UnsupportedOperationException(
-                                    "Samples are read-only.");
-                        } else {
-                            if (lastReturnedSample == null) {
-                                throw new IllegalStateException(
-                                        "Either no element has been requested using the next() method yet, or the current element has already been deleted.");
-                            }
-                            mutationBatch.withRow(cfSamples.getCF(),
-                                    bucketKeyForLastReturnedSample)
-                                    .deleteColumn(
-                                            lastReturnedSample.getValue()
-                                                    .getTime());
-                            lastReturnedSample = null;
-                            bucketKeyForLastReturnedSample = null;
+                        throw new UnsupportedOperationException(
+                                "This sample iterator is read-only.");
+                    }
+
+                };
+            }
+
+        };
+
+    }
+
+    public Iterable<Sample> findSamples(String channelName, ITimestamp start,
+            ITimestamp end, int limit, boolean reverse)
+            throws ConnectionException {
+        // The first bucket size we have to look for is the one with a timestamp
+        // less than or equal to the requested start timestamp. If the start
+        // timestamp is null, it is just the first bucket size at all.
+        // The last bucket size we have to look for is the one with a timestamp
+        // less than or equal to the requested end timestamp. If the end
+        // timestamp is null, we look up to four hours into the future to
+        // accommodate for clock skew.
+        // For reverse order the logic is nearly the same, only that we set the
+        // start timestamp in the future and the end timestamp is limited by the
+        // first bucket.
+        if (start != null && end != null) {
+            if (reverse) {
+                if (end.isGreaterThan(start)) {
+                    throw new IllegalArgumentException("Start timestamp ("
+                            + start.format(ITimestamp.Format.Full)
+                            + ") must be greater than end timestamp ("
+                            + end.format(ITimestamp.Format.Full) + ").");
+                }
+            } else {
+                if (start.isGreaterThan(end)) {
+                    throw new IllegalArgumentException("Start timestamp ("
+                            + start.format(ITimestamp.Format.Full)
+                            + ") most not be greater than end timestamp ("
+                            + end.format(ITimestamp.Format.Full) + ").");
+                }
+            }
+        }
+
+        ITimestamp greatestTimestamp = reverse ? start : end;
+        // If the cache is enabled, we know the timestamp of the newest sample.
+        if (greatestTimestamp == null && enableCache) {
+            greatestTimestamp = getLastSampleTimestamp(channelName);
+        }
+        // If the timestamp is still not set (either because the cache is
+        // disabled or because there is no sample and thus no latest timestamp),
+        // we use a timestamp four hours into the future.
+        if (greatestTimestamp == null) {
+            greatestTimestamp = TimestampArithmetics.add(
+                    TimestampFactory.now(), FOUR_HOURS);
+        }
+        if (reverse) {
+            start = greatestTimestamp;
+        } else {
+            end = greatestTimestamp;
+        }
+
+        // Because we might have changed the start or end timestamp, we have to
+        // check, that they are still in the right order. If the order is wrong
+        // now, we do not treat this as an error (the calling code supplied
+        // correct timestamps, which we checked above), but just return an empty
+        // iterable.
+        if (start != null && end != null && start.isGreaterThan(end)) {
+            return emptyIterable();
+        }
+
+        final ITimestamp finalStart = start;
+        final ITimestamp finalEnd = end;
+        final int finalLimit = limit;
+        final boolean finalReverse = reverse;
+        final Iterator<SampleBucket> finalBucketIterator = findSampleBuckets(
+                channelName, start, end, reverse).iterator();
+
+        return new Iterable<Sample>() {
+
+            @Override
+            public Iterator<Sample> iterator() {
+                return new Iterator<Sample>() {
+
+                    private Iterator<SampleBucket> bucketIterator = finalBucketIterator;
+                    private SampleBucket currentBucket = null;
+                    private Iterator<Sample> sampleIterator = null;
+                    private Sample nextSample = null;
+                    private int count = 0;
+
+                    @Override
+                    public boolean hasNext() {
+                        // If a limit is set, we return at most the number of
+                        // samples defined by the limit.
+                        if (finalLimit >= 0 && count >= finalLimit) {
+                            return false;
                         }
+                        if (nextSample != null) {
+                            // We already have the next sample, so there is
+                            // nothing left to be done.
+                            return true;
+                        }
+                        // Try to find the next sample.
+                        if (sampleIterator != null && sampleIterator.hasNext()) {
+                            nextSample = sampleIterator.next();
+                            return true;
+                        }
+                        // Get the next sample bucket.
+                        if (bucketIterator.hasNext()) {
+                            currentBucket = bucketIterator.next();
+                            // We limit the maximum number of samples that we
+                            // read with a single request to the number of
+                            // requested samples plus one or 5000, whichever is
+                            // less.
+                            int queryCountLimit = Math
+                                    .min((finalLimit >= 0) ? (finalLimit
+                                            - count + 1) : 5000, 5000);
+                            sampleIterator = findSamplesForBucket(
+                                    currentBucket, finalStart, finalEnd,
+                                    finalReverse, queryCountLimit).iterator();
+                            return hasNext();
+                        }
+                        return false;
+                    }
+
+                    @Override
+                    public Sample next() {
+                        if (!hasNext()) {
+                            throw new NoSuchElementException();
+                        }
+                        Sample currentSample = nextSample;
+                        nextSample = null;
+                        count++;
+                        return currentSample;
+                    }
+
+                    @Override
+                    public void remove() {
+                        throw new UnsupportedOperationException(
+                                "This sample iterator is read-only.");
                     }
 
                 };
@@ -968,33 +1196,90 @@ public class CompressionLevelSampleStore {
         };
     }
 
-    public void deleteSamples(String channelName, ITimestamp start,
-            ITimestamp end) throws ConnectionException {
+    public void deleteSamples(String channelName, ITimestamp until)
+            throws ConnectionException {
         if (!enableWrites) {
             throw new IllegalStateException("Writes are disabled.");
+        }
+        if (until == null) {
+            throw new NullPointerException("Until parameter must not be null.");
         }
         // Limit end to the timestamp of the last sample in order to avoid
         // undesirable effects, when we are inserting samples in parallel.
         ITimestamp lastSampleTimestamp = getLastSampleTimestamp(channelName);
-        if (lastSampleTimestamp == null
-                || (start != null && start.isGreaterThan(lastSampleTimestamp))) {
-            // There are no samples, that we can delete.
+        if (lastSampleTimestamp != null
+                && lastSampleTimestamp.isLessThan(until)) {
+            until = lastSampleTimestamp;
+        }
+
+        if (lastSampleTimestamp == null) {
+            // There are no samples and no sample buckets, so there is nothing
+            // we have to do.
             return;
         }
-        if (end == null
-                || (lastSampleTimestamp != null && lastSampleTimestamp
-                        .isLessThan(end))) {
-            end = lastSampleTimestamp;
-        }
-        // Find and delete samples.
+
+        // If we found at least one sample, we delete all buckets that end
+        // before or at our limit. In order to limit the number of tombstones
+        // created, we only delete complete buckets of samples.
         MutationBatch mutationBatch = keyspace.prepareMutationBatch()
                 .withConsistencyLevel(writeDataConsistencyLevel);
-        for (Iterator<Sample> i = findSamples(channelName, start, end, -1,
-                false, mutationBatch).iterator(); i.hasNext();) {
-            i.next();
-            i.remove();
+        SampleBucket lastBucket = null;
+        // We remember the start of the first bucket, so that we can later use
+        // it as a lower bound for the bucket size query. This way, we can avoid
+        // having to scan through tombstones twice.
+        ITimestamp firstFoundBucketStart = null;
+        int mutationCount = 0;
+        HashSet<SampleBucketKey> deletedBucketKeys = new HashSet<SampleBucketKey>();
+        for (SampleBucket bucket : findSampleBuckets(channelName, null, until,
+                false)) {
+            lastBucket = bucket;
+            if (firstFoundBucketStart == null) {
+                firstFoundBucketStart = bucket.start;
+            }
+            if (bucket.end.isLessOrEqual(until)) {
+                // Delete bucket. We check whether there are actually samples
+                // in the bucket in order to avoid creating a tombstone for a
+                // bucket which did not exist at all. We also check, whether we
+                // already deleted the bucket key (one bucket key might appear
+                // as two different buckets if the bucket size changed in
+                // between, in order to avoid creating more than one tombstone.
+                if (!deletedBucketKeys.contains(bucket.key)
+                        && findSamplesForBucket(bucket, bucket.start,
+                                bucket.end, false, 1).iterator().hasNext()) {
+                    mutationBatch.withRow(cfSamples.getCF(), bucket.key)
+                            .delete();
+                    mutationCount++;
+                    deletedBucketKeys.add(bucket.key);
+                }
+            } else {
+                // Some buckets that are completely in the interval to be
+                // deleted might follow. However, deleting them would create
+                // "holes" in the data, so we do not delete them either.
+                break;
+            }
+            if (mutationCount >= 1000) {
+                // We do not want to have too many operations in a single
+                // mutation batch.
+                mutationBatch.execute();
+                mutationCount = 0;
+            }
         }
         mutationBatch.execute();
+        // We must have iterated over at least one bucket, because there is
+        // at least one sample. Therefore, We can safely assume that
+        // lastBucket is not null.
+        ITimestamp firstRemainingBucketStart;
+        if (lastBucket.end.equals(until)) {
+            // If the last bucket that we saw ends exactly at the end of the
+            // period that we delete, the first bucket that we do not delete
+            // starts right after that bucket.
+            firstRemainingBucketStart = TimestampArithmetics.add(
+                    lastSampleTimestamp, ONE_NANOSECOND);
+        } else {
+            // Otherwise, the last bucket that we saw is the first bucket
+            // that we did not delete.
+            firstRemainingBucketStart = lastBucket.start;
+        }
 
         // We use mutation batch with a different consistency level for writing
         // to the bucket-size column-family.
@@ -1002,65 +1287,82 @@ public class CompressionLevelSampleStore {
                 writeMetaDataConsistencyLevel);
         ColumnListMutation<ITimestamp> cfSamplesBucketSizeMutation = mutationBatch
                 .withRow(cfSamplesBucketSize.getCF(), channelName);
-        // Now we check whether there is a bucket size that starts before the
-        // start of the period we just deleted. If no such bucket size exists,
-        // we do not need to insert a zero bucket size.
-        ITimestamp startDeleteBucketSizes = null;
-        if (start != null && start.isGreaterThan(ZERO_TIMESTAMP)) {
-            ColumnList<ITimestamp> bucketSizeColumns = keyspace
-                    .prepareQuery(cfSamplesBucketSize.getCF())
-                    .getKey(channelName)
-                    .withColumnRange(
-                            TimestampArithmetics.substract(start,
-                                    ONE_NANOSECOND), null, true, 1).execute()
-                    .getResult();
-            if (!bucketSizeColumns.isEmpty()) {
-                // We insert a zero bucket size with the start timestamp in
-                // order to indicate that no samples are available in this
-                // period of time.
-                cfSamplesBucketSizeMutation.putColumn(start, BigInteger.ZERO,
-                        BigIntegerSerializer.get(), null);
-                // Set start timestamp for deleting bucket sizes the start
-                // timestamp plus one, so that we do not delete the zero bucket
-                // size that we just inserted.
-                startDeleteBucketSizes = TimestampArithmetics.add(start,
-                        ONE_NANOSECOND);
-            }
-        }
-        // Now we insert the bucket size that is valid at the end timestamp
-        // using the end timestamp. Subsequently we can delete all bucket sizes
-        // between the start and the end timestamp. If there is no bucket size
-        // preceding the end timestamp, we do not have to do anything.
-        if (end.equals(ZERO_TIMESTAMP)) {
-            return;
-        }
-        ITimestamp endMinusOne = TimestampArithmetics.substract(end,
-                ONE_NANOSECOND);
-        ColumnList<ITimestamp> bucketSizeColumns = keyspace
-                .prepareQuery(cfSamplesBucketSize.getCF()).getKey(channelName)
-                .withColumnRange(endMinusOne, null, true, 1).execute()
-                .getResult();
-        if (!bucketSizeColumns.isEmpty()) {
-            BigInteger lastBucketSize = bucketSizeColumns.getColumnByIndex(0)
-                    .getValue(BigIntegerSerializer.get());
-            cfSamplesBucketSizeMutation.putColumn(end, lastBucketSize,
-                    BigIntegerSerializer.get(), null);
-            // Finally we delete all bucket sizes between the start timestamp
-            // (inclusive) and the end timestamp (exclusive).
-            RowQuery<String, ITimestamp> bucketSizeQuery = keyspace
-                    .prepareQuery(cfSamplesBucketSize.getCF())
-                    .getKey(channelName)
-                    .autoPaginate(true)
-                    .withColumnRange(startDeleteBucketSizes, endMinusOne,
-                            false, 100);
-            while (!(bucketSizeColumns = bucketSizeQuery.execute().getResult())
-                    .isEmpty()) {
-                for (Column<ITimestamp> column : bucketSizeColumns) {
-                    cfSamplesBucketSizeMutation.deleteColumn(column.getName());
+
+        // We can safely delete bucket size entries, as long as there is at
+        // least one entry with a timestamp that is within or directly follows
+        // the range that we deleted.
+        RowQuery<String, ITimestamp> bucketSizeQuery = keyspace
+                .prepareQuery(cfSamplesBucketSize.getCF())
+                .setConsistencyLevel(readMetaDataConsistencyLevel)
+                .getKey(channelName)
+                .withColumnRange(firstFoundBucketStart,
+                        firstRemainingBucketStart, false, 1000)
+                .autoPaginate(true);
+        ColumnList<ITimestamp> bucketSizeColumns;
+        Column<ITimestamp> lastBucketSizeColumn = null;
+        mutationCount = 0;
+        while (!(bucketSizeColumns = bucketSizeQuery.execute().getResult())
+                .isEmpty()) {
+            for (Column<ITimestamp> bucketSizeColumn : bucketSizeColumns) {
+                if (bucketSizeColumn.getName().isLessOrEqual(
+                        firstRemainingBucketStart)) {
+                    if (lastBucketSizeColumn != null) {
+                        cfSamplesBucketSizeMutation
+                                .deleteColumn(lastBucketSizeColumn.getName());
+                        mutationCount++;
+                    }
+                } else {
+                    // We still want to remember this bucket-size column
+                    // because we might want to delete it an insert a new one
+                    // if it is very old.
+                    lastBucketSizeColumn = bucketSizeColumn;
+                    break;
+                }
+                lastBucketSizeColumn = bucketSizeColumn;
+                if (mutationCount >= 1000) {
+                    // We do not want to have too many operations in a single
+                    // mutation batch.
+                    mutationBatch.execute();
+                    mutationCount = 0;
                 }
             }
         }
-
+        // We can safely assume that lastBucketSizeColumn is not null because
+        // there must be at least one bucket size in the query range.
+        if (lastBucketSizeColumn.getValue(BigIntegerSerializer.get()).equals(
+                BigInteger.ZERO)) {
+            // If the last bucket size is zero, we can delete it as well,
+            // because there can be no samples until the start of the next
+            // bucket size (if there is one).
+            cfSamplesBucketSizeMutation.deleteColumn(lastBucketSizeColumn
+                    .getName());
+        } else {
+            // If the last bucket size is non-zero but its time-stamp is very
+            // old, we might want to delete it and recreate it with a newer
+            // timestamp, thus avoiding to scan through empty buckets.
+            ITimestamp emptyPeriod = TimestampArithmetics.substract(
+                    firstRemainingBucketStart, lastBucketSizeColumn.getName());
+            // We have to criteria: First, at least ten days must have passed.
+            // This limits the number of tombstones created per year to about
+            // 36. Second, there must be at least two empty buckets in between.
+            // This is a trade-off between looking for empty buckets and
+            // accumulating tomb stones.
+            if (emptyPeriod.isGreaterOrEqual(TEN_DAYS)
+                    && emptyPeriod.isGreaterOrEqual(TimestampArithmetics
+                            .multiply(lastBucketSizeColumn
+                                    .getValue(TimestampSerializer.get()), 3L))) {
+                // We insert a new bucket size with the time of the start of the
+                // first remaining bucket and subsequently delete the old bucket
+                // size entry.
+                cfSamplesBucketSizeMutation.putColumn(
+                        firstRemainingBucketStart, lastBucketSizeColumn
+                                .getValue(BigIntegerSerializer.get()),
+                        BigIntegerSerializer.get(), null);
+                cfSamplesBucketSizeMutation.deleteColumn(lastBucketSizeColumn
+                        .getName());
+            }
+        }
+        mutationBatch.execute();
     }
 
     public void performCleanUp(HashSet<String> channelNames, boolean printStatus)
@@ -1077,6 +1379,7 @@ public class CompressionLevelSampleStore {
                 .setRowLimit(5000)
                 .withColumnRange(new RangeBuilder().setLimit(1).build())
                 .execute().getResult();
+        int processedRows = 0;
         for (Row<SampleBucketKey, ITimestamp> row : sampleRows) {
             SampleBucketKey rowKey = row.getKey();
             String channelName = rowKey.getChannelName();
@@ -1153,6 +1456,13 @@ public class CompressionLevelSampleStore {
                     mutationBatch.withRow(cfSamples.getCF(), row.getKey())
                             .delete();
                 }
+            }
+            // Execute the queued actions after processing 500 rows, so that the
+            // lost results are limited if the process is interrupted.
+            processedRows++;
+            if (processedRows >= 2000) {
+                mutationBatch.execute();
+                processedRows = 0;
             }
         }
         mutationBatch.execute();

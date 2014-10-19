@@ -59,7 +59,7 @@ public class XMLExport {
                 CassandraArchivePreferences.getReadMetaDataConsistencyLevel(),
                 CassandraArchivePreferences.getWriteMetaDataConsistencyLevel(),
                 CassandraArchivePreferences.getRetryPolicy(),
-                cassandra_username, cassandra_password);
+                cassandra_username, cassandra_password, true);
         try {
             final EngineConfig engine = config.findEngine(engine_name);
             if (engine == null)

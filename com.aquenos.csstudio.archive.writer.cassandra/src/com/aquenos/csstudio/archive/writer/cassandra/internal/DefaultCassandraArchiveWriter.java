@@ -12,6 +12,7 @@ package com.aquenos.csstudio.archive.writer.cassandra.internal;
 import com.aquenos.csstudio.archive.cassandra.CassandraArchivePreferences;
 import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriter;
 import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriterPreferences;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 
 /**
  * Sub-class of {@link CassandraArchiveWriter} that provides a default
@@ -23,7 +24,7 @@ import com.aquenos.csstudio.archive.writer.cassandra.CassandraArchiveWriterPrefe
  * @author Sebastian Marsching
  */
 public class DefaultCassandraArchiveWriter extends CassandraArchiveWriter {
-    public DefaultCassandraArchiveWriter() {
+    public DefaultCassandraArchiveWriter() throws ConnectionException {
         super(CassandraArchivePreferences.getHosts(),
                 CassandraArchivePreferences.getPort(),
                 CassandraArchivePreferences.getKeyspace(),

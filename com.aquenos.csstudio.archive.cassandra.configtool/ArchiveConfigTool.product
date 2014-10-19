@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
 
-<product name="ArchiveConfigTool" uid="configTool" id="com.aquenos.csstudio.archive.cassandra.configtool.configToolProduct" application="com.aquenos.csstudio.archive.cassandra.configtool.configToolApp" version="2.2.0.qualifier" useFeatures="false" includeLaunchers="false">
+<product name="ArchiveConfigTool" uid="configTool" id="com.aquenos.csstudio.archive.cassandra.configtool.configToolProduct" application="com.aquenos.csstudio.archive.cassandra.configtool.configToolApp" version="2.3.0.qualifier" useFeatures="false" includeLaunchers="false">
 
    <configIni use="default">
    </configIni>
@@ -42,7 +42,7 @@
       <plugin id="org.codehaus.jettison.jettison"/>
       <plugin id="org.csstudio.apputil"/>
       <plugin id="org.csstudio.archive.config"/>
-      <plugin id="org.csstudio.auth" fragment=""/>
+      <plugin id="org.csstudio.auth"/>
       <plugin id="org.csstudio.data"/>
       <plugin id="org.csstudio.java"/>
       <plugin id="org.csstudio.logging"/>

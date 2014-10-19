@@ -37,6 +37,7 @@ import com.netflix.astyanax.AstyanaxContext;
 import com.netflix.astyanax.Cluster;
 import com.netflix.astyanax.Keyspace;
 import com.netflix.astyanax.connectionpool.NodeDiscoveryType;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.netflix.astyanax.connectionpool.impl.ConnectionPoolConfigurationImpl;
 import com.netflix.astyanax.connectionpool.impl.SimpleAuthenticationCredentials;
 import com.netflix.astyanax.impl.AstyanaxConfigurationImpl;
@@ -96,6 +97,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
      * @param password
      *            password to use for authentication or <code>null</code> to use
      *            no authentication.
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     public CassandraArchiveWriter(String cassandraHosts, int cassandraPort,
             String cassandraKeyspace,
@@ -103,7 +106,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
             ConsistencyLevel writeDataConsistencyLevel,
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
-            RetryPolicy retryPolicy, String username, String password) {
+            RetryPolicy retryPolicy, String username, String password)
+            throws ConnectionException {
         this(cassandraHosts, cassandraPort, cassandraKeyspace,
                 readDataConsistencyLevel, writeDataConsistencyLevel,
                 readMetaDataConsistencyLevel, writeMetaDataConsistencyLevel,
@@ -146,6 +150,8 @@ public class CassandraArchiveWriter implements ArchiveWriter {
      *            performing the compression for all channels managed by the
      *            specified engine. If this is less than one, the compression is
      *            deactivated.
+     * @throws ConnectionException
+     *             if connection to keyspace fails.
      */
     protected CassandraArchiveWriter(String cassandraHosts, int cassandraPort,
             String keyspaceName, ConsistencyLevel readDataConsistencyLevel,
@@ -153,7 +159,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
             ConsistencyLevel readMetaDataConsistencyLevel,
             ConsistencyLevel writeMetaDataConsistencyLevel,
             RetryPolicy retryPolicy, String username, String password,
-            int numCompressorWorkers) {
+            int numCompressorWorkers) throws ConnectionException {
         // We use a random identifier for the cluster, because there might be
         // several instances of the archive reader. If we used the same
         // cluster for all of them, a cluster still being used might be shutdown
@@ -176,7 +182,7 @@ public class CassandraArchiveWriter implements ArchiveWriter {
                 .withAstyanaxConfiguration(asConfig)
                 .buildCluster(ThriftFamilyFactory.getInstance());
         this.context.start();
-        Cluster cluster = this.context.getEntity();
+        Cluster cluster = this.context.getClient();
         initialize(cluster, cluster.getKeyspace(keyspaceName),
                 readDataConsistencyLevel, writeDataConsistencyLevel,
                 readMetaDataConsistencyLevel, writeMetaDataConsistencyLevel,

@@ -3,7 +3,7 @@ Bundle-ManifestVersion: 2
 Bundle-Name: Common Code for Archive Support for Cassandra
 Bundle-Description: Code shared by the various bundles that provide archive support for the Apache Cassandra distributed database system
 Bundle-SymbolicName: com.aquenos.csstudio.archive.cassandra;singleton:=true
-Bundle-Version: 2.2.0.qualifier
+Bundle-Version: 2.3.0.qualifier
 Bundle-Vendor: aquenos GmbH
 Require-Bundle: org.eclipse.core.runtime;bundle-version="3.6.0",
  org.csstudio.archive.config;bundle-version="1.0.0"
