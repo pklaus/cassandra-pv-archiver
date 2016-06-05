@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2013 aquenos GmbH.
+ * Copyright 2012-2016 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -19,7 +19,6 @@ import org.csstudio.data.values.IValue;
 import com.aquenos.csstudio.archive.cassandra.Sample;
 import com.aquenos.csstudio.archive.cassandra.SampleStore;
 import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
-import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 
 /**
  * Value iterator that returns samples from a single compression-level of a
@@ -38,6 +37,7 @@ public class CassandraValueIterator implements ValueIterator, Cancelable {
     private SampleStore sampleStore;
     private Iterator<Sample> sampleIterator;
     private Sample lastSample;
+    private Exception storedException;
     private CancelationProvider cancelationProvider;
     private volatile boolean cancelationRequested = false;
 
@@ -45,7 +45,7 @@ public class CassandraValueIterator implements ValueIterator, Cancelable {
             CassandraArchiveConfig config, String channelName,
             ITimestamp start, ITimestamp end, boolean includeEarlierSample,
             long compressionPeriod, CancelationProvider cancelationProvider)
-            throws ConnectionException {
+            throws Exception {
         if (compressionPeriod < 0) {
             throw new IllegalArgumentException(
                     "Compression period must not be negative.");
@@ -82,6 +82,9 @@ public class CassandraValueIterator implements ValueIterator, Cancelable {
 
     @Override
     public boolean hasNext() {
+        if (storedException != null) {
+            return true;
+        }
         if (sampleIterator == null && lastSample == null) {
             return false;
         }
@@ -96,30 +99,32 @@ public class CassandraValueIterator implements ValueIterator, Cancelable {
                 for (Sample sample : sampleStore.findSamples(compressionPeriod,
                         channelName, end, null, 1, false)) {
                     // We only return the sample, if the timestamp is greater
-                    // than
-                    // the requested end time. If it is equal, we already
-                    // returned
-                    // it.
+                    // than the requested end time. If it is equal, we already
+                    // returned it.
                     if (sample.getValue().getTime().isGreaterThan(end)) {
                         lastSample = sample;
                     }
                 }
-            } catch (ConnectionException e) {
-                throw new RuntimeException(
-                        "Error while trying to read data from database: "
-                                + e.getMessage(), e);
+            } catch (Exception e) {
+                // According to the ValueIterator API, hasNext() should not
+                // throw an exception, but next() may.
+                storedException = e;
+                return true;
             }
             return (lastSample != null);
         }
     }
 
     @Override
-    public IValue next() {
+    public IValue next() throws Exception {
         if (!hasNext()) {
             throw new NoSuchElementException("No element available.");
         }
+        if (storedException != null) {
+            throw storedException;
+        }
         if (cancelationRequested) {
-            throw new RuntimeException("Request has been canceled.");
+            throw new IllegalStateException("Request has been canceled.");
         }
         IValue value;
         if (lastSample != null) {
