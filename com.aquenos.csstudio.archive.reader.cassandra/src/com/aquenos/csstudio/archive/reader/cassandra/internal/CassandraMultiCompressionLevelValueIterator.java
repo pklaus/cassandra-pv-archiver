@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2013 aquenos GmbH.
+ * Copyright 2012-2016 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -22,7 +22,6 @@ import com.aquenos.csstudio.archive.cassandra.SampleStore;
 import com.aquenos.csstudio.archive.cassandra.util.Pair;
 import com.aquenos.csstudio.archive.cassandra.util.TimestampArithmetics;
 import com.aquenos.csstudio.archive.config.cassandra.CassandraArchiveConfig;
-import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 
 /**
  * Value iterator that automatically chooses the best compression-level for
@@ -48,6 +47,8 @@ public class CassandraMultiCompressionLevelValueIterator implements
     private LinkedList<Long> compressionLevelPriorities;
     LinkedList<Pair<CassandraValueIterator, IValue>> storedIterators;
     private long bestAvailableCompressionPeriod;
+    private IValue nextValue;
+    private Exception storedException;
     private CancelationProvider cancelationProvider;
     private volatile boolean cancelationRequested = false;
 
@@ -55,7 +56,7 @@ public class CassandraMultiCompressionLevelValueIterator implements
             CassandraArchiveConfig config, String channelName,
             ITimestamp start, ITimestamp end, TreeSet<Long> compressionPeriods,
             long requestedResolution, CancelationProvider cancelationProvider)
-            throws ConnectionException {
+            throws Exception {
         this.config = config;
         this.sampleStore = sampleStore;
         this.start = start;
@@ -160,9 +161,104 @@ public class CassandraMultiCompressionLevelValueIterator implements
         }
     }
 
+    private void prepareNextSample() {
+        if (nextValue != null || storedException != null) {
+            return;
+        }
+        if (cancelationRequested) {
+            return;
+        }
+        if (storedIterators.isEmpty()) {
+            return;
+        }
+        IValue nextValue = storedIterators.peek().getSecond();
+        if (nextValue == null) {
+            // Get value from iterator
+            try {
+                nextValue = storedIterators.peek().getFirst().next();
+            } catch (Exception e) {
+                // According to the ValueIterator API, hasNext() should not
+                // throw an exception, but next() may.
+                storedException = e;
+                return;
+            }
+        } else {
+            // Remove stored value from list
+            CassandraValueIterator iterator = storedIterators.pop().getFirst();
+            storedIterators.push(new Pair<CassandraValueIterator, IValue>(
+                    iterator, null));
+        }
+        // If the first sample of the next iterator is older than the sample
+        // that we have right now, we do not want to use the sample that we have
+        // now and skip it. Such a situation can happen because when requesting
+        // samples that are before the samples we already got, we implicitly
+        // also get a sample that is at or after the requested period. This can
+        // only happen if there is at least one iterator in addition to the one
+        // that we just used.
+        if (storedIterators.size() >= 2) {
+            // This iterator has not been used yet, so its first element should
+            // be available as part of the pair.
+            IValue firstSampleFromNextIterator = storedIterators.get(1)
+                    .getSecond();
+            if (firstSampleFromNextIterator != null
+                    && firstSampleFromNextIterator.getTime().isLessOrEqual(
+                            nextValue.getTime())) {
+                prepareNextSample();
+                return;
+            }
+        }
+        if (!storedIterators.peek().getFirst().hasNext()) {
+            storedIterators.removeFirst();
+        }
+        ITimestamp valueTimestamp = nextValue.getTime();
+        if (storedIterators.isEmpty()) {
+            ITimestamp nextTimestamp = TimestampArithmetics.add(valueTimestamp,
+                    TimestampFactory.createTimestamp(
+                            bestAvailableCompressionPeriod, 0L));
+            // It is possible that the sample we processed so far, was only used
+            // so that we would get a sample before or at the start time of the
+            // desired range. In this case, we do not want to start the query at
+            // the calculated next time-stamp but at the start time of the range
+            // that we want.
+            if (nextTimestamp.isLessThan(start)) {
+                nextTimestamp = start;
+            }
+            if (nextTimestamp.isLessOrEqual(end)) {
+                // Look for newer samples with a different compression level.
+                while (compressionLevelPriorities.size() > 1) {
+                    // We can always remove the first compression level, because
+                    // either we checked it in an earlier iteration of this
+                    // loop, or it is the first one at all, which was already
+                    // queried for the whole time range in the beginning.
+                    compressionLevelPriorities.pop();
+                    long compressionPeriod = compressionLevelPriorities.peek();
+                    CassandraValueIterator iterator;
+                    try {
+                        iterator = new CassandraValueIterator(sampleStore,
+                                config, channelName, nextTimestamp, end, false,
+                                compressionPeriod, cancelationProvider);
+                    } catch (Exception e) {
+                        // According to the ValueIterator API, hasNext() should
+                        // not throw an exception, but next() may.
+                        storedException = e;
+                        return;
+                    }
+                    if (iterator.hasNext()) {
+                        storedIterators
+                                .add(new Pair<CassandraValueIterator, IValue>(
+                                        iterator, null));
+                        break;
+                    }
+                }
+            }
+        }
+        this.nextValue = nextValue;
+    }
+
     @Override
     public boolean hasNext() {
-        boolean hasNext = storedIterators.size() > 0;
+        prepareNextSample();
+        boolean hasNext = (nextValue != null || storedException != null);
         if (!hasNext) {
             // Free resources as early as possible
             close();
@@ -175,50 +271,14 @@ public class CassandraMultiCompressionLevelValueIterator implements
         if (!hasNext()) {
             throw new NoSuchElementException("No element available.");
         }
+        if (storedException != null) {
+            throw storedException;
+        }
         if (cancelationRequested) {
-            throw new RuntimeException("Request has been canceled.");
+            throw new IllegalStateException("Request has been canceled.");
         }
-        IValue nextValue = storedIterators.peek().getSecond();
-        if (nextValue == null) {
-            // Get value from iterator
-            nextValue = storedIterators.peek().getFirst().next();
-        } else {
-            // Remove stored value from list
-            CassandraValueIterator iterator = storedIterators.pop().getFirst();
-            storedIterators.push(new Pair<CassandraValueIterator, IValue>(
-                    iterator, null));
-        }
-        if (!storedIterators.peek().getFirst().hasNext()) {
-            storedIterators.removeFirst();
-        }
-        ITimestamp valueTimestamp = nextValue.getTime();
-        if (storedIterators.size() == 0) {
-            ITimestamp nextTimestamp = TimestampArithmetics.add(valueTimestamp,
-                    TimestampFactory.createTimestamp(
-                            bestAvailableCompressionPeriod, 0L));
-            if (nextTimestamp.isLessOrEqual(end)) {
-                // Look for newer samples with a different compression level.
-                while (compressionLevelPriorities.size() > 1) {
-                    // We can always remove the first compression level, because
-                    // either we checked it in an earlier iteration of this
-                    // loop, or
-                    // it is the first one at all, which was already queried for
-                    // the
-                    // whole time range in the beginning.
-                    compressionLevelPriorities.pop();
-                    long compressionPeriod = compressionLevelPriorities.peek();
-                    CassandraValueIterator iterator = new CassandraValueIterator(
-                            sampleStore, config, channelName, nextTimestamp,
-                            end, false, compressionPeriod, cancelationProvider);
-                    if (iterator.hasNext()) {
-                        storedIterators
-                                .add(new Pair<CassandraValueIterator, IValue>(
-                                        iterator, null));
-                        break;
-                    }
-                }
-            }
-        }
+        IValue nextValue = this.nextValue;
+        this.nextValue = null;
         return nextValue;
     }
 
