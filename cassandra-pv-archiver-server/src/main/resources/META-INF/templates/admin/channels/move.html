@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channel.move.title(${channelName})}">Move Channel XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.all.breadcrumbTitle}">All Channels</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', {'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li class="active" th:text="#{channel.move.breadcrumbTitle}">Move</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channel.move.pageHeader(${channelName})}">Move Channel XXXXX</h1>
+
+      <div th:if="${!channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.move.channelDoesNotExist}">
+        The specified channel does not exist.
+      </div>
+
+      <div th:if="${channelExists and !channelInformationAvailable}" class="alert alert-danger" role="alert" th:text="#{channel.move.informationNotAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <form th:if="${channelExists and channelInformationAvailable}" th:action="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/move}" method="post" class="form-horizontal">
+        <div class="row" th:if="${globalError != null}">
+          <div class="alert alert-danger" role="alert">
+            <strong th:text="#{channel.move.error.strongMessage}">Error:</strong>
+            <ul>
+              <li th:text="${#messages.msgWithParams('channel.move.error.message.' + globalError.code, globalError.arguments)}"></li>
+            </ul>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${serverChanged ? 'has-warning' : null}">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.move.oldServerId.label}">Old Server</label>
+          <div class="col-sm-9 col-md-10">
+            <p class="form-control-static"><span th:text="${serverName}" th:remove="tag"></span> (<span th:text="${serverId}" th:remove="tag"></span>)</p>
+            <input type="hidden" id="oldServerId" name="oldServerId" th:value="${serverId}" />
+            <span th:if="${serverChanged}" class="help-block">
+              <strong th:text="#{channel.move.oldServerId.strongChanged}">Warning:</strong>
+              <span th:text="#{channel.move.oldServerId.changed}" th:tag="remove">The server that owns this channel has been changed. Please verify that you still want to move the channel.</span>
+            </span>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${(newServerIdError != null) ? 'has-error' : null}">
+          <label for="newServerId" class="control-label col-sm-3 col-md-2" th:text="#{channel.move.newServerId.label}">New Server</label>
+          <div class="col-sm-9 col-md-10">
+            <select id="newServerId" name="newServerId" class="form-control" th:attr="aria-describedby = ${(newServerIdError != null) ? 'newServerIdHelp' : null}">
+              <option th:each="server : ${servers.entries()}" th:value="${server.value}" th:selected="${server.value == newServerId}" th:text="${server.key + ' (' + server.value + ')'}"></option>
+            </select>
+            <span th:if="${newServerIdError != null}" id="newServerIdHelp" class="help-block" th:text="#{channel.move.newServerId.message.__${newServerIdError.code}__}"></span>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-3 col-sm-9 col-md-offset-2 col-md-10">
+            <button type="submit" class="btn btn-primary" th:text="#{channel.move.submitButton}">Move Channel</button>
+            <a th:href="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/}" class="btn btn-default" th:text="#{channel.move.cancelButton}">Cancel</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

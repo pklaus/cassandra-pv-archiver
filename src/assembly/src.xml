@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly
+  xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
+  <id>src</id>
+  <baseDirectory>${project.artifactId}-${project.version}-src</baseDirectory>
+  <formats>
+    <format>dir</format>
+  </formats>
+  <fileSets>
+    <fileSet>
+      <directory>${basedir}</directory>
+      <includes>
+        <include>cassandra-pv-archiver-common/src/**/*</include>
+        <include>cassandra-pv-archiver-common/pom.xml</include>
+        <include>cassandra-pv-archiver-control-system-api/src/**/*</include>
+        <include>cassandra-pv-archiver-control-system-api/pom.xml</include>
+        <include>cassandra-pv-archiver-control-system-channel-access/src/**/*</include>
+        <include>cassandra-pv-archiver-control-system-channel-access/pom.xml</include>
+        <include>cassandra-pv-archiver-docs/src/**/*</include>
+        <include>cassandra-pv-archiver-docs/pom.xml</include>
+        <include>cassandra-pv-archiver-server/src/**/*</include>
+        <include>cassandra-pv-archiver-server/pom.xml</include>
+        <include>cassandra-pv-archiver-server-app/src/**/*</include>
+        <include>cassandra-pv-archiver-server-app/pom.xml</include>
+        <include>cassandra-pv-archiver-server-dist/src/**/*</include>
+        <include>cassandra-pv-archiver-server-dist/pom.xml</include>
+        <include>cassandra-pv-archiver-tests/src/**/*</include>
+        <include>cassandra-pv-archiver-tests/pom.xml</include>
+        <include>src/**/*</include>
+        <include>LICENSE.txt</include>
+        <include>NOTICE.txt</include>
+        <include>pom.xml</include>
+      </includes>
+      <outputDirectory />
+      <fileMode>0644</fileMode>
+      <directoryMode>0755</directoryMode>
+    </fileSet>
+  </fileSets>
+</assembly>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channels.all.title}">All Channels</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <div th:if="${param['message.channelDeleted'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channels-all-page-message-close" data-dismiss="alert" data-page-message-name="channelDeleted" th:attr="aria-label = #{channels.all.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channels.all.pageMessage.channelDeleted.strongMessage}">Success:</strong>
+        <span th:text="#{channels.all.pageMessage.channelDeleted.message}" th:remove="tag">The channel has been removed successfully.</span>
+      </div>
+
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li class="active" th:text="#{channels.all.breadcrumbTitle}">All Channels</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channels.all.pageHeader}">All Channels</h1>
+
+      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${channelInformationAvailable}">
+        <a th:href="@{/admin/ui/channels/all/add}" class="btn btn-primary"><i class="fa fa-plus"></i> <span th:text="#{channels.all.buttons.add}" th:remove="tag"></span></a>
+      </div>
+
+      <div th:if="!${channelInformationAvailable}" class="alert alert-danger" role="alert" th:text="#{channels.all.notAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <table th:if="${channelInformationAvailable}" class="table table-striped" id="channels-all-channels-table">
+        <thead>
+          <tr>
+            <th th:text="#{channels.all.columnName.label}">Name</th>
+            <th th:text="#{channels.all.columnControlSystemType.label}">Control System</th>
+            <th th:text="#{channels.all.columnServer.label}">Server</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr th:each="channel : ${channelInformationList}">
+            <td>
+              <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', #uriExpander.encode(channel.channelName))}" th:text="${channel.channelName}"></a>
+            </td>
+            <td th:text="${controlSystemNames[channel.controlSystemType]}"></td>
+            <td>
+              <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${channel.serverId})}" th:text="${serverNames[channel.serverId]}" th:title="${channel.serverId}"></a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts">
+      /* <![CDATA[ */
+      $(document).ready(function() {
+        var table = $("#channels-all-channels-table");
+        if (table) {
+          table.DataTable({
+            "drawCallback": function(settings) {
+              if (!table.parent().hasClass("table-responsive")) {
+                table.wrap("<div class=\"table-responsive\"></div>");
+              }
+            }
+          });
+        }
+
+        $("button.channels-all-page-message-close").click(function(event) {
+          var messageName = $(this).data("page-message-name");
+          if (typeof messageName == "undefined") {
+            return;
+          }
+          var queryString = window.location.search;
+          if (!queryString.startsWith("?")) {
+            return;
+          }
+          queryString = queryString.substring(1);
+          var queryParts = queryString.split("&");
+          var messageQueryParameterName = "message." + messageName;
+          var newQueryString = "";
+          var firstPart = true;
+          for (var i = 0; i < queryParts.length; ++i) {
+            var nameAndValue = queryParts[i].split("=");
+            if (nameAndValue[0] == messageQueryParameterName) {
+              continue;
+            } else {
+              if (firstPart) {
+                newQueryString += "?";
+                firstPart = false;
+              } else {
+                newQueryString += "&";
+              }
+              newQueryString += queryParts[i];
+            }
+          }
+          var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + newQueryString + window.location.hash;
+          window.history.replaceState(null, null, newUrl);
+        });
+      });
+      /* ]]> */
+    </script>
+
+  </body>
+</html>

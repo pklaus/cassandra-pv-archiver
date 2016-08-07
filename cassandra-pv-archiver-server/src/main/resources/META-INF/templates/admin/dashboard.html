@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'dashboard'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{dashboard.title}">Dashboard</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <h1 class="page-header" th:text="#{dashboard.pageHeader}">Dashboard</h1>
+
+      <div class="panel panel-default">
+        <div class="panel-heading">
+          <h3 class="panel-title" th:text="#{dashboard.server.header}">Server</h3>
+        </div>
+        <div class="panel-body">
+          <div>
+            <strong th:text="#{dashboard.server.status.label}">Status:</strong>
+            <span th:if="${serverStatus.online}" class="text-success"><i class="fa fa-check-circle"></i> <span th:text="#{dashboard.server.status.online}" th:remove="tag">Online</span></span>
+            <span th:if="!${serverStatus.online}" class="text-danger"><i class="fa fa-times-circle"></i> <span th:text="#{dashboard.server.status.offline}" th:remove="tag">Offline</span></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.id.label}">ID:</strong>
+            <span th:text="${serverStatus.serverId}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.name.label}">Name:</strong>
+            <span th:text="${serverStatus.serverName}" th:remove="tag"></span>
+          </div>
+          <div th:if="${cassandraClusterName}">
+            <strong th:text="#{dashboard.server.cassandraCluster.label}">Cassandra Cluster:</strong>
+            <span th:text="${cassandraClusterName}" th:remove="tag"></span>
+          </div>
+          <div th:if="${cassandraKeyspaceName}">
+            <strong th:text="#{dashboard.server.cassandraKeyspace.label}">Cassandra Keyspace:</strong>
+            <span th:text="${cassandraKeyspaceName}" th:remove="tag"></span>
+          </div>
+          <div th:if="${cassandraError}">
+            <strong th:text="#{dashboard.server.cassandraError.label}">Cassandra Connection Error:</strong>
+            <span th:text="${cassandraError.message ?: cassandraError.class.name}" class="text-danger"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.channelsTotal.label}">Total number of channels:</strong>
+            <span th:text="${serverChannelsTotal}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.channelsDisconnected.label}">Number of disconnected channels:</strong>
+            <span th:text="${serverChannelsDisconnected}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.channelsError.label}">Number of channels with error:</strong>
+            <span th:text="${serverChannelsError}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.samplesDropped.label}">Total number of samples dropped:</strong>
+            <span th:text="${serverSamplesDropped}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{dashboard.server.samplesWritten.label}">Total number of samples written:</strong>
+            <span th:text="${serverSamplesWritten}" th:remove="tag"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel panel-default">
+        <div class="panel-heading">
+          <h3 class="panel-title" th:text="#{dashboard.cluster.header}">Cluster</h3>
+        </div>
+        <div class="panel-body">
+          <table th:if="${clusterServers}" class="table table-striped" id="dashboard-cluster-servers-table">
+            <thead>
+              <tr>
+                <th th:text="#{dashboard.cluster.columnId.label}">ID</th>
+                <th th:text="#{dashboard.cluster.columnName.label}">Name</th>
+                <th th:text="#{dashboard.cluster.columnOnline.label}">Online</th>
+                <th sec:authorize="hasRole('ADMIN')" th:text="#{dashboard.cluster.columnActions.label}">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr th:each="server : ${clusterServers}">
+                <td th:text="${server.serverId}"></td>
+                <td th:text="${server.serverName}"></td>
+                <td th:if="!${server.online}" data-sort="0" th:attr="data-filter=#{dashboard.cluster.columnOnline.offline}"><i class="fa fa-times-circle-o text-danger" th:title="#{dashboard.cluster.columnOnline.offline}" th:attr="aria-label=#{dashboard.cluster.columnOnline.offline}"></i></td>
+                <td th:if="${server.online}" data-sort="1" th:attr="data-filter=#{dashboard.cluster.columnOnline.online}"><i class="fa fa-check-circle-o text-success" th:title="#{dashboard.cluster.columnOnline.online}" th:attr="aria-label=#{dashboard.cluster.columnOnline.online}"></i></td>
+                <td sec:authorize="hasRole('ADMIN')">
+                  <form method="post" th:action="@{/admin/ui/servers/{serverId}/remove(serverId=${server.serverId})}" th:if="${server.removable}">
+                    <button type="submit" class="btn btn-xs btn-default" th:attr="aria-label = #{dashboard.cluster.columnActions.remove}"><i class="fa fa-times"></i> <span th:text="#{dashboard.cluster.columnActions.remove}" th:remove="tag"></span></button>
+                  </form>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div th:if="!${clusterServers}" class="alert alert-danger" role="alert" th:text="#{dashboard.cluster.notAvailable}">
+            Information about the archiving cluster is currently not available.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts">
+      /* <![CDATA[ */
+      $(document).ready(
+        function() {
+          dashboardClusterServersTableActionsColumnPresent = ($("#dashboard-cluster-servers-table > thead > tr > th").length == 4);
+
+          if ($("#dashboard-cluster-servers-table")) {
+            $("#dashboard-cluster-servers-table").DataTable(
+              {
+                "columnDefs": [ {
+                  "targets": dashboardClusterServersTableActionsColumnPresent ? [ 3 ] : [],
+                  "orderable": false
+                } ],
+                "drawCallback": function(settings) {
+                  if (!$("#dashboard-cluster-servers-table").parent().hasClass(
+                    "table-responsive")) {
+                    $("#dashboard-cluster-servers-table").wrap(
+                      "<div class=\"table-responsive\"></div>");
+                  }
+                },
+                "paging": false
+              });
+          }
+        });
+      /* ]]> */
+    </script>
+
+  </body>
+</html>

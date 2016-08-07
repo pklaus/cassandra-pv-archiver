@@ -1,0 +1,41 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+  configure)
+    adduser --quiet --system --home /var/lib/cassandra-pv-archiver --no-create-home --group --disabled-password --shell /bin/false cassandra-pv-archiver
+
+    chown -R cassandra-pv-archiver:cassandra-pv-archiver /var/lib/cassandra-pv-archiver
+    chmod 0755 /var/lib/cassandra-pv-archiver
+    chown -R cassandra-pv-archiver:adm /var/log/cassandra-pv-archiver
+    chmod 0750 /var/log/cassandra-pv-archiver
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure)
+    exit 0
+    ;;
+  *)
+    echo "postinst called with unknown argument \‘$1’" >&2
+    exit 0
+    ;;
+esac
+
+deb-systemd-helper unmask cassandra-pv-archiver-server.service >/dev/null || true
+
+if deb-systemd-helper --quiet was-enabled cassandra-pv-archiver-server.service; then
+  deb-systemd-helper enable cassandra-pv-archiver-server.service >/dev/null || true
+  deb-systemd-helper update-state cassandra-pv-archiver-server.service >/dev/null || true
+fi
+
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ]; then
+  if [ -e "/etc/init/cassandra-pv-archiver-server.conf" ]; then
+    invoke-rc.d cassandra-pv-archiver-server start || exit $?
+  fi
+fi
+
+if [ -d /run/systemd/system ]; then
+  systemctl --system daemon-reload >/dev/null || true
+  deb-systemd-invoke start cassandra-pv-archiver-server.service >/dev/null || true
+fi
+
+exit 0

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channels.overview.title}">Channels</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li class="active" th:text="#{channels.overview.breadcrumbTitle}">Channels</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channels.overview.pageHeader}">Channels</h1>
+
+      <div th:if="!${serverInformationAvailable}" class="alert alert-danger" role="alert" th:text="#{channels.overview.notAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <table th:if="${serverInformationAvailable}" class="table table-striped" id="channels-overview-servers-table">
+        <thead>
+          <tr>
+            <th th:text="#{channels.overview.columnServerId.label}">Server ID</th>
+            <th th:text="#{channels.overview.columnServerName.label}">Server Name</th>
+            <th th:text="#{channels.overview.columnOnline.label}">Server Online?</th>
+            <th th:text="#{channels.overview.columnNumberOfChannels.label}"># Channels</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr id="channels-overview-servers-table-all-channels-row" style="cursor: pointer;">
+            <td colspan="3">
+              <a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.overview.allChannels}">All Channels</a>
+            </td>
+            <td th:text="${{totalNumberOfChannels}}"></td>
+          </tr>
+          <tr th:each="server : ${servers}" style="cursor: pointer;">
+            <td>
+              <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${server.serverId})}" th:text="${server.serverId}"></a>
+            </td>
+            <td>
+              <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${server.serverId})}" th:text="${server.serverName}"></a>
+            </td>
+            <td th:if="!${server.online}" data-sort="0" th:attr="data-filter=#{channels.overview.columnOnline.online}"><i class="fa fa-times-circle-o text-danger" th:title="#{channels.overview.columnOnline.offline}" th:attr="aria-label=#{channels.overview.columnOnline.offline}"></i></td>
+            <td th:if="${server.online}" data-sort="1" th:attr="data-filter=#{channels.overview.columnOnline.online}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.overview.columnOnline.online}" th:attr="aria-label=#{channels.overview.columnOnline.online}"></i></td>
+            <td th:attr="data-filter = ${server.numberOfChannels}, data-sort = ${server.numberOfChannels}" th:text="${{server.numberOfChannels}}"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts">
+      /* <![CDATA[ */
+      $(document).ready(
+        function() {
+          if ($("#channels-overview-servers-table")) {
+            var allChannelsRow = $("#channels-overview-servers-table-all-channels-row").remove();
+            
+            $("#channels-overview-servers-table").DataTable(
+              {
+                "drawCallback": function(settings) {
+                  if (!$("#channels-overview-servers-table").parent().hasClass(
+                    "table-responsive")) {
+                    $("#channels-overview-servers-table").wrap(
+                      "<div class=\"table-responsive\"></div>");
+                  }
+                  $("#channels-overview-servers-table > tbody").prepend(allChannelsRow);
+                },
+                "orderCellsTop": true,
+                "paging": false,
+                "rowCallback": function(row, data, displayIndex) {
+                  $(row).click(function() {
+                    window.location.href = $("td > a", row).attr("href");
+                  });
+                },
+              });
+          }
+
+          if ($("#channels-overview-servers-table-all-channels-row")) {
+            var row = $("#channels-overview-servers-table-all-channels-row");
+            row.click(function() {
+              window.location.href = $("td > a", row).attr("href");
+            });
+          }
+        });
+      /* ]]> */
+    </script>
+
+  </body>
+</html>

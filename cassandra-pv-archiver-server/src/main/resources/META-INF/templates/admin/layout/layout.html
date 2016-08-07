@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--/* The above 3 meta tags *must* come first in the head; any other head
+           content must come *after* these tags */-->
+
+    <!--/* Bootstrap core CSS */-->
+    <link th:href="@{/webjars/bootstrap/3.3.6/css/bootstrap.min.css}" rel="stylesheet" />
+
+    <!--/* Bootstrap theme CSS */-->
+    <link th:href="@{/webjars/bootstrap/3.3.6/css/bootstrap-theme.min.css}" rel="stylesheet" />
+
+    <!--/* Font Awesome CSS */-->
+    <link th:href="@{/webjars/font-awesome/4.6.3/css/font-awesome.min.css}" rel="stylesheet" />
+
+    <!--/* jQuery DataTables CSS */-->
+    <link th:href="@{/webjars/datatables/1.10.12/css/dataTables.bootstrap.min.css}" rel="stylesheet" />
+
+    <!--/* Custom styles for this template */-->
+    <link th:href="@{/admin/css/admin-ui.css}" rel="stylesheet" />
+
+    <title th:text="#{layout.title}" layout:title-pattern="$LAYOUT_TITLE - $CONTENT_TITLE">Cassandra PV Archiver</title>
+  </head>
+  <body>
+    <nav class="navbar navbar-default navbar-fixed-top">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed"
+            data-toggle="collapse" data-target="#navbar" aria-expanded="false"
+            aria-controls="navbar">
+            <span class="sr-only" th:text="#{layout.navbar.toggleNavigation}">Toggle navigation</span>
+            <i class="fa fa-bars fa-lg"></i>
+          </button>
+          <a class="navbar-brand" th:href="@{/admin/ui/}">
+            <i class="fa fa-database"></i>
+            <span th:text="#{layout.navbar.productName}" th:remove="tag">Cassandra PV Archiver</span>
+          </a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav navbar-right">
+            <li th:classappend="${navbarActiveElement == 'dashboard'} ? 'active'">
+              <a th:href="@{/admin/ui/}">
+                <i class="fa fa-bar-chart"></i> <span th:text="#{layout.navbar.dashboard}" th:remove="tag">Dashboard</span>
+              </a>
+            </li>
+            <li th:classappend="${navbarActiveElement == 'channels'} ? 'active'">
+              <a th:href="@{/admin/ui/channels/}">
+                <i class="fa fa-list"></i> <span th:text="#{layout.navbar.channels}" th:remove="tag">Channels</span>
+              </a>
+            </li>
+            <li th:classappend="${navbarActiveElement == 'about'} ? 'active'">
+              <a th:href="@{/admin/ui/about}">
+                <i class="fa fa-info"></i> <span th:text="#{layout.navbar.about}" th:remove="tag">About</span>
+              </a>
+            </li>
+            <li id="navbar-sign-in-dropdown" class="dropdown" sec:authorize="isAnonymous()" th:classappend="${navbarActiveElement == 'sign-in'} ? 'active'">
+              <a th:href="@{/admin/ui/account/sign-in}" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
+                <i class="fa fa-user"></i> <span th:text="#{layout.navbar.signIn}" th:remove="tag">Sign in</span> <span class="caret"></span>
+              </a>
+              <div class="dropdown-menu">
+                <form method="post" th:action="@{/admin/ui/account/sign-in}" class="form navbar-sign-in-form">
+                  <label for="username" class="control-label sr-only" th:text="layout.navbar.signIn.username.label">Username</label>
+                  <input id="navbar-sign-in-username" type="text" name="username" class="form-control" th:placeholder="#{layout.navbar.signIn.username.placeholder}" autocomplete="username" />
+                  <label for="password" class="control-label sr-only" th:text="#{layout.navbar.signIn.password.label}">Password</label>
+                  <input type="password" name="password" class="form-control" th:placeholder="#{layout.navbar.signIn.password.placeholder}" autocomplete="current-password" />
+                  <input type="hidden" name="targetUrl" th:value="${#httpServletRequest.requestURI.substring(#httpServletRequest.contextPath.length()) + (#httpServletRequest.queryString != null ? '?' + #httpServletRequest.queryString : '')}" />
+                  <button type="submit" class="btn btn-primary"><i class="fa fa-sign-in"></i> <span th:text="#{layout.navbar.signIn.submitButton}" th:remove="tag">Sign in</span></button>
+                </form>
+              </div>
+            </li>
+            <li class="dropdown" sec:authorize="isAuthenticated()" th:classappend="${navbarActiveElement == 'sign-out'} ? 'active'">
+              <a th:href="@{/admin/ui/account/sign-out}" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
+                <i class="fa fa-user"></i> <span th:text="#{layout.navbar.signOut.signedInAs(${#authentication.name})}" th:remove="tag">Signed in as username</span> <span class="caret"></span>
+              </a>
+              <ul class="dropdown-menu">
+                <li><a id="navbar-sign-out-button" th:href="@{/admin/ui/account/sign-out}"><i class="fa fa-sign-out"></i> <span th:text="#{layout.navbar.signOut.signOut}" th:remove="tag">Sign out</span></a></li>
+                <li><a id="navbar-change-password-button" th:href="@{/admin/ui/account/change-password}"><i class="fa fa-cog"></i> <span th:text="#{layout.navbar.signOut.changePassword}" th:remove="tag">Change password</span></a></li>
+              </ul>
+              <form id="navbar-sign-out-form" aria-hidden="true" method="post" th:action="@{/admin/ui/account/sign-out}">
+              </form>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+
+    <div layout:fragment="content">
+      <h1>My Content</h1>
+      <p>
+        Content goes here.
+      </p>
+    </div>
+
+    <!--/* Bootstrap core JavaScript
+      ================================================== */-->
+    <!--/* Placed at the end of the document so the pages load faster */-->
+    <script th:src="@{/webjars/jquery/2.2.4/jquery.min.js}"></script>
+    <script th:src="@{/webjars/bootstrap/3.3.6/js/bootstrap.min.js}"></script>
+    <script th:src="@{/webjars/datatables/1.10.12/js/jquery.dataTables.min.js}"></script>
+    <script th:src="@{/webjars/datatables/1.10.12/js/dataTables.bootstrap.min.js}"></script>
+    <script th:src="@{/admin/js/admin-ui.js}"></script>
+    <script type="text/javascript" layout:fragment="content-scripts"></script>
+  </body>
+</html>

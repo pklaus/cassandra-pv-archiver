@@ -1,0 +1,2 @@
+com.aquenos.cassandra.pvarchiver.controlsystem.ControlSystemSupportFactory = \
+  com.aquenos.cassandra.pvarchiver.controlsystem.channelaccess.ChannelAccessControlSystemSupportFactory

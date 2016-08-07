@@ -1,0 +1,23 @@
+cassandra:
+  hosts:
+    - localhost
+  port: 9042
+  keyspace: pv_archive
+  username:
+  password:
+  useLocalConsistencyLevel: false
+
+developmentMode:
+  enabled: false
+
+server:
+  adminPort: 4812
+  archiveAccessPort: 9812
+  interNodeCommunicationPort: 9813
+  listenAddress:
+
+throttling:
+  maxConcurrentChannelMetaDataReadStatements: 64
+  maxConcurrentChannelMetaDataWriteStatements: 16
+  maxConcurrentControlSystemSupportReadStatements: 128
+  maxConcurrentControlSystemSupportWriteStatements: 512

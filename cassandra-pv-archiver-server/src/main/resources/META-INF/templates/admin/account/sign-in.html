@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement='sign-in'">
+  <head>
+    <title th:text="#{account.signIn.title}">Sign in</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <div class="row">
+        <div class="col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6">
+          <h1 class="page-header" th:text="#{account.signIn.pageHeader}">Sign in</h1>
+        </div>
+      </div>
+      <form method="post" th:action="@{/admin/ui/account/sign-in}" class="form-horizontal">
+        <div class="row" th:if="${param.logout != null}">
+          <div class="alert alert-success col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6" role="alert">
+            <strong th:text="#{account.signIn.signedOut.strongMessage}">Signed out:</strong>
+            <span th:text="#{account.signIn.signedOut.message}" th:remove="tag">You have been signed out successfully.</span>
+          </div>
+        </div>
+        <div class="row" th:if="${param.error != null}">
+          <div class="alert alert-danger col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6" role="alert">
+            <strong th:text="#{account.signIn.error.strongMessage}">Error:</strong>
+            <span th:text="#{account.signIn.error.message}" th:remove="tag">You could not be signed in. Please check the username and password.</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="username" class="control-label col-sm-offset-2 col-sm-2 col-md-offset-3 col-md-1" th:text="#{account.signIn.form.username.label}">Username</label>
+          <div class="col-sm-6 col-md-5">
+            <input type="text" name="username" class="form-control" th:placeholder="#{account.signIn.form.username.placeholder}" autofocus="autofocus" autocomplete="username" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="password" class="control-label col-sm-offset-2 col-sm-2 col-md-offset-3 col-md-1" th:text="#{account.signIn.form.password.label}">Password</label>
+          <div class="col-sm-6 col-md-5">
+            <input type="password" name="password" class="form-control" th:placeholder="#{account.signIn.form.password.placeholder}" autocomplete="current-password" />
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-4 col-sm-6 col-md-offset-4 col-md-5">
+            <button type="submit" class="btn btn-primary" th:text="#{account.signIn.form.submitButton}">Sign in</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

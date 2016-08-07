@@ -1,0 +1,633 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+  <artifactId>cassandra-pv-archiver</artifactId>
+  <version>3.0.0</version>
+
+  <packaging>pom</packaging>
+
+  <name>Cassandra PV Archiver</name>
+  <description>Process Variable Archiver for Apache Cassandra</description>
+  <url>http://oss.aquenos.com/cassandra-pv-archiver/</url>
+  <inceptionYear>2011</inceptionYear>
+
+  <organization>
+    <name>aquenos GmbH</name>
+    <url>http://www.aquenos.com/</url>
+  </organization>
+
+  <developers>
+    <developer>
+      <name>Sebastian Marsching</name>
+      <organization>aquenos GmbH</organization>
+      <id>smarsching</id>
+    </developer>
+  </developers>
+
+  <licenses>
+    <license>
+      <name>Eclipse Public License, Version 1.0</name>
+      <url>http://oss.aquenos.com/licenses/eclipse-public-license-1.0/license.txt</url>
+    </license>
+  </licenses>
+
+  <scm>
+    <connection>scm:svn:http://oss.aquenos.com/svnroot/cassandra-archiver/</connection>
+    <developerConnection>scm:svn:https://svn.aquenos.com/oss/svnroot/cassandra-archiver/</developerConnection>
+    <url>http://oss.aquenos.com/svnroot/cassandra-archiver/</url>
+  </scm>
+
+  <properties>
+    <apache.commons.cli.version>1.3.1</apache.commons.cli.version>
+    <apache.commons.lang3.version>3.4</apache.commons.lang3.version>
+    <apache.commons.logging.version>1.2</apache.commons.logging.version>
+    <bootstrap.version>3.3.6</bootstrap.version>
+    <cassandraunit.version>2.2.2.1</cassandraunit.version>
+    <datastax.cassandra.driver.javadoc.version>3.1</datastax.cassandra.driver.javadoc.version>
+    <datastax.cassandra.driver.version>3.1.0</datastax.cassandra.driver.version>
+    <font.awesome.version>4.6.3</font.awesome.version>
+    <guava.version>16.0.1</guava.version>
+    <jackie.version>1.0.1</jackie.version>
+    <jackson.javadoc.version>2.8</jackson.javadoc.version>
+    <jackson.version>2.8.1</jackson.version>
+    <java.ee.javadoc.version>7</java.ee.javadoc.version>
+    <javax.inject.version>1</javax.inject.version>
+    <jna.version>4.2.2</jna.version>
+    <jquery.datatables.version>1.10.12</jquery.datatables.version>
+    <jquery.version>2.2.4</jquery.version>
+    <lz4.version>1.3.0</lz4.version>
+    <okhttp3.version>3.4.1</okhttp3.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <snappy.version>1.1.2.6</snappy.version>
+    <spring.version>4.3.2.RELEASE</spring.version>
+    <spring.boot.version>1.4.0.RELEASE</spring.boot.version>
+    <spring.security.version>4.1.1.RELEASE</spring.security.version>
+    <thymeleaf.version>3.0.1.RELEASE</thymeleaf.version>
+    <thymeleaf.extras.springsecurity.version>3.0.0.RELEASE</thymeleaf.extras.springsecurity.version>
+    <thymeleaf.layout.dialect.version>2.0.1</thymeleaf.layout.dialect.version>
+    <tomcat.version>8.5.4</tomcat.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>commons-cli</groupId>
+        <artifactId>commons-cli</artifactId>
+        <version>${apache.commons.cli.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>commons-logging</groupId>
+        <artifactId>commons-logging</artifactId>
+        <version>${apache.commons.logging.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.aquenos.epics.jackie</groupId>
+        <artifactId>epics-jackie-client</artifactId>
+        <version>${jackie.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.aquenos.epics.jackie</groupId>
+        <artifactId>epics-jackie-common</artifactId>
+        <version>${jackie.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.datastax.cassandra</groupId>
+        <artifactId>cassandra-driver-core</artifactId>
+        <version>${datastax.cassandra.driver.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.datastax.cassandra</groupId>
+        <artifactId>cassandra-driver-dse</artifactId>
+        <version>${datastax.cassandra.driver.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.datastax.cassandra</groupId>
+        <artifactId>cassandra-driver-mapping</artifactId>
+        <version>${datastax.cassandra.driver.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.squareup.okhttp3</groupId>
+        <artifactId>okhttp</artifactId>
+        <version>${okhttp3.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>javax.inject</groupId>
+        <artifactId>javax.inject</artifactId>
+        <version>${javax.inject.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>net.java.dev.jna</groupId>
+        <artifactId>jna</artifactId>
+        <version>${jna.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>net.java.dev.jna</groupId>
+        <artifactId>jna-platform</artifactId>
+        <version>${jna.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>net.jpountz.lz4</groupId>
+        <artifactId>lz4</artifactId>
+        <version>${lz4.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>nz.net.ultraq.thymeleaf</groupId>
+        <artifactId>thymeleaf-layout-dialect</artifactId>
+        <version>${thymeleaf.layout.dialect.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>${apache.commons.lang3.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.tomcat.embed</groupId>
+        <artifactId>tomcat-embed-core</artifactId>
+        <version>${tomcat.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.tomcat.embed</groupId>
+        <artifactId>tomcat-embed-el</artifactId>
+        <version>${tomcat.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.tomcat.embed</groupId>
+        <artifactId>tomcat-embed-logging-juli</artifactId>
+        <version>${tomcat.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.tomcat.embed</groupId>
+        <artifactId>tomcat-embed-websocket</artifactId>
+        <version>${tomcat.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.cassandraunit</groupId>
+        <artifactId>cassandra-unit</artifactId>
+        <version>${cassandraunit.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.thymeleaf</groupId>
+        <artifactId>thymeleaf</artifactId>
+        <version>${thymeleaf.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.thymeleaf</groupId>
+        <artifactId>thymeleaf-spring4</artifactId>
+        <version>${thymeleaf.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.thymeleaf.extras</groupId>
+        <artifactId>thymeleaf-extras-springsecurity4</artifactId>
+        <version>${thymeleaf.extras.springsecurity.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.webjars</groupId>
+        <artifactId>bootstrap</artifactId>
+        <version>${bootstrap.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.webjars</groupId>
+        <artifactId>datatables</artifactId>
+        <version>${jquery.datatables.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.webjars</groupId>
+        <artifactId>font-awesome</artifactId>
+        <version>${font.awesome.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.webjars</groupId>
+        <artifactId>jquery</artifactId>
+        <version>${jquery.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.xerial.snappy</groupId>
+        <artifactId>snappy-java</artifactId>
+        <version>${snappy.version}</version>
+      </dependency>
+
+      <!-- We list imported BOMs last, so that the versions we specified 
+        explicitly do not get overridden. -->
+      <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-framework-bom</artifactId>
+        <version>${spring.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-bom</artifactId>
+        <version>${spring.security.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- Spring Boot comes last. This ensures that for all the other dependencies, 
+        where we explicitly specified versions, the versions from Spring Boot will 
+        not override our settings. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring.boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>com.agilejava.docbkx</groupId>
+          <artifactId>docbkx-maven-plugin</artifactId>
+          <version>2.0.17</version>
+          <dependencies>
+            <dependency>
+              <groupId>net.sf.docbook</groupId>
+              <artifactId>docbook-xml</artifactId>
+              <version>5.0-all</version>
+              <classifier>resources</classifier>
+              <type>zip</type>
+              <scope>runtime</scope>
+            </dependency>
+            <dependency>
+              <groupId>net.sf.xslthl</groupId>
+              <artifactId>xslthl</artifactId>
+              <version>2.1.0</version>
+            </dependency>
+          </dependencies>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>1.8</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>2.6</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.3</version>
+          <configuration>
+            <source>1.7</source>
+            <target>1.7</target>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>2.10</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>2.6</version>
+          <configuration>
+            <archive>
+              <manifest>
+                <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+              </manifest>
+            </archive>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-remote-resources-plugin</artifactId>
+          <version>1.5</version>
+          <executions>
+            <execution>
+              <id>use-license-resources-bundle</id>
+              <configuration>
+                <resourceBundles>
+                  <resourceBundle>com.aquenos.cassandra.pvarchiver:cassandra-pv-archiver:${project.version}:jar:license-resources</resourceBundle>
+                </resourceBundles>
+              </configuration>
+              <goals>
+                <goal>process</goal>
+              </goals>
+              <phase>generate-resources</phase>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>2.7</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>2.4</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>2.18.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>1.11</version>
+        </plugin>
+        <plugin>
+          <groupId>org.vafer</groupId>
+          <artifactId>jdeb</artifactId>
+          <version>1.5</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>generate-source-archives</id>
+            <configuration>
+              <target>
+                <tar compression="gzip" destfile="${project.build.directory}/${project.artifactId}-${project.version}-src.tar.gz" longfile="posix">
+                  <tarfileset dir="${project.build.directory}/${project.artifactId}-${project.version}-src" dirmode="0755" filemode="0644" gid="0" uid="0">
+                    <include name="**/*"/>
+                  </tarfileset>
+                </tar>
+                <zip destfile="${project.build.directory}/${project.artifactId}-${project.version}-src.zip">
+                  <zipfileset dir="${project.build.directory}/${project.artifactId}-${project.version}-src" encoding="UTF-8">
+                    <include name="**/*"/>
+                  </zipfileset>
+                </zip>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>generate-source-distribution</id>
+            <configuration>
+              <attach>false</attach>
+              <descriptor>${basedir}/src/assembly/src.xml</descriptor>
+              <tarLongFileMode>posix</tarLongFileMode>
+            </configuration>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <phase>prepare-package</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>license-resources-jar</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <phase>package</phase>
+            <configuration>
+              <classesDirectory>${project.build.directory}/license-resources</classesDirectory>
+              <classifier>license-resources</classifier>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-remote-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>create-license-resources-bundle</id>
+            <inherited>false</inherited>
+            <configuration>
+              <includes>
+                <include>META-INF/LICENSE.txt</include>
+                <include>META-INF/NOTICE.txt</include>
+              </includes>
+              <outputDirectory>${project.build.directory}/license-resources</outputDirectory>
+              <resourcesDirectory>${project.build.directory}/license-resources</resourcesDirectory>
+            </configuration>
+            <goals>
+              <goal>bundle</goal>
+            </goals>
+            <phase>prepare-package</phase>
+          </execution>
+          <execution>
+            <!-- We do not want to use the license-resources bundle in the
+                 parent module because this would create a circular
+                 dependency. -->
+            <id>use-license-resources-bundle</id>
+            <inherited>false</inherited>
+            <configuration>
+              <skip>true</skip>            
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>copy-license-resources</id>
+            <configuration>
+              <outputDirectory>${project.build.directory}/license-resources</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${basedir}</directory>
+                  <includes>
+                    <include>LICENSE.txt</include>
+                    <include>NOTICE.txt</include>
+                  </includes>
+                  <targetPath>META-INF</targetPath>
+                </resource>
+              </resources>
+            </configuration>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <phase>compile</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.10.3</version>
+        <configuration>
+          <excludePackageNames>*.internal</excludePackageNames>
+          <links>
+            <link>https://commons.apache.org/proper/commons-lang/javadocs/api-${apache.commons.lang3.version}/</link>
+            <link>http://docs.datastax.com/en/drivers/java/${datastax.cassandra.driver.javadoc.version}/</link>
+            <link>http://google.github.io/guava/releases/${guava.version}/api/docs/</link>
+            <link>http://fasterxml.github.io/jackson-core/javadoc/${jackson.javadoc.version}/</link>
+            <link>https://docs.oracle.com/javaee/${java.ee.javadoc.version}/api/</link>
+            <link>http://docs.spring.io/spring/docs/${spring.version}/javadoc-api/</link>
+            <link>http://docs.spring.io/spring-boot/docs/${spring.boot.version}/api/</link>
+            <link>http://docs.spring.io/spring-security/site/docs/${spring.security.version}/apidocs/</link>
+          </links>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <id>non-aggregate</id>
+            <reports>
+              <report>javadoc</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.8.1</version>
+        <reportSets>
+          <reportSet></reportSet>
+          <reportSet>
+            <inherited>true</inherited>
+            <reports>
+              <report>dependencies</report>
+              <report>dependency-info</report>
+              <report>index</report>
+              <report>license</report>
+              <report>modules</report>
+              <report>plugins</report>
+              <report>project-team</report>
+              <report>scm</report>
+              <report>summary</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <version>2.7</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>cobertura</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <modules>
+    <module>cassandra-pv-archiver-common</module>
+    <module>cassandra-pv-archiver-control-system-api</module>
+    <module>cassandra-pv-archiver-control-system-channel-access</module>
+    <module>cassandra-pv-archiver-docs</module>
+    <module>cassandra-pv-archiver-server</module>
+    <module>cassandra-pv-archiver-server-app</module>
+    <module>cassandra-pv-archiver-server-dist</module>
+    <module>cassandra-pv-archiver-tests</module>
+  </modules>
+
+  <profiles>
+    <profile>
+      <id>java8-javadoc-stylesheet</id>
+      <activation>
+        <jdk>1.8</jdk>
+      </activation>
+      <reporting>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <configuration>
+              <stylesheetfile>src/main/javadoc/java8/stylesheet.css</stylesheetfile>
+            </configuration>
+          </plugin>
+        </plugins>
+      </reporting>
+    </profile>
+  </profiles>
+
+</project>

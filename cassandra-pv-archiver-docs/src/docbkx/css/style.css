@@ -1,0 +1,381 @@
+@import url(../fonts/fonts.css);
+
+body,div,dl,dt,dd,ul,ol,li,h1,h2,h3,h4,h5,h6,pre,form,fieldset,input,textarea,p,blockquote,th,td {  
+  margin: 0; 
+  padding: 0; 
+  font-size: 14px;
+} 
+
+body {
+  background-color: #ffffff;
+  font-family: Lato, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #337ab7;
+  font-family: Source Sans Pro, sans-serif;
+  font-weight: 600;
+  padding-top: 14px;
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 21px;
+}
+
+h3 {
+  font-size: 19px;
+}
+
+h3.author {
+  font-weight: normal;
+}
+
+h4 {
+  font-size: 17px;
+}
+
+h5, h6 {
+  font-size: 14px;
+}
+
+h6 {
+  font-weight: normal;
+}
+
+p, ul, dl {
+  line-height: 1.3em;
+  margin-top: 10px;
+}
+
+p {
+  text-align: justify;
+}
+
+dl dl {
+  padding-top: 0;
+}
+
+li {
+  margin-left: 20px;
+}
+
+a {
+  color: #337ab7;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #1f518a;
+}
+
+a:visited {
+  color: #337ab7;
+}
+
+th, td {
+  padding: 5px;
+}
+
+hr {
+  border: 0 none;
+  border-top: 1px #555 dashed;
+}
+
+
+code {
+  font-family: Inconsolata, monospace;
+  font-size: 1.05em;
+}
+
+code code {
+  font-size: 1.0em;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+div.titlepage {
+  font-family: Source Sans Pro, sans-serif;
+}
+
+div.preface,
+div.book,
+div.glossary,
+div.chapter {
+  background-color: #ffffff;
+  padding: 20px;
+  border-top: 1px #E6E6E6 solid;
+  border-left: 1px #E6E6E6 solid;
+  border-right: 1px #E6E6E6 solid;
+  border-bottom: 1px #E6E6E6 solid;
+}
+
+div.book div.preface,
+div.book div.glossary,
+div.book div.chapter {
+  padding: 0;
+  border: 0 none;
+}
+
+div.important,
+div.note,
+div.tip,
+div.warning {
+  margin-bottom: 0;
+  margin-left: 0;
+  margin-top: 10px;
+  margin-right: 0;
+  padding-bottom: 10px;
+  padding-right: 10px;
+}
+
+div.important > table,
+div.note > table,
+div.tip > table,
+div.warning > table {
+  border-collapse: separate;
+  border-radius: 4px;
+  border-spacing: 0;
+  line-height: 1.6em;
+}
+
+div.important > table > tbody > tr:first-child > td,
+div.note > table > tbody > tr:first-child > td,
+div.tip > table > tbody > tr:first-child > td,
+div.warning > table > tbody > tr:first-child > td {
+  border-right: 1px solid #cccccc;
+  padding-bottom: 6px;
+  padding-left: 13px;
+  padding-right: 13px;
+  padding-top: 10px;
+}
+
+div.important > table > tbody > tr > th,
+div.note > table > tbody > tr > th,
+div.tip > table > tbody > tr > th,
+div.warning > table > tbody > tr > th {
+  display: none;
+}
+
+div.important > table > tbody > tr:nth-child(2n) > td,
+div.note > table > tbody > tr:nth-child(2n) > td,
+div.tip > table > tbody > tr:nth-child(2n) > td,
+div.warning > table > tbody > tr:nth-child(2n) > td {
+  color: #5f5f5f;
+  padding-bottom: 6px;
+  padding-left: 13px;
+  padding-right: 13px;
+  padding-top: 10px;
+  background-color: #f8f8f8;
+}
+
+div.important > table > tbody > tr:nth-child(2n) > td > *:first-child,
+div.note > table > tbody > tr:nth-child(2n) > td > *:first-child,
+div.tip > table > tbody > tr:nth-child(2n) > td > *:first-child,
+div.warning > table > tbody > tr:nth-child(2n) > td > *:first-child {
+  margin-top: 0;
+}
+
+div.important > *,
+div.note > *,
+div.tip > *,
+div.warning > * {
+  border: 0 none;
+  margin: 0;
+}
+
+pre.programlisting,
+pre.screen {
+  background-color: #f8f8f8;
+  border: 1px #aab2ba dotted;
+  font-family: Inconsolata, monospace;
+  font-size: 1.05em;
+  margin-top: 10px;
+  padding: 8px;
+}
+
+div.figure {
+  margin-bottom: 5px;
+  margin-top: 15px;
+  text-align: center;
+}
+
+div.figure .figure-contents .mediaobject {
+  padding-bottom: 0px;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+}
+
+div.table {
+  margin-bottom: 5px;
+  margin-top: 15px;
+}
+
+div.table-contents {
+  padding-bottom: 0px;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+}
+
+div.informaltable {
+  margin-top: 10px;
+}
+
+div.table > table,
+div.table-contents > table,
+div.informaltable > table {
+  border-spacing: 0px;
+  border: 1px solid black;
+  border-collapse: collapse;
+}
+
+div.table > table > thead,
+div.table-contents > table > thead,
+div.informaltable > table > thead {
+  background-color: #f8f8f8;
+  font-weight: bold;
+}
+
+br.figure-break,
+br.table-break {
+  line-height: 0;
+}
+
+div.toc,
+div.list-of-figures,
+div.list-of-tables {
+  margin-top: 15px;
+}
+
+div.toc dd,
+div.list-of-figures dd,
+div.list-of-tables dd {
+  margin-left: 1.25em;
+}
+
+div.toc dl,
+div.list-of-figures dl,
+div.list-of-tables dl {
+  margin-top: 0;
+}
+
+div.toc .toc-title,
+div.list-of-figures .toc-title,
+div.list-of-tables .toc-title {
+  font-family: Source Sans Pro, sans-serif;
+  font-size: 1.05em;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+div.toc .chapter,
+div.toc .appendix {
+  font-family: Source Sans Pro, sans-serif;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.guibutton,
+.guilabel,
+.guimenu,
+.guimenuitem,
+.guisubmenu {
+  font-style: italic;
+}
+
+@media print {
+  a,
+  a:hover,
+  a:visited {
+    color: #000000;
+    text-decoration: none;
+  }
+
+  div.preface,
+  div.book,
+  div.glossary,
+  div.chapter {
+    border: 0 none;
+  }
+
+  div.titlepage > hr {
+    display: none;
+  }
+  
+  div.book > div.preface,
+  div.book > div.toc,
+  div.book > div.glossary,
+  div.book > div.chapter,
+  div.book > div.appendix {
+    page-break-before: always;
+  }
+
+  div.book > div.titlepage {
+    margin-top: 35vh;
+  }
+
+  div.book > div.toc div.toc-title,
+  div.book > div.list-of-figures div.toc-title,
+  div.book > div.list-of-tables div.toc-title {
+    font-size: 1.5em;
+  }
+
+  div.figure,
+  div.table {
+    page-break-inside: avoid;
+  }
+
+  div.chapter > div.toc {
+    display: none;
+  }
+}
+
+@media screen {
+  body {
+    padding: 44px 44px 44px 44px;
+  }
+}
+
+@media screen and (min-width: 800px) {
+  body {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+}
+
+/* syntax highlighting */
+
+.hl-annotation {
+  color: #646464;
+  }
+
+.hl-attribute {
+  color: #7f007f;
+}
+
+.hl-comment, .hl-multiline-comment {
+  color: #3f7f5f;
+}
+
+.hl-keyword {
+  color: #7f0055;
+  font-weight: bold;
+}
+
+.hl-string {
+  color: #2a00ff;
+}
+
+.hl-tag {
+  color: #3f7f7f;
+}
+
+.hl-value {
+  color: #2a00ff;
+}

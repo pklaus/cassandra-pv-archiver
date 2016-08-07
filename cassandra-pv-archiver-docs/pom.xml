@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+    <artifactId>cassandra-pv-archiver</artifactId>
+    <version>3.0.0</version>
+  </parent>
+
+  <artifactId>cassandra-pv-archiver-docs</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Cassandra PV Archiver Documentation</name>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>com.agilejava.docbkx</groupId>
+        <artifactId>docbkx-maven-plugin</artifactId>
+        <inherited>false</inherited>
+        <configuration>
+          <admonGraphics>true</admonGraphics>
+          <admonGraphicsPath>docbook/images/</admonGraphicsPath>
+          <chapterAutolabel>I</chapterAutolabel>
+          <entities>
+            <entity>
+              <name>mavenProjectVersion</name>
+              <value>${project.version}</value>
+            </entity>
+          </entities>
+          <!-- The graphicsize extension is broken (uses the wrong path for
+               loading images), so we have to disable it. -->
+          <graphicsizeExtension>false</graphicsizeExtension>
+          <highlightSource>true</highlightSource>
+          <htmlCleanup>true</htmlCleanup>
+          <htmlCustomization>src/docbkx/xsl/html.xsl</htmlCustomization>
+          <htmlStylesheet>css/style.css</htmlStylesheet>
+          <includes>index.xml</includes>
+          <linenumberingExtension>true</linenumberingExtension>
+          <makeCleanHtml>true</makeCleanHtml>
+          <sectionAutolabel>true</sectionAutolabel>
+          <sectionAutolabelMaxDepth>2</sectionAutolabelMaxDepth>
+          <sectionLabelIncludesComponentLabel>false</sectionLabelIncludesComponentLabel>
+          <textinsertExtension>true</textinsertExtension>
+          <tocMaxDepth>2</tocMaxDepth>
+          <tocSectionDepth>2</tocSectionDepth>
+          <useExtensions>true</useExtensions>
+          <xincludeSupported>true</xincludeSupported>
+        </configuration>
+        <executions>
+          <execution>
+            <id>generate-manual-html</id>
+            <configuration>
+              <chunkedOutput>true</chunkedOutput>
+              <postProcess>
+                <copy todir="${project.build.directory}/docbkx/html/manual">
+                  <fileset dir="${project.build.directory}/docbkx-staging/manual">
+                    <include name="images/**/*.png"/>
+                  </fileset>
+                  <fileset dir="${project.build.directory}/docbkx-staging">
+                    <include name="docbook/**/*"/>
+                  </fileset>
+                  <fileset dir="${basedir}/src/docbkx">
+                    <include name="css/**/*"/>
+                    <include name="fonts/**/*"/>
+                    <include name="images/**/*.png"/>
+                  </fileset>
+                </copy>
+              </postProcess>
+              <sourceDirectory>${project.build.directory}/docbkx-staging/manual</sourceDirectory>
+              <targetDirectory>${project.build.directory}/docbkx/html/manual</targetDirectory>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+            <phase>compile</phase>
+          </execution>
+          <execution>
+            <id>generate-manual-htmlsingle</id>
+            <configuration>
+              <postProcess>
+                <copy todir="${project.build.directory}/docbkx/htmlsingle/manual">
+                  <fileset dir="${project.build.directory}/docbkx-staging/manual">
+                    <include name="images/**/*.png"/>
+                  </fileset>
+                  <fileset dir="${project.build.directory}/docbkx-staging">
+                    <include name="docbook/**/*"/>
+                  </fileset>
+                  <fileset dir="${basedir}/src/docbkx">
+                    <include name="css/**/*"/>
+                    <include name="fonts/**/*"/>
+                    <include name="images/**/*.png"/>
+                  </fileset>
+                </copy>
+              </postProcess>
+              <sourceDirectory>${project.build.directory}/docbkx-staging/manual</sourceDirectory>
+              <targetDirectory>${project.build.directory}/docbkx/htmlsingle/manual</targetDirectory>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+            <phase>compile</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>unpack-docbook-xsl-resources-for-html</id>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>net.sf.docbook</groupId>
+                  <artifactId>docbook-xsl</artifactId>
+                  <!-- This should match the version used by the
+                       docbkx-maven-plugin. -->
+                  <version>1.79.1</version>
+                  <type>zip</type>
+                  <classifier>resources</classifier>
+                  <includes>docbook/images/**/*.png</includes>
+                  <outputDirectory>${project.build.directory}/docbkx-staging</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <phase>generate-resources</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>manual-html-jar</id>
+            <configuration>
+              <archive>
+                <addMavenDescriptor>false</addMavenDescriptor>
+                <manifestEntries>
+                  <Built-By></Built-By>
+                </manifestEntries>
+              </archive>
+              <classesDirectory>${project.build.directory}/docbkx/html/manual</classesDirectory>
+              <classifier>manual-html</classifier>
+            </configuration>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+          <execution>
+            <id>manual-htmlsingle-jar</id>
+            <configuration>
+              <archive>
+                <addMavenDescriptor>false</addMavenDescriptor>
+                <manifestEntries>
+                  <Built-By></Built-By>
+                </manifestEntries>
+              </archive>
+              <classesDirectory>${project.build.directory}/docbkx/htmlsingle/manual</classesDirectory>
+              <classifier>manual-htmlsingle</classifier>
+            </configuration>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>filter-docbook-sources</id>
+            <configuration>
+              <outputDirectory>${project.build.directory}/docbkx-staging</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${basedir}/src/docbkx</directory>
+                  <filtering>true</filtering>
+                  <includes>
+                    <include>**/*.xml</include>
+                  </includes>
+                </resource>
+                <resource>
+                  <directory>${basedir}/src/docbkx</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                    <include>**/*</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <phase>process-sources</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>set-current-year-property</id>
+            <configuration>
+              <locale>en,US</locale>
+              <name>currentYear</name>
+              <pattern>yyyy</pattern>
+            </configuration>
+            <goals>
+              <goal>timestamp-property</goal>
+            </goals>
+            <phase>validate</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

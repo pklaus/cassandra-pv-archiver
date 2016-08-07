@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channels.byServer.title(${serverName})}">Channels for Server XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <div th:if="${param['message.channelDeleted'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channels-by-server-page-message-close" data-dismiss="alert" data-page-message-name="channelDeleted" th:attr="aria-label = #{channels.byServer.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channels.byServer.pageMessage.channelDeleted.strongMessage}">Success:</strong>
+        <span th:text="#{channels.byServer.pageMessage.channelDeleted.message}" th:remove="tag">The channel has been removed successfully.</span>
+      </div>
+
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li class="active" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channels.byServer.pageHeader(${serverName})}">Channels for Server XXXXX</h1>
+
+      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${serverExists and channelConfigurationAvailable}">
+        <a th:href="@{/admin/ui/channels/by-server/{serverId}/add(serverId=${serverId})}" class="btn btn-primary"><i class="fa fa-plus"></i> <span th:text="#{channels.byServer.buttons.add}" th:remove="tag"></span></a>
+        <a th:href="@{/admin/ui/channels/by-server/{serverId}/import(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-download"></i> <span th:text="#{channels.byServer.buttons.import}" th:remove="tag"></span></a>
+        <a th:href="@{/admin/ui/channels/by-server/{serverId}/export(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-upload"></i> <span th:text="#{channels.byServer.buttons.export}" th:remove="tag"></span></a>
+      </div>
+
+      <div style="margin-bottom: 20px;" sec:authorize="!hasRole('ADMIN')" th:if="${serverExists and channelConfigurationAvailable}">
+        <a th:href="@{/admin/ui/channels/by-server/{serverId}/export(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-upload"></i> <span th:text="#{channels.byServer.buttons.export}" th:remove="tag"></span></a>
+      </div>
+
+      <div th:if="!${serverExists}" class="alert alert-danger" role="alert" th:text="#{channels.byServer.serverDoesNotExist}">
+        The specified server does not exist.
+      </div>
+
+      <div th:if="${serverExists and !channelConfigurationAvailable}" class="alert alert-danger" role="alert" th:text="#{channels.byServer.configurationNotAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <div th:if="${serverExists and !channelStatusAvailable}" class="alert alert-warning" role="alert" th:text="#{channels.byServer.statusNotAvailable}">
+        Status information is currently not available. Maybe the target server is not online or has not been fully initialized yet?
+      </div>
+
+      <table th:if="${serverExists and channelConfigurationAvailable and !channelStatusAvailable}" class="table table-striped" id="channels-by-server-channel-configuration-table">
+        <thead>
+          <tr>
+            <th th:text="#{channels.byServer.columnName.label}">Name</th>
+            <th th:text="#{channels.byServer.columnControlSystemType.label}">Control System</th>
+            <th th:text="#{channels.byServer.columnEnabled.label}">Enabled</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr th:each="channel : ${channelConfigurationList}" style="cursor: pointer;">
+            <td>
+              <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channel.channelName)})}" th:text="${channel.channelName}"></a>
+            </td>
+            <td th:text="${controlSystemNames[channel.controlSystemType]}"></td>
+            <td th:if="!${channel.enabled}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnEnabled.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnEnabled.disabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.disabled}"></i></td>
+            <td th:if="${channel.enabled}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnEnabled.enabled}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnEnabled.enabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.enabled}"></i></td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <table th:if="${serverExists and channelStatusAvailable}" class="table table-striped" id="channels-by-server-channel-status-table">
+        <thead>
+          <tr>
+            <th th:text="#{channels.byServer.columnName.label}">Name</th>
+            <th th:text="#{channels.byServer.columnControlSystemType.label}">Control System</th>
+            <th th:text="#{channels.byServer.columnEnabled.label}">Enabled</th>
+            <th th:text="#{channels.byServer.columnState.label}">State</th>
+            <th th:text="#{channels.byServer.columnSamplesDropped.label}"># Samples Dropped</th>
+            <th th:text="#{channels.byServer.columnSamplesWritten.label}"># Samples Written</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr th:each="channel : ${channelStatusList}" style="cursor: pointer;">
+            <td>
+              <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channel.channelName)})}" th:text="${channel.channelName}"></a>
+            </td>
+            <td th:text="${controlSystemNames[channel.channelConfiguration.controlSystemType]}"></td>
+            <td th:if="!${channel.channelConfiguration.enabled}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnEnabled.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnEnabled.disabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.disabled}"></i></td>
+            <td th:if="${channel.channelConfiguration.enabled}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnEnabled.enabled}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnEnabled.enabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.enabled}"></i></td>
+            <td th:if="${channel.state.name() == 'INITIALIZING'}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnState.initializing}"><i class="fa fa-clock-o text-info" th:title="#{channels.byServer.columnState.initializing}" th:attr="aria-label=#{channels.byServer.columnState.initializing}"></i></td>
+            <td th:if="${channel.state.name() == 'OK'}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnState.ok}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnState.ok}" th:attr="aria-label=#{channels.byServer.columnState.ok}"></i></td>
+            <td th:if="${channel.state.name() == 'DISABLED'}" data-sort="2" th:attr="data-filter=#{channels.byServer.columnState.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnState.disabled}" th:attr="aria-label=#{channels.byServer.columnState.disabled}"></i></td>
+            <td th:if="${channel.state.name() == 'DISCONNECTED'}" data-sort="3" th:attr="data-filter=#{channels.byServer.columnState.disconnected}"><i class="fa fa-times-circle-o text-warning" th:title="#{channels.byServer.columnState.disconnected}" th:attr="aria-label=#{channels.byServer.columnState.disconnected}"></i></td>
+            <td th:if="${channel.state.name() == 'ERROR'}" data-sort="4" th:attr="data-filter=#{channels.byServer.columnState.error}"><i class="fa fa-times-circle-o text-danger" th:title="#{channels.byServer.columnState.error}" th:attr="aria-label=#{channels.byServer.columnState.error}"></i></td>
+            <td th:if="${channel.state.name() == 'DESTROYED'}" data-sort="5" th:attr="data-filter=#{channels.byServer.columnState.destroyed}"><i class="fa fa-times-circle-o text-danger" th:title="#{channels.byServer.columnState.destroyed}" th:attr="aria-label=#{channels.byServer.columnState.destroyed}"></i></td>
+            <td th:text="${{channel.totalSamplesDropped}}"></td>
+            <td th:text="${{channel.totalSamplesWritten}}"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts">
+      /* <![CDATA[ */
+      $(document).ready(function() {
+        var table = $("#channels-by-server-channel-configuration-table");
+        if (table) {
+          table.DataTable({
+            "drawCallback": function(settings) {
+              if (!table.parent().hasClass("table-responsive")) {
+                table.wrap("<div class=\"table-responsive\"></div>");
+              }
+            },
+            "fnRowCallback": function(row, data, displayIndex) {
+              $(row).click(function() {
+                window.location.href = $("td > a", row).attr("href");
+              });
+            }
+          });
+        }
+
+        table = $("#channels-by-server-channel-status-table");
+        if (table) {
+          table.DataTable({
+            "drawCallback": function(settings) {
+              if (!table.parent().hasClass("table-responsive")) {
+                table.wrap("<div class=\"table-responsive\"></div>");
+              }
+            },
+            "rowCallback": function(row, data, displayIndex) {
+              $(row).click(function() {
+                window.location.href = $("td > a", row).attr("href");
+              });
+            }
+          });
+        }
+
+        $("button.channels-by-server-page-message-close").click(function(event) {
+          var messageName = $(this).data("page-message-name");
+          if (typeof messageName == "undefined") {
+            return;
+          }
+          var queryString = window.location.search;
+          if (!queryString.startsWith("?")) {
+            return;
+          }
+          queryString = queryString.substring(1);
+          var queryParts = queryString.split("&");
+          var messageQueryParameterName = "message." + messageName;
+          var newQueryString = "";
+          var firstPart = true;
+          for (var i = 0; i < queryParts.length; ++i) {
+            var nameAndValue = queryParts[i].split("=");
+            if (nameAndValue[0] == messageQueryParameterName) {
+              continue;
+            } else {
+              if (firstPart) {
+                newQueryString += "?";
+                firstPart = false;
+              } else {
+                newQueryString += "&";
+              }
+              newQueryString += queryParts[i];
+            }
+          }
+          var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + newQueryString + window.location.hash;
+          window.history.replaceState(null, null, newUrl);
+        });
+      });
+      /* ]]> */
+    </script>
+
+  </body>
+</html>

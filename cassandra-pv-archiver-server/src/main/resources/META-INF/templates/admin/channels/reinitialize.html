@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channel.reinitialize.title(${channelName})}">Reinitialize Channel XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.all.breadcrumbTitle}">All Channels</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', {'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li class="active" th:text="#{channel.reinitialize.breadcrumbTitle}">Reinitialize</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channel.reinitialize.pageHeader(${channelName})}">Reinitialize Channel XXXXX</h1>
+
+      <div th:if="${!channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.reinitialize.channelDoesNotExist}">
+        The specified channel does not exist.
+      </div>
+
+      <div th:if="${channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.reinitialize.reinitializeFailed}">
+        The specified channel could not be reinitialized.
+      </div>
+    </div>
+  </body>
+</html>

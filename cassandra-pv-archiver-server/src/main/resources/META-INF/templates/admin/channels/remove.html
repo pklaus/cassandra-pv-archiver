@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channel.remove.title(${channelName})}">Remove Channel XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.all.breadcrumbTitle}">All Channels</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', {'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li class="active" th:text="#{channel.remove.breadcrumbTitle}">Remove</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channel.remove.pageHeader(${channelName})}">Remove Channel XXXXX</h1>
+
+      <div th:if="${!channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.remove.channelDoesNotExist}">
+        The specified channel does not exist.
+      </div>
+
+      <div th:if="${channelExists and !channelInformationAvailable}" class="alert alert-danger" role="alert" th:text="#{channel.remove.informationNotAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <form th:if="${channelExists and channelInformationAvailable}" th:action="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/remove}" method="post">
+        <div th:if="${globalError != null}">
+          <div class="alert alert-danger" role="alert">
+            <strong th:text="#{channel.remove.error.strongMessage}">Error:</strong>
+            <ul>
+              <li th:text="${#messages.msgWithParams('channel.remove.error.message.' + globalError.code, globalError.arguments)}"></li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <p th:text="#{channel.remove.question(${channelName})}">Do you really want to delete the channel &quot;XXXXX&quot;?</p>
+          <p class="text-danger">
+            <strong th:text="#{channel.remove.strongWarning}">Warning:</strong>
+            <span th:text="#{channel.remove.warning}" th:tag="remove">The channel and all its data is deleted immediately and cannot be restored.</span>
+          </p>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-danger" th:text="#{channel.remove.submitButton}">Remove Channel</button>
+          <a th:href="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/}" class="btn btn-default" th:text="#{channel.remove.cancelButton}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+    <artifactId>cassandra-pv-archiver</artifactId>
+    <version>3.0.0</version>
+  </parent>
+
+  <artifactId>cassandra-pv-archiver-control-system-channel-access</artifactId>
+
+  <name>Cassandra PV Archiver Channel Access Support</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <scope>test</scope>
+    </dependency>
+  
+    <dependency>
+      <groupId>commons-logging</groupId>
+      <artifactId>commons-logging</artifactId>
+    </dependency>
+  
+    <dependency>
+      <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+      <artifactId>cassandra-pv-archiver-control-system-api</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+      <artifactId>cassandra-pv-archiver-tests</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.aquenos.epics.jackie</groupId>
+      <artifactId>epics-jackie-client</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.datastax.cassandra</groupId>
+      <artifactId>cassandra-driver-mapping</artifactId>
+    </dependency>
+  </dependencies>
+
+</project>

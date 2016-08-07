@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schema xmlns="http://www.w3.org/2001/XMLSchema"
+  xmlns:tns="http://www.aquenos.com/2016/xmlns/cassandra-pv-archiver-configuration"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  elementFormDefault="qualified"
+  targetNamespace="http://www.aquenos.com/2016/xmlns/cassandra-pv-archiver-configuration"
+  xsi:schemaLocation="http://www.w3.org/2001/XMLSchema http://www.w3.org/2001/XMLSchema.xsd">
+
+  <element name="server-configuration" type="tns:serverConfigurationType">
+    <annotation>
+      <documentation>
+        Root element of a server configuration. This element contains the
+        configuration for all the channels that belong to a specific server.
+      </documentation>
+    </annotation>
+    <unique name="uniqueChannelName">
+      <annotation>
+        <documentation>
+          The channel name is the identifier for a channel and must thus be
+          unique within the whole archiving cluster.
+        </documentation>
+      </annotation>
+      <selector xpath="tns:channel"></selector>
+      <field xpath="@name"></field>
+    </unique>
+  </element>
+
+  <complexType name="decimationLevelType">
+    <attribute name="decimation-period" use="required">
+      <annotation>
+        <documentation>
+          Decimation period of the decimation level (in seconds). The decimation
+          period defines the interval between the samples that are generated for
+          the decimation level.
+        </documentation>
+      </annotation>
+      <simpleType>
+        <restriction base="int">
+          <minInclusive value="1"></minInclusive>
+        </restriction>
+      </simpleType>
+    </attribute>
+    <attribute name="retention-period" default="0">
+      <annotation>
+        <documentation>
+          Retention period of the decimation level (in seconds). The samples
+          stored for the decimation level are at least retained for the
+          specified time. After this time has passed, they may be deleted
+          automatically when new data is being added. A retention period of zero
+          (the default) specifies that samples stored for the decimation level
+          are supposed to be retained indefinitely.
+        </documentation>
+      </annotation>
+      <simpleType>
+        <restriction base="int">
+          <minInclusive value="0"></minInclusive>
+        </restriction>
+      </simpleType>
+    </attribute>
+  </complexType>
+
+  <complexType name="rawSamplesType">
+    <attribute name="retention-period" default="0">
+      <annotation>
+        <documentation>
+          Retention period for raw samples (in seconds). The raw samples are at
+          least retained for the specified time. After this time has passed,
+          they may be deleted automatically when new data is being added. A
+          retention period of zero (the default) specifies that raw samples are
+          supposed to be retained indefinitely.
+        </documentation>
+      </annotation>
+      <simpleType>
+        <restriction base="int">
+          <minInclusive value="0"></minInclusive>
+        </restriction>
+      </simpleType>
+    </attribute>
+  </complexType>
+
+  <complexType name="serverConfigurationType">
+    <choice minOccurs="0" maxOccurs="unbounded">
+      <element name="channel" type="tns:channelType">
+        <annotation>
+          <documentation>
+            Configuration for an archived channel. Each channel is identified
+            by a name that must be unique within the whole archiving cluster.
+            The channel's control-system type defines which control-system
+            support is used for reading and writing samples for the channel. 
+          </documentation>
+        </annotation>
+        <unique name="uniqueDecimationPeriod">
+          <annotation>
+            <documentation>
+              Each decimation level is identified by its decimation period and
+              thus each decimation period can only be specified once within a
+              channel configuration.
+            </documentation>
+          </annotation>
+          <selector xpath="tns:decimation-level"></selector>
+          <field xpath="@decimation-period"></field>
+        </unique>
+        <unique name="uniqueControlSystemOptionName">
+          <annotation>
+            <documentation>
+              Each control-system option is identified by its name and thus each
+              name can only be specified once within a channel configuration.
+            </documentation>
+          </annotation>
+          <selector xpath="tns:control-system-option"></selector>
+          <field xpath="@name"></field>
+        </unique>
+      </element>
+    </choice>
+  </complexType>
+
+  <complexType name="channelType">
+    <sequence>
+      <element name="raw-samples" type="tns:rawSamplesType" minOccurs="0">
+        <annotation>
+          <documentation>
+            Configuration for raw samples. Raw samples are different from other
+            decimation levels because they always exist, even if not configured
+            explicitly. Consequently, the decimation period of raw samples
+            cannot be configured and the special value zero is used to identify
+            the decimation level for raw samples internally.
+          </documentation>
+        </annotation>
+      </element>
+      <element name="decimation-level" type="tns:decimationLevelType" minOccurs="0" maxOccurs="unbounded">
+        <annotation>
+          <documentation>
+            Decimation level for the channel. For each decimation level,
+            decimated samples are generated from the raw samples (or a
+            decimation level with a smaller decimation period). The decimation
+            period configures the spacing between those samples. 
+          </documentation>
+        </annotation>
+      </element>
+      <element name="control-system-option" type="tns:controlSystemOptionType" minOccurs="0" maxOccurs="unbounded">
+        <annotation>
+          <documentation>
+            Control-system option for the channel. The control-system options
+            specified for a channel are passed to the channel's control-system
+            support. The interpretation of option names and values is entirely
+            up to the control-system support.
+          </documentation>
+        </annotation>
+      </element>
+    </sequence>
+    <attribute name="control-system-type" use="required" type="string">
+      <annotation>
+        <documentation>
+          Type of the control-system support. This string identifies the
+          control-system support for the channel. After a channel has been
+          created its control-system support cannot be changed any longer.
+        </documentation>
+      </annotation>
+    </attribute>
+    <attribute name="enabled" use="optional" default="true" type="boolean">
+      <annotation>
+        <documentation>
+          Enables or disables archiving for the channel. If archiving is
+          disabled for a channel, existing data can still be accessed and
+          decimated samples are generated when a decimation level is added.
+          However, new raw samples are only addedd if archiving is enabled for
+          the channel.
+        </documentation>
+      </annotation>
+    </attribute>
+    <attribute name="name" use="required">
+      <annotation>
+        <documentation>
+          Name of the channel. The name identifies a channel within the
+          archiving cluster and thus has to be unique within the whole cluster.
+          The name is also passed to the channel's control-system support which
+          uses it find the channel within the control-system.
+        </documentation>
+      </annotation>
+      <simpleType>
+        <restriction base="string">
+          <minLength value="1"></minLength>
+        </restriction>
+      </simpleType>
+    </attribute>
+  </complexType>
+
+  <complexType name="controlSystemOptionType">
+    <attribute name="name" use="required" type="string">
+      <annotation>
+        <documentation>
+          Name identifying the control-system option. The list of valid option
+          names depends on the control-system support used for the channel. Each
+          option can only be specified once for each channel.
+        </documentation>
+      </annotation>
+    </attribute>
+    <attribute name="value" default="" type="string">
+      <annotation>
+        <documentation>
+          Value of the control-system option. The interpretation of the value is
+          up to the control-system support used for the channel. If the value is
+          not specified, it defaults to the empty string. It depends on the
+          control-system support and option name whether such a value is
+          considered valid.
+        </documentation>
+      </annotation>
+    </attribute>
+  </complexType>
+
+</schema>
