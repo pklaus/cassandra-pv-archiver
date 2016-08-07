@@ -1,0 +1,16 @@
+Package: cassandra-pv-archiver-server
+Version: [[version]]
+Section: java
+Priority: optional
+Architecture: all
+Depends: adduser, init-system-helpers (>= 1.14), default-jre-headless | java7-runtime-headless | java7-runtime
+Maintainer: Cassandra PV Archiver maintainer <cassandra-pv-archiver-maintainer@oss.aquenos.com>
+Description: Cassandra PV Archiver server component.
+ The Cassandra PV Archiver is a scalable archiving solution for logging process
+ variables into an Apache Cassandra database.
+ .
+ This package provides the server component, which takes care of monitoring
+ process variables and logging value changes to the database. The server
+ component also provides the web-service interface through which the archive can
+ be accessed. 
+ 

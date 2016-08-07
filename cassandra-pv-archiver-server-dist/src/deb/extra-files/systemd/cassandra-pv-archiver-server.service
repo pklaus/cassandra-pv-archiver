@@ -1,0 +1,14 @@
+[Unit]
+Description=Cassandra PV Archiver server
+Wants=network-online.target
+After=network-online.target
+After=time-sync.target
+
+[Service]
+EnvironmentFile=/etc/default/cassandra-pv-archiver-server
+User=cassandra-pv-archiver
+Group=cassandra-pv-archiver
+ExecStart=/usr/share/cassandra-pv-archiver-server/bin/cassandra-pv-archiver-server --no-banner
+
+[Install]
+WantedBy=multi-user.target

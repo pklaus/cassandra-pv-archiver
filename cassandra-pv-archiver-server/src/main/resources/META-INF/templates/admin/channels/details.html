@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channel.details.title(${channelName})}">Channel XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <div th:if="${param['message.created'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channel-details-page-message-close" data-dismiss="alert" data-page-message-name="created" th:attr="aria-label = #{channel.details.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channel.details.pageMessage.created.strongMessage}">Success:</strong>
+        <span th:text="#{channel.details.pageMessage.created.message}" th:remove="tag">The channel has been added successfully.</span>
+      </div>
+
+      <div th:if="${param['message.moved'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channel-details-page-message-close" data-dismiss="alert" data-page-message-name="moved" th:attr="aria-label = #{channel.details.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channel.details.pageMessage.moved.strongMessage}">Success:</strong>
+        <span th:text="#{channel.details.pageMessage.moved.message}" th:remove="tag">The channel has been moved successfully.</span>
+      </div>
+
+      <div th:if="${param['message.refreshed'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channel-details-page-message-close" data-dismiss="alert" data-page-message-name="refreshed" th:attr="aria-label = #{channel.details.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channel.details.pageMessage.refreshed.strongMessage}">Success:</strong>
+        <span th:text="#{channel.details.pageMessage.refreshed.message}" th:remove="tag">The channel has been reinitialized successfully.</span>
+      </div>
+
+      <div th:if="${param['message.renamed'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channel-details-page-message-close" data-dismiss="alert" data-page-message-name="renamed" th:attr="aria-label = #{channel.details.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channel.details.pageMessage.renamed.strongMessage}">Success:</strong>
+        <span th:text="#{channel.details.pageMessage.renamed.message}" th:remove="tag">The channel has been renamed successfully.</span>
+      </div>
+
+      <div th:if="${param['message.updated'] != null}" class="alert alert-success alert-dismissible" role="alert">
+        <button type="button" class="close channel-details-page-message-close" data-dismiss="alert" data-page-message-name="updated" th:attr="aria-label = #{channel.details.pageMessage.closeButton.label}"><span aria-hidden="true">&times;</span></button>
+        <strong th:text="#{channel.details.pageMessage.updated.strongMessage}">Success:</strong>
+        <span th:text="#{channel.details.pageMessage.updated.message}" th:remove="tag">The channel's configuration has been updated successfully.</span>
+      </div>
+
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.all.breadcrumbTitle}"></a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}"></a></li>
+        <li class="active" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channel.details.pageHeader(${channelName})}">Channel XXXXX</h1>
+
+      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${viewMode == 'all' and channelConfigurationAvailable}">
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/edit', {'name': #uriExpander.encode(channelName)})}" class="btn btn-primary"><i class="fa fa-pencil-square-o"></i> <span th:text="#{channel.details.buttons.edit}" th:remove="tag"></span></a>
+        <form th:if="${channelStatusAvailable}" style="display: inline;" method="post" th:action="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/reinitialize', {'name': #uriExpander.encode(channelName)})}">
+          <button type="submit" class="btn btn-default" th:attr="aria-label = #{channel.details.buttons.reinitialize}"><i class="fa fa-refresh"></i> <span th:text="#{channel.details.buttons.reinitialize}" th:remove="tag"></span></button>
+        </form>
+        <button th:if="!${channelStatusAvailable}" type="button" class="btn btn-default disabled" th:attr="aria-label = #{channel.details.buttons.reinitialize}"><i class="fa fa-refresh"></i> <span th:text="#{channel.details.buttons.reinitialize}" th:remove="tag"></span></button>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/rename', {'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-pencil"></i> <span th:text="#{channel.details.buttons.rename}" th:remove="tag"></span></a>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/move', {'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-arrow-right"></i> <span th:text="#{channel.details.buttons.move}" th:remove="tag"></span></a>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/remove', {'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-times"></i> <span th:text="#{channel.details.buttons.remove}" th:remove="tag"></span></a>
+      </div>
+
+      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${viewMode == 'by-server' and channelConfigurationAvailable}">
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/edit', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" class="btn btn-primary"><i class="fa fa-pencil-square-o"></i> <span th:text="#{channel.details.buttons.edit}" th:remove="tag"></span></a>
+        <form th:if="${channelStatusAvailable}" style="display: inline;" method="post" th:action="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/reinitialize', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}">
+          <button type="submit" class="btn btn-default" th:attr="aria-label = #{channel.details.buttons.reinitialize}"><i class="fa fa-refresh"></i> <span th:text="#{channel.details.buttons.reinitialize}" th:remove="tag"></span></button>
+        </form>
+        <button th:if="!${channelStatusAvailable}" type="button" class="btn btn-default disabled" th:attr="aria-label = #{channel.details.buttons.reinitialize}"><i class="fa fa-refresh"></i> <span th:text="#{channel.details.buttons.reinitialize}" th:remove="tag"></span></button>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/rename', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-pencil"></i> <span th:text="#{channel.details.buttons.rename}" th:remove="tag"></span></a>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/move', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-arrow-right"></i> <span th:text="#{channel.details.buttons.move}" th:remove="tag"></span></a>
+        <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/remove', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" class="btn btn-default"><i class="fa fa-times"></i> <span th:text="#{channel.details.buttons.remove}" th:remove="tag"></span></a>
+      </div>
+
+      <div th:if="!${channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.details.channelDoesNotExist}">
+        The specified channel does not exist.
+      </div>
+
+      <div th:if="${channelConfigurationAvailable} and !${channelStatusAvailable}" class="alert alert-warning" role="alert" th:text="#{channel.details.statusNotAvailable}">
+        Status information is currently not available. Maybe the target server is not online or has not been fully initialized yet?
+      </div>
+
+      <div th:if="${channelExists} and !${channelConfigurationAvailable}" class="alert alert-danger" role="alert" th:text="#{channel.details.configurationNotAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <div class="panel panel-default" th:if="${channelStatusAvailable}">
+        <div class="panel-heading">
+          <h3 class="panel-title" th:text="#{channel.details.status.header}">Status</h3>
+        </div>
+        <div class="panel-body">
+          <div>
+            <strong th:text="#{channel.details.status.state.label}">State:</strong>
+            <span th:if="${channelStatus.state.name() == 'INITIALIZING'}" class="text-info"><i class="fa fa-clock-o" th:title="#{channel.details.status.state.initializing}" th:attr="aria-label=#{channel.details.status.state.initializing}"></i> <span th:text="#{channel.details.status.state.initializing}" th:remove="tag">Initializing</span></span>
+            <span th:if="${channelStatus.state.name() == 'OK'}" class="text-success"><i class="fa fa-check-circle" th:title="#{channel.details.status.state.ok}" th:attr="aria-label=#{channel.details.status.state.ok}"></i> <span th:text="#{channel.details.status.state.ok}" th:remove="tag">OK</span></span>
+            <span th:if="${channelStatus.state.name() == 'DISABLED'}"><i class="fa fa-times-circle" th:title="#{channel.details.status.state.disabled}" th:attr="aria-label=#{channel.details.status.state.disabled}"></i> <span th:text="#{channel.details.status.state.disabled}" th:remove="tag">Disabled</span></span>
+            <span th:if="${channelStatus.state.name() == 'DISCONNECTED'}" class="text-warning"><i class="fa fa-times-circle" th:title="#{channel.details.status.state.disconnected}" th:attr="aria-label=#{channel.details.status.state.disconnected}"></i> <span th:text="#{channel.details.status.state.disconnected}" th:remove="tag">Disconnected</span></span>
+            <span th:if="${channelStatus.state.name() == 'ERROR'}" class="text-danger"><i class="fa fa-times-circle" th:title="#{channel.details.status.state.error}" th:attr="aria-label=#{channel.details.status.state.error}"></i> <span th:text="#{channel.details.status.state.error}" th:remove="tag">Error</span></span>
+            <span th:if="${channelStatus.state.name() == 'DESTROYED'}" class="text-danger"><i class="fa fa-times-circle" th:title="#{channel.details.status.state.destroyed}" th:attr="aria-label=#{channel.details.status.state.destroyed}"></i> <span th:text="#{channel.details.status.state.destroyed}" th:remove="tag">Destroyed</span></span>
+          </div>
+          <div th:if="${channelStatus.errorMessage != null}">
+            <strong th:text="#{channel.details.status.errorMessage.label}">Error Message:</strong>
+            <span class="text-danger" th:text="${channelStatus.errorMessage}"></span>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.status.totalSamplesDropped.label}">Total number of samples dropped:</strong>
+            <span th:text="${{channelStatus.totalSamplesDropped}}" th:remove="tag"></span>
+            <small th:text="#{channel.details.status.totalSamplesDropped.extraNotice}">(since last reinitialization of channel)</small>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.status.totalSamplesSkippedBack.label}">Total number of samples that skipped back in time:</strong>
+            <span th:text="${{channelStatus.totalSamplesSkippedBack}}" th:remove="tag"></span>
+            <small th:text="#{channel.details.status.totalSamplesSkippedBack.extraNotice}">(since last reinitialization of channel)</small>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.status.totalSamplesWritten.label}">Total number of samples written:</strong>
+            <span th:text="${{channelStatus.totalSamplesWritten}}" th:remove="tag"></span>
+            <small th:text="#{channel.details.status.totalSamplesWritten.extraNotice}">(since last reinitialization of channel)</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel panel-default" th:if="${channelConfigurationAvailable}">
+        <div class="panel-heading">
+          <h3 class="panel-title" th:text="#{channel.details.configuration.header}">Configuration</h3>
+        </div>
+        <div class="panel-body">
+          <div>
+            <strong th:text="#{channel.details.configuration.channelName.label}">Name:</strong>
+            <span th:text="${channelConfiguration.channelName}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.configuration.server.label}">Server:</strong>
+            <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="${serverName}"></a>
+            <small th:text="${'(' + serverId + ')'}"></small>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.configuration.controlSystem.label}">Control System:</strong>
+            <span th:text="${controlSystemName}" th:remove="tag"></span>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.configuration.enabled.label}">Archiving Enabled:</strong>
+            <span th:if="${channelConfiguration.enabled}"><i class="fa fa-check-circle text-success" th:title="#{channel.details.configuration.enabled.enabled}" th:attr="aria-label=#{channel.details.configuration.enabled.enabled}"></i> <span th:text="#{channel.details.configuration.enabled.enabled}" th:remove="tag">Enabled</span></span>
+            <span th:if="!${channelConfiguration.enabled}"><i class="fa fa-times-circle" th:title="#{channel.details.configuration.enabled.disabled}" th:attr="aria-label=#{channel.details.configuration.enabled.disabled}"></i> <span th:text="#{channel.details.configuration.enabled.disabled}" th:remove="tag">Disabled</span></span>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.configuration.decimationLevels.label}">Decimation Levels:</strong>
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.label}">Decimation Period</th>
+                  <th th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.label}">Retention Period</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr th:each="decimationLevel : ${channelConfiguration.decimationLevelToRetentionPeriod.entrySet()}">
+                  <td th:if="${decimationLevel.key == 0}" th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.raw}"></td>
+                  <td th:if="${(decimationLevel.key % 86400 == 0) and (decimationLevel.key != 0)}" th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.days(${decimationLevel.key / 86400})}"></td>
+                  <td th:if="${(decimationLevel.key % 3600 == 0) and (decimationLevel.key % 86400 != 0)}" th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.hours(${decimationLevel.key / 3600})}"></td>
+                  <td th:if="${(decimationLevel.key % 60 == 0) and (decimationLevel.key % 3600 != 0)}" th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.minutes(${decimationLevel.key / 60})}"></td>
+                  <td th:if="${decimationLevel.key % 60 != 0}" th:text="#{channel.details.configuration.decimationLevels.decimationPeriod.seconds(${decimationLevel.key})}"></td>
+                  <td th:if="${decimationLevel.value == 0}" th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.indefinitely}"></td>
+                  <td th:if="${(decimationLevel.value % 86400 == 0) and (decimationLevel.value != 0)}" th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.days(${decimationLevel.value / 86400})}"></td>
+                  <td th:if="${(decimationLevel.value % 3600 == 0) and (decimationLevel.value % 86400 != 0)}" th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.hours(${decimationLevel.value / 3600})}"></td>
+                  <td th:if="${(decimationLevel.value % 60 == 0) and (decimationLevel.value % 3600 != 0)}" th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.minutes(${decimationLevel.value / 60})}"></td>
+                  <td th:if="${decimationLevel.value % 60 != 0}" th:text="#{channel.details.configuration.decimationLevels.retentionPeriod.seconds(${decimationLevel.value})}"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <strong th:text="#{channel.details.configuration.options.label}">Control-System-Specific Configuration Options:</strong>
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th th:text="#{channel.details.configuration.options.name.label}">Name</th>
+                  <th th:text="#{channel.details.configuration.options.value.label}">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr th:if="${channelConfiguration.options.empty}">
+                  <td colspan="2" style="text-align: center;" th:text="#{channel.details.configuration.options.empty}">No configuration options are set for this channel.</td>
+                </tr>
+                <tr th:each="option : ${channelConfiguration.options.entrySet()}">
+                  <td th:text="${option.key}"></td>
+                  <td th:text="${option.value}"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts" th:inline="javascript">
+      /* <![CDATA[ */
+      $(document).ready(function() {
+        $("button.channel-details-page-message-close").click(function(event) {
+          var messageName = $(this).data("page-message-name");
+          if (typeof messageName == "undefined") {
+            return;
+          }
+          var queryString = window.location.search;
+          if (!queryString.startsWith("?")) {
+            return;
+          }
+          queryString = queryString.substring(1);
+          var queryParts = queryString.split("&");
+          var messageQueryParameterName = "message." + messageName;
+          var newQueryString = "";
+          var firstPart = true;
+          for (var i = 0; i < queryParts.length; ++i) {
+            var nameAndValue = queryParts[i].split("=");
+            if (nameAndValue[0] == messageQueryParameterName) {
+              continue;
+            } else {
+              if (firstPart) {
+                newQueryString += "?";
+                firstPart = false;
+              } else {
+                newQueryString += "&";
+              }
+              newQueryString += queryParts[i];
+            }
+          }
+          var newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + newQueryString + window.location.hash;
+          window.history.replaceState(null, null, newUrl);
+        });
+      });
+      /* ]]> */
+    </script>
+  </body>
+</html>

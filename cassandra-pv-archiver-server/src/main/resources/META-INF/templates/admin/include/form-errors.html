@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title>Form Error Fragments</title>
+  </head>
+  <body>
+
+    <div layout:fragment="fieldErrors(fieldName, messagePrefix)" th:remove="tag" th:with="beanName = ${springBoundObjectExpression?.expression ?: 'form'}, errors = ${springRequestContext.getErrors(beanName)}">
+      <div th:if="${errors != null and errors.hasFieldErrors(fieldName)}" th:remove="tag">
+        <div th:each="error : ${errors.getFieldErrors(fieldName)}" th:with="errorCode = ${error.code}, errorMessage = ${#messages.msgOrNullWithParams(messagePrefix + '.' + error.code, error.arguments) ?: #messages.msgOrNullWithParams('include.formErrors.message.' + error.code, error.arguments) ?: error.code}" th:remove="tag">
+          <span layout:fragment="displayErrorMessage" th:text="${errorMessage}"></span>
+        </div>
+      </div>
+    </div>
+
+    <div layout:fragment="globalErrors(messagePrefix)" th:remove="tag" th:with="beanName = ${springBoundObjectExpression?.expression ?: 'form'}, errors = ${springRequestContext.getErrors(beanName)}">
+      <div th:if="${errors != null and errors.hasGlobalErrors()}" th:remove="tag">
+        <div th:each="error : ${errors.getGlobalErrors()}" th:with="errorCode = ${error.code}, errorMessage = ${#messages.msgOrNullWithParams(messagePrefix + '.' + error.code, error.arguments) ?: #messages.msgOrNullWithParams('include.formErrors.message.' + error.code, error.arguments) ?: error.code}" th:remove="tag">
+          <span layout:fragment="displayErrorMessage" th:text="${errorMessage}"></span>
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>

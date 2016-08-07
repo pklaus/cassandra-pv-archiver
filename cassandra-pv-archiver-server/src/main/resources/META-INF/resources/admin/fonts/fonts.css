@@ -1,0 +1,119 @@
+@font-face {
+	font-family: 'Arimo';
+	font-style: normal;
+	font-weight: 400;
+	src:
+		local('Arimo'),
+		url('Arimo_400.woff') format('woff'),
+		url('Arimo_400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Arimo';
+	font-style: italic;
+	font-weight: 400;
+	src:
+		local('Arimo Italic'),
+		local('Arimo-Italic'),
+		url('Arimo_400italic.woff') format('woff'),
+		url('Arimo_400italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Arimo';
+	font-style: normal;
+	font-weight: 700;
+	src:
+		local('Arimo Bold'),
+		local('Arimo-Bold'),
+		url('Arimo_700.woff') format('woff'),
+		url('Arimo_700.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Arimo';
+	font-style: italic;
+	font-weight: 700;
+	src:
+		local('Arimo Bold Italic'),
+		local('Arimo-BoldItalic'),
+		url('Arimo_700italic.woff') format('woff'),
+		url('Arimo_700italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: normal;
+	font-weight: 400;
+	src:
+		local('Cabin Regular'),
+		local('Cabin-Regular'),
+		url('Cabin_400.woff') format('woff'),
+		url('Cabin_400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: italic;
+	font-weight: 400;
+	src:
+		local('Cabin Italic'),
+		local('Cabin-Italic'),
+		url('Cabin_400italic.woff') format('woff'),
+		url('Cabin_400italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: normal;
+	font-weight: 500;
+	src:
+		local('Cabin Medium'),
+		local('Cabin-Medium'),
+		url('Cabin_500.woff') format('woff'),
+		url('Cabin_500.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: italic;
+	font-weight: 500;
+	src:
+		local('Cabin Medium Italic'),
+		local('Cabin-MediumItalic'),
+		url('Cabin_500italic.woff') format('woff'),
+		url('Cabin_500italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: normal;
+	font-weight: 600;
+	src:
+		local('Cabin SemiBold'),
+		local('Cabin-SemiBold'),
+		url('Cabin_600.woff') format('woff'),
+		url('Cabin_600.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: italic;
+	font-weight: 600;
+	src:
+		local('Cabin SemiBold Italic'),
+		local('Cabin-SemiBoldItalic'),
+		url('Cabin_600italic.woff') format('woff'),
+		url('Cabin_600italic.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: normal;
+	font-weight: 700;
+	src:
+		local('Cabin Bold'),
+		local('Cabin-Bold'),
+		url('Cabin_700.woff') format('woff'),
+		url('Cabin_700.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Cabin';
+	font-style: italic;
+	font-weight: 700;
+	src:
+		local('Cabin Bold Italic'),
+		local('Cabin-BoldItalic'),
+		url('Cabin_700italic.woff') format('woff'),
+		url('Cabin_700italic.woff2') format('woff2');
+}

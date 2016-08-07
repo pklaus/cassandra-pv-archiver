@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channel.edit.title(${channelName})}">Edit Channel XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="@{/admin/ui/channels/all/}" th:text="#{channels.all.breadcrumbTitle}">All Channels</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</a></li>
+        <li th:if="${viewMode == 'all'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', {'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li th:if="${viewMode == 'by-server'}"><a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channelName)})}" th:text="#{channel.details.breadcrumbTitle(${channelName})}">Channel XXXXX</a></li>
+        <li class="active" th:text="#{channel.edit.breadcrumbTitle}">Edit</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channel.edit.pageHeader(${channelName})}">Edit Channel XXXXX</h1>
+
+      <div th:if="${!channelExists}" class="alert alert-danger" role="alert" th:text="#{channel.edit.channelDoesNotExist}">
+        The specified channel does not exist.
+      </div>
+
+      <div th:if="${channelExists and !channelConfigurationAvailable}" class="alert alert-danger" role="alert" th:text="#{channel.edit.configurationNotAvailable}">
+        Information about channels is currently not available. Maybe this server is not online?
+      </div>
+
+      <form th:if="${channelConfigurationAvailable}" th:action="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/edit}" method="post" th:object="${form}" class="form-horizontal">
+        <div class="row" th:if="${#fields.hasGlobalErrors()}">
+          <div class="alert alert-danger" role="alert">
+            <strong th:text="#{channel.edit.error.strongMessage}">Error:</strong>
+            <ul>
+              <th:block layout:replace="~{include/form-errors :: globalErrors('channel.edit.error.message')}">
+                <li layout:fragment="displayErrorMessage" th:text="${errorMessage}"></li>
+              </th:block>
+            </ul>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.edit.channelName.label}">Channel Name</label>
+          <div class="col-sm-9 col-md-10">
+            <p class="form-control-static" th:text="${channelName}"></p>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.edit.serverId.label}">Server</label>
+          <div class="col-sm-9 col-md-10">
+            <p class="form-control-static" th:text="${serverName + ' (' + serverId + ')'}"></p>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.edit.controlSystemType.label}">Control System</label>
+          <div class="col-sm-9 col-md-10">
+            <p class="form-control-static" th:text="${controlSystemName}"></p>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${#fields.hasErrors('enabled') ? 'has-error' : null}">
+          <div class="checkbox col-sm-offset-3 col-sm-9 col-md-offset-2 col-md-10">
+            <label>
+              <input type="checkbox" th:field="*{enabled}" th:attr="aria-describedby = ${#fields.hasErrors('enabled') ? 'enabledHelp' : null}" />
+              <span th:text="#{channel.edit.enabled.label}" th:remove="tag">Enable Archiving</span>
+            </label>
+            <span th:if="${#fields.hasErrors('enabled')}" id="enabledHelp" class="help-block">
+              <span layout:replace="~{include/form-errors :: fieldErrors('enabled', 'channel.edit.enabled.message')}"></span>
+            </span>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${#fields.hasErrors('decimationLevels') ? 'has-error' : null}">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.edit.decimationLevels.label}">Decimation Levels</label>
+          <div class="col-sm-9 col-md-10">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th th:text="#{channel.edit.decimationLevels.decimationPeriod.label}">Decimation Period</th>
+                  <th th:text="#{channel.edit.decimationLevels.retentionPeriod.label}">Retention Period</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="channel-edit-decimation-levels-table-body">
+                <th:block th:if="*{decimationLevels} != null">
+                  <th:block th:each="decimationLevelEntry : *{decimationLevels.entrySet()}" th:if="${decimationLevelEntry.key != null and decimationLevelEntry.value != null}" th:with="decimationLevelIndex = ${decimationLevelEntry.key}, decimationLevel = ${decimationLevelEntry.value}, decimationLevelRemoveStatus = *{removeDecimationLevels.get(#vars.decimationLevelEntry.key)}, originalDecimationLevel = *{originalDecimationLevels.get(#vars.decimationLevelEntry.key)}">
+                    <tr th:if="${decimationLevelRemoveStatus != null}" th:classappend="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']') ? 'has-error' : null}">
+                      <td class="channel-edit-decimation-levels-present" th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')) ? 'has-error' : null}" th:style="${(decimationLevelRemoveStatus != null and decimationLevelRemoveStatus == true) ? 'display: none;' : null}">
+                        <div class="channel-edit-decimation-levels-decimation-period" style="width: 100%;">
+                          <div class="form-control-static" style="text-align: right; white-space: nowrap;">
+                            <span class="channel-edit-period-counts-static" th:style="*{(decimationLevels.get(#vars.decimationLevelIndex).decimationPeriod.unit.name() == 'ZERO') ? 'display: none;' : null}"  th:text="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.counts}"></span>
+                            <span class="channel-edit-period-unit-static" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.__*{decimationLevels.get(#vars.decimationLevelIndex).decimationPeriod.unit.name().toLowerCase()}__}"></span>
+                          </div>
+                          <input type="hidden" th:field="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.counts}" />
+                          <input type="hidden" th:field="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.unit}" />
+                          <input type="hidden" class="channel-edit-period-original-count" th:field="*{originalDecimationLevels[__${decimationLevelIndex}__].decimationPeriod.counts}" />
+                          <input type="hidden" class="channel-edit-period-original-unit" th:field="*{originalDecimationLevels[__${decimationLevelIndex}__].decimationPeriod.unit}" />
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']DecimationPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod', 'channel.edit.decimationLevels.decimationPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.counts', 'channel.edit.decimationLevels.decimationPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.unit', 'channel.edit.decimationLevels.decimationPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td class="channel-edit-decimation-levels-present" th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')) ? 'has-error' : null}" th:style="${(decimationLevelRemoveStatus != null and decimationLevelRemoveStatus == true) ? 'display: none;' : null}">
+                        <div class="input-group channel-edit-decimation-levels-retention-period">
+                          <input type="text" class="form-control channel-edit-period-counts" style="text-align: right;" th:field="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.counts}" th:disabled="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit.name() == 'ZERO'}" th:attr="aria-label = #{channel.edit.decimationLevels.retentionPeriod.counts.label(${decimationLevelIndex})}, aria-describedby = ${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') ? ('decimationLevels' + decimationLevelIndex + 'RetentionPeriodHelp') : null}"></input>
+                          <input th:if="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit.name() == 'ZERO'}" type="hidden" class="channel-edit-period-counts" th:name="${'decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts'}" th:value="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.counts}" />
+                          <input type="hidden" class="channel-edit-period-unit" th:field="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit}" />
+                          <input type="hidden" class="channel-edit-period-original-counts" th:field="*{originalDecimationLevels[__${decimationLevelIndex}__].retentionPeriod.counts}" />
+                          <input type="hidden" class="channel-edit-period-original-unit" th:field="*{originalDecimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit}" />
+                          <div class="input-group-btn">
+                            <button type="button" class="btn btn-default dropdown-toggle channel-edit-period-unit" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                              <span class="channel-edit-period-unit" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.__*{decimationLevels.get(#vars.decimationLevelIndex).retentionPeriod.unit.name().toLowerCase()}__}"></span>
+                              <span class="caret"></span>
+                            </button>
+                            <ul class="dropdown-menu">
+                              <li><a href="#" data-unit="ZERO" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.zero}"></a></li>
+                              <li><a href="#" data-unit="SECONDS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.seconds}"></a></li>
+                              <li><a href="#" data-unit="MINUTES" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.minutes}"></a></li>
+                              <li><a href="#" data-unit="HOURS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.hours}"></a></li>
+                              <li><a href="#" data-unit="DAYS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.days}"></a></li>
+                            </ul>
+                          </div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']RetentionPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod', 'channel.edit.decimationLevels.retentionPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.counts', 'channel.edit.decimationLevels.retentionPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.unit', 'channel.edit.decimationLevels.retentionPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${decimationLevelIndex == 0}" class="channel-edit-decimation-levels-present" th:style="${(decimationLevelRemoveStatus != null and decimationLevelRemoveStatus == true) ? 'display: none;' : null}">
+                        <input type="hidden" th:field="*{removeDecimationLevels[__${decimationLevelIndex}__]}" />
+                        <div style="white-space: nowrap;">
+                          <button type="button" class="btn btn-primary channel-edit-decimation-levels-undo-edit" th:id="${'decimationLevels' + decimationLevelIndex + 'UndoEditButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.decimationLevels.undoEditButton}" th:remove="tag">Undo Edit</span></button>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + ']', 'channel.edit.decimationLevels.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${decimationLevelIndex != 0}" class="channel-edit-decimation-levels-present" th:style="${(decimationLevelRemoveStatus != null and decimationLevelRemoveStatus == true) ? 'display: none;' : null}">
+                        <div style="white-space: nowrap;">
+                          <button type="button" class="btn btn-primary channel-edit-decimation-levels-undo-edit" th:id="${'decimationLevels' + decimationLevelIndex + 'UndoEditButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.decimationLevels.undoEditButton}" th:remove="tag">Undo Edit</span></button>
+                          <button type="button" class="btn btn-default channel-edit-decimation-levels-remove" th:id="${'decimationLevels' + decimationLevelIndex + 'RemoveButton'}"><i class="fa fa-times"></i> <span th:text="#{channel.edit.decimationLevels.removeButton}" th:remove="tag">Remove</span></button>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + ']', 'channel.edit.decimationLevels.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${decimationLevelRemoveStatus != null and decimationLevelIndex != 0}" class="channel-edit-decimation-levels-removed" th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')) ? 'has-error' : null}" th:style="${(decimationLevelRemoveStatus == false) ? 'display: none;' : null}">
+                        <div class="channel-edit-decimation-levels-decimation-period" style="text-decoration: line-through; width: 100%;">
+                          <div class="form-control-static" style="text-align: right; white-space: nowrap;">
+                            <span class="channel-edit-period-counts-static" th:text="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.counts}"></span>
+                            <span class="channel-edit-period-unit-static" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.__*{decimationLevels.get(#vars.decimationLevelIndex).decimationPeriod.unit.name().toLowerCase()}__}"></span>
+                          </div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']DecimationPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod', 'channel.edit.decimationLevels.decimationPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.counts', 'channel.edit.decimationLevels.decimationPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.unit', 'channel.edit.decimationLevels.decimationPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${decimationLevelRemoveStatus != null and decimationLevelIndex != 0}" class="channel-edit-decimation-levels-removed" th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')) ? 'has-error' : null}" th:style="${(decimationLevelRemoveStatus == false) ? 'display: none;' : null}">
+                        <div class="channel-edit-decimation-levels-retention-period" style="text-decoration: line-through; width: 100%;">
+                          <div class="form-control-static" style="text-align: right; white-space: nowrap;">
+                            <span class="channel-edit-period-counts-static" th:style="${(originalDecimationLevel.retentionPeriod.unit.name() == 'ZERO') ? 'display: none;' : null}" th:text="${originalDecimationLevel.retentionPeriod.counts}"></span>
+                            <span class="channel-edit-period-unit-static" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.__${originalDecimationLevel.retentionPeriod.unit.name().toLowerCase()}__}"></span>
+                          </div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']RetentionPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod', 'channel.edit.decimationLevels.retentionPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.counts', 'channel.edit.decimationLevels.retentionPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.unit', 'channel.edit.decimationLevels.retentionPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${decimationLevelRemoveStatus != null and decimationLevelIndex != 0}" class="channel-edit-decimation-levels-removed" th:style="${(decimationLevelRemoveStatus == false) ? 'display: none;' : null}">
+                        <input type="hidden" th:field="*{removeDecimationLevels[__${decimationLevelIndex}__]}" />
+                        <button type="button" class="btn btn-primary channel-edit-decimation-levels-undo-remove" th:id="${'decimationLevels' + decimationLevelIndex + 'UndoRemoveButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.decimationLevels.undoRemoveButton}" th:remove="tag">Undo Remove</span></button>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + ']', 'channel.edit.decimationLevels.message')}"></span>
+                        </span>
+                      </td>
+                    </tr>
+                    <tr th:if="${decimationLevelRemoveStatus == null}" th:classappend="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']') ? 'has-error' : null}">
+                      <td th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')) ? 'has-error' : null}">
+                        <div class="input-group channel-edit-decimation-levels-decimation-period">
+                          <input type="text" class="form-control channel-edit-period-counts" style="text-align: right;" th:field="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.counts}" th:attr="aria-label = #{channel.edit.decimationLevels.decimationPeriod.counts.label(${decimationLevelIndex})}, aria-describedby = ${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') ? ('decimationLevels' + decimationLevelIndex + 'DecimationPeriodHelp') : null}"></input>
+                          <input type="hidden" class="channel-edit-period-unit" th:field="*{decimationLevels[__${decimationLevelIndex}__].decimationPeriod.unit}" />
+                          <div class="input-group-btn">
+                            <button type="button" class="btn btn-default dropdown-toggle channel-edit-period-unit" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                              <span class="channel-edit-period-unit" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.__*{decimationLevels.get(#vars.decimationLevelIndex).decimationPeriod.unit.name().toLowerCase()}__}"></span>
+                              <span class="caret"></span>
+                            </button>
+                            <ul class="dropdown-menu">
+                              <li><a href="#" data-unit="SECONDS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.seconds}"></a></li>
+                              <li><a href="#" data-unit="MINUTES" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.minutes}"></a></li>
+                              <li><a href="#" data-unit="HOURS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.hours}"></a></li>
+                              <li><a href="#" data-unit="DAYS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.days}"></a></li>
+                            </ul>
+                          </div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].decimationPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']DecimationPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod', 'channel.edit.decimationLevels.decimationPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.counts', 'channel.edit.decimationLevels.decimationPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].decimationPeriod.unit', 'channel.edit.decimationLevels.decimationPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:classappend="${(#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')) ? 'has-error' : null}">
+                        <div class="input-group channel-edit-decimation-levels-retention-period">
+                          <input type="text" class="form-control channel-edit-period-counts" style="text-align: right;" th:field="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.counts}" th:disabled="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit.name() == 'ZERO'}" th:attr="aria-label = #{channel.edit.decimationLevels.retentionPeriod.counts.label(${decimationLevelIndex})}, aria-describedby = ${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') ? ('decimationLevels' + decimationLevelIndex + 'RetentionPeriodHelp') : null}"></input>
+                          <input th:if="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit.name() == 'ZERO'}" type="hidden" class="channel-edit-period-counts" th:name="${'decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts'}" th:value="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.counts}" />
+                          <input type="hidden" class="channel-edit-period-unit" th:field="*{decimationLevels[__${decimationLevelIndex}__].retentionPeriod.unit}" />
+                          <div class="input-group-btn">
+                            <button type="button" class="btn btn-default dropdown-toggle channel-edit-period-unit" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                              <span class="channel-edit-period-unit" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.__*{decimationLevels.get(#vars.decimationLevelIndex).retentionPeriod.unit.name().toLowerCase()}__}"></span>
+                              <span class="caret"></span>
+                            </button>
+                            <ul class="dropdown-menu">
+                              <li><a href="#" data-unit="ZERO" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.zero}"></a></li>
+                              <li><a href="#" data-unit="SECONDS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.seconds}"></a></li>
+                              <li><a href="#" data-unit="MINUTES" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.minutes}"></a></li>
+                              <li><a href="#" data-unit="HOURS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.hours}"></a></li>
+                              <li><a href="#" data-unit="DAYS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.days}"></a></li>
+                            </ul>
+                          </div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.counts') or #fields.hasErrors('decimationLevels[' + decimationLevelIndex + '].retentionPeriod.unit')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']RetentionPeriodHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod', 'channel.edit.decimationLevels.retentionPeriod.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.counts', 'channel.edit.decimationLevels.retentionPeriod.counts.message')}"></span>
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + '].retentionPeriod.unit', 'channel.edit.decimationLevels.retentionPeriod.unit.message')}"></span>
+                        </span>
+                      </td>
+                      <td>
+                        <button type="button" class="btn btn-primary channel-edit-decimation-levels-undo-add" th:id="${'decimationLevels' + decimationLevelIndex + 'UndoAddButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.decimationLevels.undoAddButton}" th:remove="tag">Undo Add</span></button>
+                        <span th:if="${#fields.hasErrors('decimationLevels[' + decimationLevelIndex + ']')}" th:id="${'decimationLevels[' + decimationLevelIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels[' + ${decimationLevelIndex} + ']', 'channel.edit.decimationLevels.message')}"></span>
+                        </span>
+                      </td>
+                    </tr>
+                  </th:block>
+                </th:block>
+              </tbody>
+            </table>
+            <button type="button" class="btn btn-primary" id="channel-edit-decimation-levels-add-button"><i class="fa fa-plus"></i> <span th:text="#{channel.edit.decimationLevels.addButton}" th:remove="tag">Add Decimation Level</span></button>
+            <span layout:replace="~{include/form-errors :: fieldErrors('decimationLevels', 'channel.edit.decimationLevels.message')}">
+              <span layout:fragment="displayErrorMessage" class="help-block" th:text="${errorMessage}"></span>
+            </span>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${#fields.hasErrors('options') ? 'has-error' : null}">
+          <label class="control-label col-sm-3 col-md-2" th:text="#{channel.edit.options.label}">Control-System Options</label>
+          <div class="col-sm-9 col-md-10">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th th:text="#{channel.edit.options.name.label}">Name</th>
+                  <th th:text="#{channel.edit.options.value.label}">Value</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="channel-edit-options-table-body">
+                <th:block th:if="*{options} != null">
+                  <th:block th:each="optionEntry : *{options.entrySet()}" th:if="${optionEntry.key != null and optionEntry.value != null}" th:with="optionIndex = ${optionEntry.key}, option = ${optionEntry.value}, optionRemoveStatus = *{removeOptions.get(#vars.optionEntry.key)}, originalOption = *{originalOptions.get(#vars.optionEntry.key)}">
+                    <tr th:classappend="${#fields.hasErrors('options[' + optionIndex + ']') ? 'has-error' : null}">
+                      <td class="channel-edit-options-present" th:classappend="${#fields.hasErrors('options[' + optionIndex + '].name') ? 'has-error' : null}" th:style="${(optionRemoveStatus != null and optionRemoveStatus == true) ? 'display: none;' : null}">
+                        <input type="text" class="form-control channel-edit-options-name" th:field="*{options[__${optionIndex}__].name}" th:attr="aria-label = #{channel.edit.options.name.individualLabel(${optionIndex})}, aria-describedby = ${#fields.hasErrors('options[' + optionIndex + '].name') ? ('options' + optionIndex + 'NameHelp') : null}"></input>
+                        <input th:if="${optionRemoveStatus != null}" type="hidden" class="channel-edit-options-original-name" th:field="*{originalOptions[__${optionIndex}__].name}" />
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + '].name')}" th:id="${'options[' + optionIndex + ']NameHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + '].name', 'channel.edit.options.name.message')}"></span>
+                        </span>
+                      </td>
+                      <td class="channel-edit-options-present" th:classappend="${#fields.hasErrors('options[' + optionIndex + '].value') ? 'has-error' : null}" th:style="${(optionRemoveStatus != null and optionRemoveStatus == true) ? 'display: none;' : null}">
+                        <input type="text" class="form-control channel-edit-options-value" th:field="*{options[__${optionIndex}__].value}" th:attr="aria-label = #{channel.edit.options.value.individualLabel(${optionIndex})}, aria-describedby = ${#fields.hasErrors('options[' + optionIndex + '].value') ? ('options' + optionIndex + 'ValueHelp') : null}"></input>
+                        <input th:if="${optionRemoveStatus != null}" type="hidden" class="channel-edit-options-original-value" th:field="*{originalOptions[__${optionIndex}__].value}" />
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + '].value')}" th:id="${'options[' + optionIndex + ']ValueHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + '].value', 'channel.edit.options.value.message')}"></span>
+                        </span>
+                      </td>
+                      <td class="channel-edit-options-present" th:style="${(optionRemoveStatus != null and optionRemoveStatus == true) ? 'display: none;' : null}">
+                        <button th:if="${optionRemoveStatus == null}" type="button" class="btn btn-primary channel-edit-options-undo-add" th:id="${'options' + optionIndex + 'UndoAddButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.options.undoAddButton}" th:remove="tag">Undo Add</span></button>
+                        <div th:if="${optionRemoveStatus != null}" style="white-space: nowrap;">
+                          <button type="button" class="btn btn-primary channel-edit-options-undo-edit" th:id="${'options' + optionIndex + 'UndoEditButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.options.undoEditButton}" th:remove="tag">Undo Edit</span></button>
+                          <button type="button" class="btn btn-default channel-edit-options-remove" th:id="${'options' + optionIndex + 'RemoveButton'}"><i class="fa fa-times"></i> <span th:text="#{channel.edit.options.removeButton}" th:remove="tag">Remove</span></button>
+                        </div>
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + ']')}" th:id="${'options[' + optionIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + ']', 'channel.edit.options.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${optionRemoveStatus != null}" class="channel-edit-options-removed" th:classappend="${#fields.hasErrors('options[' + optionIndex + '].name') ? 'has-error' : null}" th:style="${(optionRemoveStatus == false) ? ' display: none;' : null}">
+                        <div style="text-decoration: line-through; width: 100%;">
+                          <div class="form-control-static" th:text="${originalOption.name}"></div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + '].name')}" th:id="${'options[' + optionIndex + ']NameHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + '].name', 'channel.edit.options.name.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${optionRemoveStatus != null}" class="channel-edit-options-removed" th:classappend="${#fields.hasErrors('options[' + optionIndex + '].value') ? 'has-error' : null}" th:style="${(optionRemoveStatus == false) ? 'display: none;' : null}">
+                        <div style="text-decoration: line-through; width: 100%;">
+                          <div class="form-control-static" th:text="${originalOption.value}"></div>
+                        </div>
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + '].value')}" th:id="${'options[' + optionIndex + ']ValueHelp'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + '].value', 'channel.edit.options.value.message')}"></span>
+                        </span>
+                      </td>
+                      <td th:if="${optionRemoveStatus != null}" class="channel-edit-options-removed" th:style="${(optionRemoveStatus == false) ? 'display: none;' : null}">
+                        <input type="hidden" th:field="*{removeOptions[__${optionIndex}__]}" />
+                        <button type="button" class="btn btn-primary channel-edit-options-undo-remove" th:id="${'options' + optionIndex + 'UndoRemoveButton'}"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.options.undoRemoveButton}" th:remove="tag">Undo Remove</span></button>
+                        <span th:if="${#fields.hasErrors('options[' + optionIndex + ']')}" th:id="${'options[' + optionIndex + ']Help'}" class="help-block">
+                          <span layout:replace="~{include/form-errors :: fieldErrors('options[' + ${optionIndex} + ']', 'channel.edit.options.message')}"></span>
+                        </span>
+                      </td>
+                    </tr>
+                  </th:block>
+                </th:block>
+                <tr id="channel-edit-options-empty-row" th:style="*{(options?.size() ?: 0) != 0 ? 'display: none;' : null}">
+                  <td colspan="3" style="text-align: center;" th:text="#{channel.edit.options.empty}">No control-system options have been specified.</td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" class="btn btn-primary" id="channel-edit-options-add-button"><i class="fa fa-plus"></i> <span th:text="#{channel.edit.options.addButton}" th:remove="tag">Add Option</span></button>
+            <span layout:replace="~{include/form-errors :: fieldErrors('options', 'channel.edit.options.message')}">
+              <span layout:fragment="displayErrorMessage" class="help-block" th:text="${errorMessage}"></span>
+            </span>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-3 col-sm-9 col-md-offset-2 col-md-10">
+            <button type="submit" class="btn btn-primary" th:text="#{channel.edit.submitButton}">Save Changes</button>
+            <a th:href="@{/admin/ui/channels/__${viewMode == 'by-server' ? ('by-server/' + serverId) : 'all'}__/by-name/__${#uriExpander.encode(channelName)}__/}" class="btn btn-default" th:text="#{channel.edit.cancelButton}">Cancel</a>
+          </div>
+        </div>
+      </form>
+
+      <!--/* We need a hidden table from which we can copy the row when a
+             decimation level is added. We place this table outside the form so
+             that its form fields are not submitted. */-->
+      <table class="table table-striped" style="display: none;">
+        <tbody>
+          <tr id="channel-edit-decimation-levels-template-row">
+            <td>
+              <div class="input-group channel-edit-decimation-levels-decimation-period">
+                <input type="text" class="form-control channel-edit-period-counts" style="text-align: right;" th:attr="aria-label = #{channel.edit.decimationLevels.decimationPeriod.counts.label('_x_decimationLevelIndex_x_')}" id="decimationLevels_x_decimationLevelIndex_x_.decimationPeriod.counts" name="decimationLevels[_x_decimationLevelIndex_x_].decimationPeriod.counts" value=""></input>
+                <input type="hidden" class="channel-edit-period-unit" id="decimationLevels_x_decimationLevelIndex_x_.decimationPeriod.unit" name="decimationLevels[_x_decimationLevelIndex_x_].decimationPeriod.unit" value="SECONDS" />
+                <div class="input-group-btn">
+                  <button type="button" class="btn btn-default dropdown-toggle channel-edit-period-unit" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    <span class="channel-edit-period-unit" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.seconds}"></span>
+                    <span class="caret"></span>
+                  </button>
+                  <ul class="dropdown-menu">
+                    <li><a href="#" data-unit="SECONDS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.seconds}"></a></li>
+                    <li><a href="#" data-unit="MINUTES" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.minutes}"></a></li>
+                    <li><a href="#" data-unit="HOURS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.hours}"></a></li>
+                    <li><a href="#" data-unit="DAYS" th:text="#{channel.edit.decimationLevels.decimationPeriod.unit.days}"></a></li>
+                  </ul>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div class="input-group channel-edit-decimation-levels-retention-period">
+                <input type="text" class="form-control channel-edit-period-counts" style="text-align: right;" th:attr="aria-label = #{channel.edit.decimationLevels.retentionPeriod.counts.label('_x_decimationLevelIndex_x_')}" disabled="disabled" id="decimationLevels_x_decimationLevelIndex_x_.retentionPeriod.counts" name="decimationLevels[_x_decimationLevelIndex_x_].retentionPeriod.counts" value="0"></input>
+                <input type="hidden" class="channel-edit-period-counts" name="decimationLevels[_x_decimationLevelIndex_x_].retentionPeriod.counts" value="0" />
+                <input type="hidden" class="channel-edit-period-unit" id="decimationLevels_x_decimationLevelIndex_x_.retentionPeriod.unit" name="decimationLevels[_x_decimationLevelIndex_x_].retentionPeriod.unit" value="ZERO" />
+                <div class="input-group-btn">
+                  <button type="button" class="btn btn-default dropdown-toggle channel-edit-period-unit" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    <span class="channel-edit-period-unit" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.zero}"></span>
+                    <span class="caret"></span>
+                  </button>
+                  <ul class="dropdown-menu">
+                    <li><a href="#" data-unit="ZERO" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.zero}"></a></li>
+                    <li><a href="#" data-unit="SECONDS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.seconds}"></a></li>
+                    <li><a href="#" data-unit="MINUTES" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.minutes}"></a></li>
+                    <li><a href="#" data-unit="HOURS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.hours}"></a></li>
+                    <li><a href="#" data-unit="DAYS" th:text="#{channel.edit.decimationLevels.retentionPeriod.unit.days}"></a></li>
+                  </ul>
+                </div>
+              </div>
+            </td>
+            <td>
+              <button type="button" class="btn btn-primary channel-edit-decimation-levels-undo-add" id="decimationLevels_x_decimationLevelIndex_x_UndoAddButton"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.decimationLevels.undoAddButton}" th:remove="tag">Undo Add</span></button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!--/* We need the same kind of table for control-system options. */-->
+      <table class="table table-striped" style="display: none;">
+        <tbody>
+          <tr id="channel-edit-options-template-row">
+            <td>
+              <input type="text" class="form-control" th:attr="aria-label = #{channel.edit.options.name.individualLabel('_x_optionIndex_x_')}" id="options_x_optionIndex_x_.name" name="options[_x_optionIndex_x_].name" value=""></input>
+            </td>
+            <td>
+              <input type="text" class="form-control" th:attr="aria-label = #{channel.edit.options.value.individualLabel('_x_optionIndex_x_')}" id="options_x_optionIndex_x_.value" name="options[_x_optionIndex_x_].value" value=""></input>
+            </td>
+            <td>
+              <button type="button" class="btn btn-primary channel-edit-options-undo-add" id="options_x_optionIndex_x_UndoAddButton"><i class="fa fa-undo"></i> <span th:text="#{channel.edit.options.undoAddButton}" th:remove="tag">Undo Add</span></button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts" th:inline="javascript">
+      /* <![CDATA[ */
+      $(document).ready(function() {
+        $(".channel-edit-decimation-levels-decimation-period > div.input-group-btn > ul > li > a, .channel-edit-decimation-levels-retention-period > div.input-group-btn > ul > li > a").click(function(event) {
+          var dropDownElement = $(this);
+          var inputGroupElement = dropDownElement.parent().parent().parent().parent();
+          var countsFieldElement = $("input.channel-edit-period-counts[type='text']", inputGroupElement);
+          var hiddenCountsFieldElement = $("input.channel-edit-period-counts[type='hidden']", inputGroupElement);
+          var hiddenUnitFieldElement = $("input.channel-edit-period-unit[type='hidden']", inputGroupElement);
+          var buttonLabelElement = $("div.input-group-btn > button > span.channel-edit-period-unit", inputGroupElement);
+          var unit = dropDownElement.data("unit");
+          var unitDescription = dropDownElement.text();
+          hiddenUnitFieldElement.val(unit);
+          buttonLabelElement.text(unitDescription);
+          if (unit == "ZERO") {
+            if (hiddenCountsFieldElement.length == 0) {
+              var fieldName = countsFieldElement.attr("name");
+              var hiddenFieldHtml = "<input type=\"hidden\" class=\"channel-edit-period-counts\" name=\"" + fieldName + "\" value=\"0\"></input>";
+              countsFieldElement.after(hiddenFieldHtml);
+            }
+            countsFieldElement.val(0);
+            countsFieldElement.prop("disabled", true);
+          } else {
+            if (hiddenCountsFieldElement.length != 0) {
+              hiddenCountsFieldElement.remove();
+            }
+            countsFieldElement.prop("disabled", false);
+          }
+          event.preventDefault();
+        });
+
+        var nextDecimationLevelIndex = [[${(form?.decimationLevels?.lastEntry()?.key != null) ? (form.decimationLevels.lastEntry().key + 1) : 0}]];
+        var decimationLevelTemplateRow = $("#channel-edit-decimation-levels-template-row");
+        $("#channel-edit-decimation-levels-add-button").click(function(event) {
+          var clonedRow = decimationLevelTemplateRow.clone(true);
+          $("*", clonedRow).each(function() {
+            var clonedElement = $(this);
+            $.each(['id', 'name', 'aria-label'], function() {
+              var attributeName = this;
+              var attributeValue = clonedElement.attr(attributeName);
+              if (typeof attributeValue != "undefined") {
+                clonedElement.attr(attributeName, attributeValue.replace("_x_decimationLevelIndex_x_", nextDecimationLevelIndex.toString()));
+              }
+            });
+          });
+          var tableBody = $("#channel-edit-decimation-levels-table-body");
+          tableBody.append(clonedRow);
+          ++nextDecimationLevelIndex;
+          event.preventDefault();
+        });
+        $("button.channel-edit-decimation-levels-undo-add").click(function(event) {
+          $(this).parent().parent().remove();
+          event.preventDefault();
+        });
+
+        $("button.channel-edit-decimation-levels-undo-edit").click(function(event) {
+          var tableRow = $(this).parent().parent().parent();
+          var inputGroupElement = $("td.channel-edit-decimation-levels-present > div.channel-edit-decimation-levels-retention-period", tableRow);
+          var retentionPeriodOriginalCountsHiddenInputField = $("input.channel-edit-period-original-counts", inputGroupElement);
+          var retentionPeriodOriginalUnitHiddenInputField = $("input.channel-edit-period-original-unit", inputGroupElement);
+          var originalUnit = retentionPeriodOriginalUnitHiddenInputField.val();
+          var retentionPeriodSelectUnitDropDownElement = $("div > ul > li > a[data-unit='" + originalUnit + "']", inputGroupElement);
+          // The easiest way to restore the right unit is by "clicking" the
+          // corresponding button.
+          retentionPeriodSelectUnitDropDownElement.click();
+          // We select the counts input elements after restoring the unit
+          // because changing the unit might create or remove a hidden input
+          // element.
+          var retentionPeriodCountsInputField = $("input.channel-edit-period-counts", inputGroupElement);
+          retentionPeriodCountsInputField.val(retentionPeriodOriginalCountsHiddenInputField.val());
+          event.preventDefault();
+        });
+
+        $("button.channel-edit-decimation-levels-remove").click(function(event) {
+          var tableRow = $(this).parent().parent().parent();
+          var presentTableCells = $("td.channel-edit-decimation-levels-present", tableRow);
+          var removedTableCells = $("td.channel-edit-decimation-levels-removed", tableRow);
+          var undoEditButton = $("div > button.channel-edit-decimation-levels-undo-edit", presentTableCells);
+          var removedHiddenInputField = $("input[type='hidden']", removedTableCells);
+          // When removing a row, we first reset it to its original state. First
+          // of all, this ensures that the user sees the actual state and second
+          // it avoids validation errors if the user has updated the values and
+          // the new values are invalid. We reset the state by "clicking" the
+          // undo edit button.
+          undoEditButton.click();
+          removedHiddenInputField.val(true);
+          presentTableCells.hide();
+          removedTableCells.show();
+          event.preventDefault();
+        });
+        $("button.channel-edit-decimation-levels-undo-remove").click(function(event) {
+          var tableRow = $(this).parent().parent();
+          var presentTableCells = $("td.channel-edit-decimation-levels-present", tableRow);
+          var removedTableCells = $("td.channel-edit-decimation-levels-removed", tableRow);
+          var removedHiddenInputField = $("input[type='hidden']", removedTableCells);
+          removedHiddenInputField.val(false);
+          removedTableCells.hide();
+          presentTableCells.show();
+          event.preventDefault();
+        });
+
+        var numberOfVisibleOptions = [[${form?.options?.size() ?: 0}]];
+        var nextOptionIndex = [[${(form?.options?.lastEntry()?.key != null) ? (form.options.lastEntry().key + 1) : 0}]];
+        var optionTemplateRow = $("#channel-edit-options-template-row");
+        $("#channel-edit-options-add-button").click(function(event) {
+          var clonedRow = optionTemplateRow.clone(true);
+          $("*", clonedRow).each(function() {
+            var clonedElement = $(this);
+            $.each(['id', 'name', 'aria-label'], function() {
+              var attributeName = this;
+              var attributeValue = clonedElement.attr(attributeName);
+              if (typeof attributeValue != "undefined") {
+                clonedElement.attr(attributeName, attributeValue.replace("_x_optionIndex_x_", nextOptionIndex.toString()));
+              }
+            });
+          });
+          var emptyRow = $("#channel-edit-options-empty-row");
+          emptyRow.hide();
+          emptyRow.before(clonedRow);
+          ++nextOptionIndex;
+          ++numberOfVisibleOptions;
+          event.preventDefault();
+        });
+        $("button.channel-edit-options-undo-add").click(function(event) {
+          $(this).parent().parent().remove();
+          --numberOfVisibleOptions;
+          if (numberOfVisibleOptions == 0) {
+            $("#channel-edit-options-empty-row").show();
+          }
+          event.preventDefault();
+        });
+
+        $("button.channel-edit-options-undo-edit").click(function(event) {
+          var tableRow = $(this).parent().parent().parent();
+          var presentTableCells = $("td.channel-edit-options-present", tableRow);
+          var optionNameInputField = $("input.channel-edit-options-name", presentTableCells);
+          var optionValueInputField = $("input.channel-edit-options-value", presentTableCells);
+          var optionOriginalNameHiddenInputField = $("input.channel-edit-options-original-name", presentTableCells);
+          var optionOriginalValueHiddenInputField = $("input.channel-edit-options-original-value", presentTableCells);
+          optionNameInputField.val(optionOriginalNameHiddenInputField.val());
+          optionValueInputField.val(optionOriginalValueHiddenInputField.val());
+          event.preventDefault();
+        });
+
+        $("button.channel-edit-options-remove").click(function(event) {
+          var tableRow = $(this).parent().parent().parent();
+          var presentTableCells = $("td.channel-edit-options-present", tableRow);
+          var removedTableCells = $("td.channel-edit-options-removed", tableRow);
+          var undoEditButton = $("div > button.channel-edit-options-undo-edit", presentTableCells);
+          var removedHiddenInputField = $("input[type='hidden']", removedTableCells);
+          // When removing a row, we first reset it to its original state. First
+          // of all, this ensures that the user sees the actual state and second
+          // it avoids validation errors if the user has updated the values and
+          // the new values are invalid. We reset the state by "clicking" the
+          // undo edit button.
+          undoEditButton.click();
+          removedHiddenInputField.val(true);
+          presentTableCells.hide();
+          removedTableCells.show();
+          event.preventDefault();
+        });
+        $("button.channel-edit-options-undo-remove").click(function(event) {
+          var tableRow = $(this).parent().parent();
+          var presentTableCells = $("td.channel-edit-options-present", tableRow);
+          var removedTableCells = $("td.channel-edit-options-removed", tableRow);
+          var removedHiddenInputField = $("input[type='hidden']", removedTableCells);
+          removedHiddenInputField.val(false);
+          removedTableCells.hide();
+          presentTableCells.show();
+          event.preventDefault();
+        });
+      });
+      /* ]]> */
+    </script>
+
+  </body>
+</html>

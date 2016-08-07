@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<dialect xmlns="http://www.thymeleaf.org/extras/dialect"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.thymeleaf.org/extras/dialect
+                        http://www.thymeleaf.org/xsd/thymeleaf-extras-dialect-2.1.xsd"
+    prefix="layout"
+    namespace-uri="http://www.aquenos.com/2016/xmlns/thymeleaf-uri-dialect"
+    class="com.aquenos.cassandra.pvarchiver.server.web.common.spring.UriExpanderDialect">
+
+  <expression-object name="uriExpander" class="com.aquenos.cassandra.pvarchiver.server.web.common.spring.UriExpander">
+    <documentation>
+      Expands URIs in a similar way to Thymeleaf's built-in link expressions.
+      However, unlike the link expressions, URI variables that are used in the
+      path and contain forward slashes are handled correctly.
+    </documentation>
+  </expression-object>
+  
+  <expression-object-method name="expand" class="com.aquenos.cassandra.pvarchiver.server.web.common.spring">
+    <documentation>
+      Expands an URI template, replacing the URI variables with the specified
+      values. 
+    </documentation>
+  </expression-object-method>
+
+</dialect>

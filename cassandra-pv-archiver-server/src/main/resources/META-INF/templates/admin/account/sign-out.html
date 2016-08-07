@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement='sign-out'">
+  <head>
+    <title th:text="#{account.signOut.title}">Sign out</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <div class="row">
+        <div class="col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6">
+          <h1 class="page-header" th:text="#{account.signOut.pageHeader}">Sign out</h1>
+        </div>
+      </div>
+      <form method="post" th:action="@{/admin/ui/account/sign-out}" class="form-horizontal">
+        <div class="row">
+          <div class="col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6">
+            <p th:text="#{account.signOut.form.text}">
+              Please sign out so that no one can perform privileged actions.
+            </p>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-sm-offset-2 col-sm-8 col-md-offset-3 col-md-6">
+            <button type="submit" class="btn btn-primary" th:text="#{account.signOut.form.submitButton}">Sign out</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>

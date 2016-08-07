@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+if [ -d /run/systemd/system ]; then
+  deb-systemd-invoke stop cassandra-pv-archiver-server.service >/dev/null
+fi
+
+if [ -e /etc/init/cassandra-pv-archiver.conf ]; then
+  invoke-rc.d cassandra-pv-archiver-server stop >/dev/null || exit $?
+fi
+
+exit 0

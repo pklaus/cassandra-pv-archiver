@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+    <artifactId>cassandra-pv-archiver</artifactId>
+    <version>3.0.0</version>
+  </parent>
+
+  <artifactId>cassandra-pv-archiver-server-dist</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Cassandra PV Archiver Server Distribution</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.aquenos.cassandra.pvarchiver</groupId>
+      <artifactId>cassandra-pv-archiver-server-app</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>generate-binary-archives</id>
+            <configuration>
+              <target>
+                <tar compression="gzip" destfile="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin.tar.gz" longfile="posix">
+                  <tarfileset dir="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin" dirmode="0755" filemode="0644" gid="0" uid="0">
+                    <include name="**/*"/>
+                    <exclude name="${project.parent.artifactId}-server-${project.version}/bin/cassandra-pv-archiver-server"/>
+                  </tarfileset>
+                  <tarfileset dir="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin" dirmode="0755" filemode="0755" gid="0" uid="0">
+                    <include name="${project.parent.artifactId}-server-${project.version}/bin/cassandra-pv-archiver-server"/>
+                  </tarfileset>
+                </tar>
+                <zip destfile="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin.zip">
+                  <zipfileset dir="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin" encoding="UTF-8" dirmode="0755" filemode="0644">
+                    <include name="**/*"/>
+                    <exclude name="${project.parent.artifactId}-server-${project.version}/bin/cassandra-pv-archiver-server"/>
+                  </zipfileset>
+                  <zipfileset dir="${project.build.directory}/${project.parent.artifactId}-server-${project.version}-bin" encoding="UTF-8" dirmode="0755" filemode="0755">
+                    <include name="${project.parent.artifactId}-server-${project.version}/bin/cassandra-pv-archiver-server"/>
+                  </zipfileset>
+                </zip>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>generate-binary-distribution</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <attach>false</attach>
+              <descriptor>src/assembly/bin.xml</descriptor>
+              <finalName>${project.parent.artifactId}-server-${project.version}</finalName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <dependencies>
+          <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>${project.parent.artifactId}-docs</artifactId>
+            <version>${project.version}</version>
+            <classifier>manual-htmlsingle</classifier>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <id>copy-dependencies</id>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <prependGroupId>true</prependGroupId>
+            </configuration>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <phase>prepare-package</phase>
+          </execution>
+          <execution>
+            <id>unpack-manual-htmlsingle</id>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>${project.groupId}</groupId>
+                  <artifactId>${project.parent.artifactId}-docs</artifactId>
+                  <version>${project.version}</version>
+                  <classifier>manual-htmlsingle</classifier>
+                  <excludes>META-INF,META-INF/**/*</excludes>
+                  <includes>**/*</includes>
+                  <outputDirectory>${project.build.directory}/manual-htmlsingle</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <phase>generate-resources</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.vafer</groupId>
+        <artifactId>jdeb</artifactId>
+        <configuration>
+          <deb>[[buildDir]]/${project.parent.artifactId}-server_[[version]]_all.[[extension]]</deb>
+          <skipPOMs>false</skipPOMs>
+          <dataSet>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/bin/cassandra-pv-archiver-server</src>
+              <dst>/usr/share/cassandra-pv-archiver-server/bin/cassandra-pv-archiver-server</dst>
+              <mapper>
+                <type>perm</type>
+                <filemode>0755</filemode>
+              </mapper>
+            </data>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/etc/cassandra-pv-archiver.yaml</src>
+              <dst>/etc/cassandra-pv-archiver/cassandra-pv-archiver.yaml</dst>
+              <conffile>true</conffile>
+            </data>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/etc/cassandra-pv-archiver-logback.xml</src>
+              <dst>/etc/cassandra-pv-archiver/cassandra-pv-archiver-logback.xml</dst>
+              <conffile>true</conffile>
+            </data>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/systemd/cassandra-pv-archiver-server.service</src>
+              <dst>/lib/systemd/system/cassandra-pv-archiver-server.service</dst>
+            </data>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/upstart/cassandra-pv-archiver-server.conf</src>
+              <dst>/etc/init/cassandra-pv-archiver-server.conf</dst>
+              <conffile>true</conffile>
+            </data>
+            <data>
+              <type>file</type>
+              <src>src/deb/extra-files/env/cassandra-pv-archiver-server</src>
+              <dst>/etc/default/cassandra-pv-archiver-server</dst>
+              <conffile>true</conffile>
+            </data>
+            <data>
+              <type>link</type>
+              <linkName>/usr/sbin/cassandra-pv-archiver-server</linkName>
+              <linkTarget>../share/cassandra-pv-archiver-server/bin/cassandra-pv-archiver-server</linkTarget>
+            </data>
+            <data>
+              <type>directory</type>
+              <src>${project.build.directory}/dependency</src>
+              <mapper>
+                <type>perm</type>
+                <prefix>/usr/share/cassandra-pv-archiver-server/lib</prefix>
+              </mapper>
+            </data>
+            <data>
+              <type>link</type>
+              <linkName>/usr/share/cassandra-pv-archiver-server/lib/${project.groupId}.${project.parent.artifactId}-server-app.jar</linkName>
+              <linkTarget>${project.groupId}.${project.parent.artifactId}-server-app-${project.version}.jar</linkTarget>
+            </data>
+            <data>
+              <type>directory</type>
+              <src>${project.build.directory}/maven-shared-archive-resources/META-INF</src>
+              <includes>LICENSE.txt,NOTICE.txt</includes>
+              <mapper>
+                <type>perm</type>
+                <prefix>/usr/share/doc/cassandra-pv-archiver-server</prefix>
+              </mapper>
+            </data>
+            <data>
+              <type>directory</type>
+              <src>${project.build.directory}/manual-htmlsingle</src>
+              <excludePatterns>META-INF/**/*</excludePatterns>
+              <mapper>
+                <type>perm</type>
+                <prefix>/usr/share/doc/cassandra-pv-archiver-server/manual</prefix>
+              </mapper>
+            </data>
+            <data>
+              <type>template</type>
+              <paths>
+                <path>/var/lib/cassandra-pv-archiver</path>
+                <path>/var/log/cassandra-pv-archiver</path>
+              </paths>
+            </data>
+          </dataSet>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>jdeb</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

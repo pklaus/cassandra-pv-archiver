@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+  xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+  layout:decorate="~{layout/layout}" th:with="navbarActiveElement = 'channels'"
+  xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+  <head>
+    <title th:text="#{channels.import.title(${serverName})}">Import Configuration for Server XXXXX</title>
+  </head>
+  <body>
+    <div layout:fragment="content" class="container">
+      <ol class="breadcrumb">
+        <li><a th:href="@{/admin/ui/channels/}" th:text="#{channels.overview.breadcrumbTitle}">Channels</a></li>
+        <li><a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId = ${serverId})}" th:text="#{channels.byServer.breadcrumbTitle(${serverName})}">Server XXXXX</a></li>
+        <li class="active" th:text="#{channels.import.breadcrumbTitle}">Import Configuration</li>
+      </ol>
+
+      <h1 class="page-header" th:text="#{channels.import.pageHeader(${serverName})}">Import Configuration for Server XXXXX</h1>
+
+      <form th:if="${showForm}" th:action="@{/admin/ui/channels/by-server/{serverId}/import(serverId = ${serverId})}" method="post" enctype="multipart/form-data">
+        <div th:if="${globalError != null}">
+          <div class="alert alert-danger" role="alert">
+            <strong th:text="#{channels.import.error.strongMessage}">Error:</strong>
+            <ul>
+              <li th:text="${#messages.msgWithParams('channels.import.error.message.' + globalError.code, globalError.arguments)}"></li>
+            </ul>
+          </div>
+        </div>
+        <div class="form-group" th:classappend="${(fileError != null) ? 'has-error' : null}">
+          <label for="file" th:text="#{channels.import.file.label}">Configuration File</label>
+          <input type="file" id="file" name="file" th:attr="aria-describedby = ${(fileError != null) ? 'fileHelp' : null}" />
+          <span th:if="${fileError != null}" id="fileHelp" class="help-block" th:text="${#messages.msgWithParams('channels.import.file.message.' + fileError.code, fileError.arguments)}"></span>
+        </div>
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" id="addChannels" name="addChannels" th:checked="${addChannels}" />
+            <span th:text="#{channels.import.addChannels.label}" th:remove="tag">Add channels that only exist in the configuration file</span>
+          </label>
+        </div>
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" id="updateChannels" name="updateChannels" th:checked="${updateChannels}" />
+            <span th:text="#{channels.import.updateChannels.label}" th:remove="tag">Update channels with the configuration from the file</span>
+          </label>
+        </div>
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" id="removeChannels" name="removeChannels" th:checked="${removeChannels}" aria-describedby="removeChannelsHelp"/>
+            <span th:text="#{channels.import.removeChannels.label}" th:remove="Tag">Remove channels that exist on the server but not in the configuration file</span>
+          </label>
+          <span id="removeChannelsHelp" class="help-block text-danger" th:style="${removeChannels ? null : 'display: none;'}">
+            <strong class="text-danger" th:text="#{channels.import.removeChannels.strongHelp}">Warning: </strong>
+            <span class="text-danger" th:text="#{channels.import.removeChannels.help}">When selecting this option, all channels that are missing in the configuration file are removed immediately. The channels and all their data are lost permanently and cannot be restored.</span>
+          </span>
+        </div>
+        <button type="submit" class="btn btn-primary" th:text="#{channels.import.submitButton}">Import Configuration</button>
+        <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId = ${serverId})}" class="btn btn-default" th:text="#{channels.import.cancelButton}">Cancel</a>
+      </form>
+
+      <div th:if="${showResult}" th:remove="tag">
+        <p th:text="#{channels.import.operationFinished}">The import operation has finished.</p>
+        <div th:if="${!addOrUpdateFailed.empty}" th:remove="tag">
+          <h4 th:if="${addChannels and !updateChannels}" th:text="#{channels.import.addFailed}">Add operations failed</h4>
+          <h4 th:if="${!addChannels and updateChannels}" th:text="#{channels.import.updateFailed}">Update operations failed</h4>
+          <h4 th:if="${addChannels and updateChannels}" th:text="#{channels.import.addOrUpdateFailed}">Add-or-update operations failed</h4>
+          <ul>
+            <li th:each="channelNameAndMessage : ${addOrUpdateFailed.entrySet()}">
+              <span th:text="${channelNameAndMessage.key}" th:remove="tag"></span>:
+              <span th:if="${channelNameAndMessage.value != null}" th:text="${channelNameAndMessage.value}" class="text-danger"></span>
+              <span th:if="${channelNameAndMessage.value == null}" th:text="#{channels.import.unknownError}" class="text-danger"></span>
+            </li>
+          </ul>
+        </div>
+        <div th:if="${!removeFailed.empty}" th:remove="tag">
+          <h4 th:text="#{channels.import.removeFailed}">Remove operations failed</h4>
+          <ul>
+            <li th:each="channelNameAndMessage : ${removeFailed.entrySet()}">
+              <span th:text="${channelNameAndMessage.key}" th:remove="tag"></span>:
+              <span th:if="${channelNameAndMessage.value != null}" th:text="${channelNameAndMessage.value}" class="text-danger"></span>
+              <span th:if="${channelNameAndMessage.value == null}" th:text="#{channels.import.unknownError}" class="text-danger"></span>
+            </li>
+          </ul>
+        </div>
+        <div th:if="${!addOrUpdateSucceeded.empty}" th:remove="tag">
+          <h4 th:if="${addChannels and !updateChannels}" th:text="#{channels.import.addSucceeded}">Add operations succeeded</h4>
+          <h4 th:if="${!addChannels and updateChannels}" th:text="#{channels.import.updateSucceeded}">Update operations succeeded</h4>
+          <h4 th:if="${addChannels and updateChannels}" th:text="#{channels.import.addOrUpdateSucceeded}">Add-or-update operations succeeded</h4>
+          <ul>
+            <li th:each="channelName : ${addOrUpdateSucceeded}" th:text="${channelName}"></li>
+          </ul>
+        </div>
+        <div th:if="${!removeSucceeded.empty}" th:remove="tag">
+          <h4 th:text="#{channels.import.removeSucceeded}">Remove operations succeeded</h4>
+          <ul>
+            <li th:each="channelName : ${removeSucceeded}" th:text="${channelName}"></li>
+          </ul>
+        </div>
+        <p>
+          <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId = ${serverId})}" class="btn btn-primary" th:text="#{channels.import.backToChannelsOverviewButton}">Back to Channels Overview</a>
+        </p>
+      </div>
+    </div>
+
+    <script type="text/javascript" layout:fragment="content-scripts">
+      /* <![CDATA[ */
+      $(document).ready(function() {
+        $("#removeChannels").change(function(event) {
+          if ($(this).prop("checked")) {
+            $("#removeChannelsHelp").show();
+          } else {
+            $("#removeChannelsHelp").hide();
+          }
+        });
+      });
+      /* ]]> */
+    </script>
+  </body>
+</html>

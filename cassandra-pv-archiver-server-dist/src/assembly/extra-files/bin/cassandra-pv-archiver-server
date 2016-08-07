@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# Find the path to the "java" executable.
+if [ -n "$JAVA_HOME" ]; then
+  JAVA="$JAVA_HOME/bin/java"
+else
+  JAVA="java"
+fi
+
+# Find the path to the JAR file (this script might be referenced through a
+# symbolic link).
+CURRENT_WORKING_DIRECTORY="`pwd`"
+THIS_FILE="$0"
+cd "`dirname "$THIS_FILE"`"
+THIS_FILE="`basename "$THIS_FILE"`"
+while [ -L "$THIS_FILE" ]; do
+  THIS_FILE="`readlink "$THIS_FILE"`"
+  cd "`dirname "$THIS_FILE"`"
+  THIS_FILE="`basename "$THIS_FILE"`"
+done
+THIS_FILE="`pwd -P `/$THIS_FILE"
+cd "$CURRENT_WORKING_DIRECTORY"
+BASE_DIR="`dirname "$THIS_FILE"`/.."
+JAR_FILE="$BASE_DIR/lib/${project.groupId}.${project.parent.artifactId}-server-app-${project.version}.jar"
+
+# Run the application passing the command-line arguments and the arguments from
+# the JAVA_OPTS environment variable.
+"$JAVA" $JAVA_OPTS -Dcom.aquenos.cassandra.pvarchiver.server.spring.ArchiveServerApplication.defaultConfigurationFileLocation="$BASE_DIR/conf/cassandra-pv-archiver.yaml" -jar "$JAR_FILE" "$@"
