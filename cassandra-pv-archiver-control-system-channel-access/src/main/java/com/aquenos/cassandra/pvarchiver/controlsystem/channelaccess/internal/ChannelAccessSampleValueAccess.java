@@ -425,11 +425,13 @@ public class ChannelAccessSampleValueAccess {
                     warnLow, warnHigh, alarmLow, alarmHigh);
             break;
         case ARRAY_ENUM:
-            JsonV1SampleSerializer.serializeEnumSample(jsonGenerator,
-                    timeStamp, toIntArray(value.getBytes(UDT_COLUMN_VALUE)
-                            .asIntBuffer()), severity, true, status, quality,
-                    (String[]) value.getList(UDT_COLUMN_LABELS, String.class)
-                            .toArray());
+            JsonV1SampleSerializer
+                    .serializeEnumSample(jsonGenerator, timeStamp,
+                            toIntArray(value.getBytes(UDT_COLUMN_VALUE)
+                                    .asShortBuffer()), severity, true, status,
+                            quality,
+                            value.getList(UDT_COLUMN_LABELS, String.class)
+                                    .toArray(ArrayUtils.EMPTY_STRING_ARRAY));
             break;
         case ARRAY_FLOAT:
             JsonV1SampleSerializer.serializeDoubleSample(jsonGenerator,
@@ -470,11 +472,16 @@ public class ChannelAccessSampleValueAccess {
                     displayHigh, warnLow, warnHigh, alarmLow, alarmHigh);
             break;
         case SCALAR_ENUM:
-            JsonV1SampleSerializer.serializeEnumSample(jsonGenerator,
-                    timeStamp, value.getShort(UDT_COLUMN_VALUE), severity,
-                    true, status, quality,
-                    (String[]) value.getList(UDT_COLUMN_LABELS, String.class)
-                            .toArray());
+            JsonV1SampleSerializer.serializeEnumSample(
+                    jsonGenerator,
+                    timeStamp,
+                    value.getShort(UDT_COLUMN_VALUE),
+                    severity,
+                    true,
+                    status,
+                    quality,
+                    value.getList(UDT_COLUMN_LABELS, String.class).toArray(
+                            ArrayUtils.EMPTY_STRING_ARRAY));
             break;
         case SCALAR_FLOAT:
             JsonV1SampleSerializer.serializeDoubleSample(jsonGenerator,
@@ -551,6 +558,14 @@ public class ChannelAccessSampleValueAccess {
         int[] array = new int[intBuffer.remaining()];
         for (int i = 0; i < array.length; ++i) {
             array[i] = intBuffer.get();
+        }
+        return array;
+    }
+
+    private static int[] toIntArray(ShortBuffer shortBuffer) {
+        int[] array = new int[shortBuffer.remaining()];
+        for (int i = 0; i < array.length; ++i) {
+            array[i] = shortBuffer.get();
         }
         return array;
     }
@@ -1605,16 +1620,26 @@ public class ChannelAccessSampleValueAccess {
                     (ChannelAccessAggregatedSample) sample);
         } else if (sample instanceof ChannelAccessDisabledSample) {
             JsonV1SampleSerializer
-                    .serializeStringSample(jsonGenerator,
-                            sample.getTimeStamp(), "Archive_Disabled",
-                            JsonV1SampleSerializer.Severity.INVALID, false,
+                    .serializeStringSample(
+                            jsonGenerator,
+                            sample.getTimeStamp(),
                             "Archive_Disabled",
-                            JsonV1SampleSerializer.Quality.ORIGINAL);
+                            JsonV1SampleSerializer.Severity.INVALID,
+                            false,
+                            "Archive_Disabled",
+                            sample.isOriginalSample() ? JsonV1SampleSerializer.Quality.ORIGINAL
+                                    : JsonV1SampleSerializer.Quality.INTERPOLATED);
         } else if (sample instanceof ChannelAccessDisconnectedSample) {
-            JsonV1SampleSerializer.serializeStringSample(jsonGenerator,
-                    sample.getTimeStamp(), "Disconnected",
-                    JsonV1SampleSerializer.Severity.INVALID, false,
-                    "Disconnected", JsonV1SampleSerializer.Quality.ORIGINAL);
+            JsonV1SampleSerializer
+                    .serializeStringSample(
+                            jsonGenerator,
+                            sample.getTimeStamp(),
+                            "Disconnected",
+                            JsonV1SampleSerializer.Severity.INVALID,
+                            false,
+                            "Disconnected",
+                            sample.isOriginalSample() ? JsonV1SampleSerializer.Quality.ORIGINAL
+                                    : JsonV1SampleSerializer.Quality.INTERPOLATED);
         } else {
             throw new RuntimeException("Unsupported sample class: "
                     + sample.getClass().getName());

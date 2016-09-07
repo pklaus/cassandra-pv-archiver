@@ -507,6 +507,30 @@
         Cassandra Archiver for CSS 2.x are strongly encouraged to read the
         complete manual of the Cassandra PV Archiver 3.0.
       </para>
+      <section xml:id="news.version_3.0.1">
+        <title>Cassandra PV Archiver 3.0.1</title>
+        <para>
+          Version 3.0.1 is a bugfix release that fixes three bugs in the
+          archive-access JSON interface.
+          The first bug caused an exception when trying to retrieve enum
+          samples, making it impossible to retrieve such samples via the JSON
+          interface.
+          The second bug caused incorrect values to be sent when an enum sample
+          had more than a single element.
+          The third bug concerned the serialization of the special “disabled”
+          and “disconnected” samples.
+          Those samples where always presented with a quality of “original”,
+          even if they actually were decimated samples and should thus have had
+          a quality of “interpolated”.
+        </para>
+        <para>
+          All the bugs fixed in this release only concern the archive-access
+          interface.
+          This means that data written by previous releases has not been
+          affected by the aforementioned bugs and is correctly serialized after
+          installing this update.
+        </para>
+      </section>
     </section>
   </chapter>
 
