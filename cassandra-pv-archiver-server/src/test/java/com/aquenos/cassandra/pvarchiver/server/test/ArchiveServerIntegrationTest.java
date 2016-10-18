@@ -151,8 +151,8 @@ public class ArchiveServerIntegrationTest {
      * 
      * @author Sebastian Marsching
      */
-    private static class TestControlSystemChannel implements
-            ControlSystemChannel {
+    private static class TestControlSystemChannel
+            implements ControlSystemChannel {
 
         private String channelName;
 
@@ -190,8 +190,8 @@ public class ArchiveServerIntegrationTest {
      * 
      * @author Sebastian Marsching
      */
-    private static class TestControlSystemSupport implements
-            ControlSystemSupport<TestSample> {
+    private static class TestControlSystemSupport
+            implements ControlSystemSupport<TestSample> {
 
         @Override
         public ListenableFuture<? extends ControlSystemChannel> createChannel(
@@ -227,11 +227,9 @@ public class ArchiveServerIntegrationTest {
         public ListenableFuture<SampleWithSizeEstimate<TestSample>> generateChannelDisabledSample(
                 String channelName, Map<String, String> options,
                 SampleBucketId currentBucketId) {
-            return Futures
-                    .immediateFuture(new SampleWithSizeEstimate<TestSample>(
-                            new TestSample(
-                                    System.currentTimeMillis() * 1000000L, true),
-                            100));
+            return Futures.immediateFuture(
+                    new SampleWithSizeEstimate<TestSample>(new TestSample(
+                            System.currentTimeMillis() * 1000000L, true), 100));
         }
 
         @Override
@@ -262,22 +260,20 @@ public class ArchiveServerIntegrationTest {
         public ListenableFuture<ObjectResultSet<TestSample>> getSamples(
                 SampleBucketId bucketId, long timeStampGreaterThanOrEqualTo,
                 long timeStampLessThanOrEqualTo, int limit) {
-            return Futures
-                    .<ObjectResultSet<TestSample>> immediateFuture(SimpleObjectResultSet
-                            .fromIterable(getSamplesInternal(bucketId,
-                                    timeStampGreaterThanOrEqualTo,
-                                    timeStampLessThanOrEqualTo, limit, false)));
+            return Futures.<ObjectResultSet<TestSample>> immediateFuture(
+                    SimpleObjectResultSet.fromIterable(getSamplesInternal(
+                            bucketId, timeStampGreaterThanOrEqualTo,
+                            timeStampLessThanOrEqualTo, limit, false)));
         }
 
         @Override
         public ListenableFuture<ObjectResultSet<TestSample>> getSamplesInReverseOrder(
                 SampleBucketId bucketId, long timeStampGreaterThanOrEqualTo,
                 long timeStampLessThanOrEqualTo, int limit) {
-            return Futures
-                    .<ObjectResultSet<TestSample>> immediateFuture(SimpleObjectResultSet
-                            .fromIterable(getSamplesInternal(bucketId,
-                                    timeStampGreaterThanOrEqualTo,
-                                    timeStampLessThanOrEqualTo, limit, true)));
+            return Futures.<ObjectResultSet<TestSample>> immediateFuture(
+                    SimpleObjectResultSet.fromIterable(getSamplesInternal(
+                            bucketId, timeStampGreaterThanOrEqualTo,
+                            timeStampLessThanOrEqualTo, limit, true)));
         }
 
         @Override
@@ -335,8 +331,8 @@ public class ArchiveServerIntegrationTest {
      * 
      * @author Sebastian Marsching
      */
-    private static class TestInterNodeCommunicationService implements
-            InterNodeCommunicationService {
+    private static class TestInterNodeCommunicationService
+            implements InterNodeCommunicationService {
 
         @Override
         public ListenableFuture<List<ChannelStatus>> getArchivingStatus(
@@ -351,7 +347,8 @@ public class ArchiveServerIntegrationTest {
         }
 
         @Override
-        public ListenableFuture<Long> getCurrentSystemTime(String targetBaseUrl) {
+        public ListenableFuture<Long> getCurrentSystemTime(
+                String targetBaseUrl) {
             throw new UnsupportedOperationException();
         }
 
@@ -437,8 +434,8 @@ public class ArchiveServerIntegrationTest {
      * 
      * @author Sebastian Marsching
      */
-    private static class TestSampleDecimator extends
-            AbstractStatefulSampleDecimator<TestSample> {
+    private static class TestSampleDecimator
+            extends AbstractStatefulSampleDecimator<TestSample> {
 
         private LinkedList<Triple<Long, Long, TestSample>> sourceSamples = new LinkedList<Triple<Long, Long, TestSample>>();
 
@@ -529,7 +526,8 @@ public class ArchiveServerIntegrationTest {
                 if (event instanceof ClusterServersDAOInitializedEvent) {
                     ClusterServersDAOInitializedEvent clusterServersDAOInitializedEvent = (ClusterServersDAOInitializedEvent) event;
                     clusterManagementService
-                            .onClusterServersDAOInitializedEvent(clusterServersDAOInitializedEvent);
+                            .onClusterServersDAOInitializedEvent(
+                                    clusterServersDAOInitializedEvent);
                 }
                 if (event instanceof ServerOnlineStatusEvent) {
                     ServerOnlineStatusEvent serverOnlineStatusEvent = (ServerOnlineStatusEvent) event;
@@ -569,16 +567,16 @@ public class ArchiveServerIntegrationTest {
         clusterManagementService.setClusterServersDAO(clusterServersDAO);
         clusterManagementService
                 .setControlSystemSupportRegistry(controlSystemSupportRegistry);
-        clusterManagementService
-                .setInterNodeCommunicationService(interNodeCommunicationService);
+        clusterManagementService.setInterNodeCommunicationService(
+                interNodeCommunicationService);
         clusterManagementService.setServerProperties(serverProperties);
         clusterManagementService.afterPropertiesSet();
         channelInformationCache = new ChannelInformationCacheImpl();
         channelInformationCache.setChannelMetaDataDAO(channelMetaDataDAO);
         channelInformationCache
                 .setClusterManagementService(clusterManagementService);
-        channelInformationCache
-                .setInterNodeCommunicationService(interNodeCommunicationService);
+        channelInformationCache.setInterNodeCommunicationService(
+                interNodeCommunicationService);
         channelInformationCache.afterPropertiesSet();
         archiveAccessService = new ArchiveAccessServiceImpl();
         archiveAccessService
@@ -605,8 +603,8 @@ public class ArchiveServerIntegrationTest {
                 .setClusterManagementService(clusterManagementService);
         archiveConfigurationService
                 .setControlSystemSupportRegistry(controlSystemSupportRegistry);
-        archiveConfigurationService
-                .setInterNodeCommunicationService(interNodeCommunicationService);
+        archiveConfigurationService.setInterNodeCommunicationService(
+                interNodeCommunicationService);
         archiveConfigurationService.setServerProperties(serverProperties);
         archiveConfigurationService.afterPropertiesSet();
         // After initializing all components, we want to run the final
@@ -656,12 +654,14 @@ public class ArchiveServerIntegrationTest {
         // point where we call this method.
         TestSample decimatedSample = (TestSample) actualDecimatedSample;
         assertEquals("Number of source samples does not match",
-                expectedTimeStamps.length, decimatedSample.sourceSamples.size());
+                expectedTimeStamps.length,
+                decimatedSample.sourceSamples.size());
         for (int i = 0; i < expectedTimeStamps.length; ++i) {
-            assertEquals("Timestamp of source sample at index " + i
-                    + " does not match", expectedTimeStamps[i],
-                    decimatedSample.sourceSamples.get(i).getRight()
-                            .getTimeStamp());
+            assertEquals(
+                    "Timestamp of source sample at index " + i
+                            + " does not match",
+                    expectedTimeStamps[i], decimatedSample.sourceSamples.get(i)
+                            .getRight().getTimeStamp());
         }
     }
 
@@ -679,16 +679,14 @@ public class ArchiveServerIntegrationTest {
     @Test
     public void testAddUpdateAndRemoveChannel() throws Exception {
         final String channelName = "addUpdateAndRemoveChannel";
-        FutureUtils
-                .getUnchecked(archiveConfigurationService.addChannel(
-                        SERVER_UUID, channelName, "test", ImmutableSet.of(0),
-                        ImmutableMap.of(0, 0), true,
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.addChannel(SERVER_UUID, channelName,
+                        "test", ImmutableSet.of(0), ImmutableMap.of(0, 0), true,
                         ImmutableMap.<String, String> of()));
         // We do not use getChannel(...) here because the cache might not be
         // ready yet and would throw an exception.
-        ChannelInformation channelInformation = FutureUtils
-                .getUnchecked(channelInformationCache.getChannelAsync(
-                        channelName, false));
+        ChannelInformation channelInformation = FutureUtils.getUnchecked(
+                channelInformationCache.getChannelAsync(channelName, false));
         assertEquals(channelName, channelInformation.getChannelName());
         assertEquals("test", channelInformation.getControlSystemType());
         assertEquals(ImmutableSet.of(0),
@@ -708,15 +706,15 @@ public class ArchiveServerIntegrationTest {
         channelCreated.remove(channelName);
         assertFalse(channelDestroyed.containsKey(channelName));
         FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(
-                SERVER_UUID, channelName, null, null,
-                Collections.singleton(30), null, null, null, null, null, null));
+                SERVER_UUID, channelName, null, null, Collections.singleton(30),
+                null, null, null, null, null, null));
         // Updating the channel should have the consequence of updating the
         // channel information and destroying and recreating the control-system
         // channel. The channel information should be up-to-date immediately
         // because the update operation should only complete once the cache has
         // been updated.
-        channelInformation = FutureUtils.getUnchecked(channelInformationCache
-                .getChannelAsync(channelName, false));
+        channelInformation = FutureUtils.getUnchecked(
+                channelInformationCache.getChannelAsync(channelName, false));
         assertEquals(ImmutableSet.of(0, 30),
                 channelInformation.getDecimationLevels());
         // Reinitializing the channel happens asynchronously, so we might have
@@ -739,16 +737,15 @@ public class ArchiveServerIntegrationTest {
         while (System.currentTimeMillis() < deadline) {
             ChannelStatus status = archivingService
                     .getChannelStatus(channelName);
-            if (status != null
-                    && !status.getState().equals(
-                            ChannelStatus.State.INITIALIZING)) {
+            if (status != null && !status.getState()
+                    .equals(ChannelStatus.State.INITIALIZING)) {
                 break;
             }
             Thread.sleep(50L);
         }
         // The channel should be in the disconnected state.
-        assertEquals(ChannelStatus.State.DISCONNECTED, archivingService
-                .getChannelStatus(channelName).getState());
+        assertEquals(ChannelStatus.State.DISCONNECTED,
+                archivingService.getChannelStatus(channelName).getState());
         // Now we explicitly set the state to see whether the archiving service
         // returns the correct state.
         channelStatus.put(channelName, ControlSystemChannelStatus.connected());
@@ -756,10 +753,10 @@ public class ArchiveServerIntegrationTest {
                 archivingService.getChannelStatus(channelName).getState());
         // Finally, we delete the channel and check whether the control-system
         // channel is destroyed as expected.
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
-        assertNull(FutureUtils.getUnchecked(channelInformationCache
-                .getChannelAsync(channelName, false)));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
+        assertNull(FutureUtils.getUnchecked(
+                channelInformationCache.getChannelAsync(channelName, false)));
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (channelDestroyed.containsKey(channelName)) {
@@ -781,30 +778,29 @@ public class ArchiveServerIntegrationTest {
     @Test
     public void testDisabledChannel() throws Exception {
         final String channelName = "disabledChannel";
-        FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
-                SERVER_UUID, channelName, "test", ImmutableSet.of(0),
-                ImmutableMap.of(0, 0), false,
-                ImmutableMap.<String, String> of()));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.addChannel(SERVER_UUID, channelName,
+                        "test", ImmutableSet.of(0), ImmutableMap.of(0, 0),
+                        false, ImmutableMap.<String, String> of()));
         // As the channel is disabled, it should not be started. However, a
         // "disabled" sample should be generated and written. This might take a
         // moment, so we have to wait.
         long deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (!FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 0, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .isEmpty()) {
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            0, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().isEmpty()) {
                 break;
             }
             Thread.sleep(50L);
         }
-        List<? extends Sample> foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(1, foundSamples.size());
         assertTrue(((TestSample) foundSamples.get(0)).disabled);
         // No control-system channel should have been created, so there should
@@ -812,8 +808,8 @@ public class ArchiveServerIntegrationTest {
         assertFalse(channelCreated.containsKey(channelName));
         // Finally, we remove the channel so that we do not disturb any other
         // tests.
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
     }
 
     /**
@@ -851,63 +847,62 @@ public class ArchiveServerIntegrationTest {
         sampleListener.onSampleReceived(channel, new TestSample(10L), 100);
         sampleListener.onSampleReceived(channel, new TestSample(20L), 100);
         sampleListener.onSampleReceived(channel, new TestSample(500L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                1L * ONE_BILLION + 20L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                1L * ONE_BILLION + 500L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                2L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                2L * ONE_BILLION + 700L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                4L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                5L * ONE_BILLION + 100L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                8L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                9L * ONE_BILLION + 300L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                10L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                12L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                15L * ONE_BILLION + 100L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                17L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                19L * ONE_BILLION + 0L), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                20L * ONE_BILLION + 100L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(1L * ONE_BILLION + 20L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(1L * ONE_BILLION + 500L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(2L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(2L * ONE_BILLION + 700L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(4L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(5L * ONE_BILLION + 100L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(8L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(9L * ONE_BILLION + 300L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(10L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(12L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(15L * ONE_BILLION + 100L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(17L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(19L * ONE_BILLION + 0L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(20L * ONE_BILLION + 100L), 100);
         // It can take a moment for the samples to be actually written and the
         // decimated samples to be generated, so we have to wait a bit. We
         // expect three decimated samples.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 5, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .size() >= 3) {
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            5, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 3) {
                 break;
             }
             Thread.sleep(50L);
         }
-        List<? extends Sample> foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 5, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 5,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(3, foundSamples.size());
         assertEquals(5L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(10L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
         assertEquals(15L * ONE_BILLION, foundSamples.get(2).getTimeStamp());
         // We also want to check that the right samples are used for building
         // each decimated sample.
-        verifySourceSampleTimeStamps(foundSamples.get(0),
-                4L * ONE_BILLION + 0L, 5L * ONE_BILLION + 100L,
-                8L * ONE_BILLION + 0L, 9L * ONE_BILLION + 300L);
+        verifySourceSampleTimeStamps(foundSamples.get(0), 4L * ONE_BILLION + 0L,
+                5L * ONE_BILLION + 100L, 8L * ONE_BILLION + 0L,
+                9L * ONE_BILLION + 300L);
         verifySourceSampleTimeStamps(foundSamples.get(1),
                 10L * ONE_BILLION + 0L, 12L * ONE_BILLION + 0L);
         verifySourceSampleTimeStamps(foundSamples.get(2),
@@ -922,9 +917,9 @@ public class ArchiveServerIntegrationTest {
         // used to generate the samples for a coarser decimation level.
         // 4) The case when two different decimation levels use the same source
         // decimation level is handled correctly.
-        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(
-                null, channelName, null, ImmutableSet.of(0, 5, 7, 10), null,
-                null, null, null, null, null, null));
+        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(null,
+                channelName, null, ImmutableSet.of(0, 5, 7, 10), null, null,
+                null, null, null, null, null));
         // The channel should be started. This means that we should find an
         // entry in the channelCreated map. However, it can be a moment before
         // this happens.
@@ -944,47 +939,37 @@ public class ArchiveServerIntegrationTest {
         channelCreated.remove(channelName);
         sampleListener = sampleListeners.remove(channelName);
         channel = channels.remove(channelName);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                23L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                26L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                28L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                31L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                32L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                33L * ONE_BILLION), 100);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                35L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(23L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(26L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(28L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(31L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(32L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(33L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(35L * ONE_BILLION), 100);
         // It can take a moment for the samples to be actually written and the
         // decimated samples to be generated, so we have to wait a bit. We
         // expect three decimated samples.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 5, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .size() >= 6
-                    && FutureUtils
-                            .getUnchecked(
-                                    archiveAccessService.getSamples(
-                                            channelName, 7, 0L,
-                                            TimeStampLimitMode.AT_OR_AFTER,
-                                            Long.MAX_VALUE,
-                                            TimeStampLimitMode.AT_OR_BEFORE))
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            5, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 6
+                    && FutureUtils.getUnchecked(archiveAccessService.getSamples(
+                            channelName, 7, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
                             .all().size() >= 4
-                    && FutureUtils
-                            .getUnchecked(
-                                    archiveAccessService.getSamples(
-                                            channelName, 10, 0L,
-                                            TimeStampLimitMode.AT_OR_AFTER,
-                                            Long.MAX_VALUE,
-                                            TimeStampLimitMode.AT_OR_BEFORE))
+                    && FutureUtils.getUnchecked(archiveAccessService.getSamples(
+                            channelName, 10, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
                             .all().size() >= 2) {
                 break;
             }
@@ -992,10 +977,11 @@ public class ArchiveServerIntegrationTest {
         }
         // First, we check the decimation level with a decimation period of five
         // seconds.
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 5, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 5,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(6, foundSamples.size());
         assertEquals(5L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(10L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
@@ -1017,10 +1003,11 @@ public class ArchiveServerIntegrationTest {
                 32L * ONE_BILLION + 0L, 33L * ONE_BILLION + 0L);
         // Next, we check the decimation level with a decimation period of seven
         // seconds.
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 7, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 7,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(4, foundSamples.size());
         assertEquals(7L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(14L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
@@ -1045,10 +1032,11 @@ public class ArchiveServerIntegrationTest {
         // Last, we check the decimation level with a decimation period of ten
         // seconds. This decimation level should have been built with samples
         // from the five second decimation level.
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 10, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 10,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(2, foundSamples.size());
         assertEquals(10L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(20L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
@@ -1061,8 +1049,8 @@ public class ArchiveServerIntegrationTest {
         // Finally, we remove the channel so that we do not disturb any other
         // test. Removing the channel should also remove all sample buckets
         // (this is checked by another test).
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
     }
 
     /**
@@ -1078,9 +1066,9 @@ public class ArchiveServerIntegrationTest {
         final String channelName = "sampleDecimationWithLimitedSourceDecimationLevel";
         // We first create the channel with an infinite retention of raw samples
         // and without decimated samples.
-        FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
-                SERVER_UUID, channelName, "test", ImmutableSet.of(0), null,
-                true, null));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.addChannel(SERVER_UUID, channelName,
+                        "test", ImmutableSet.of(0), null, true, null));
         // The channel should be started. This means that we should find an
         // entry in the channelCreated map. However, it can be a moment before
         // this happens.
@@ -1103,40 +1091,39 @@ public class ArchiveServerIntegrationTest {
         SampleListener<TestSample> sampleListener = sampleListeners
                 .remove(channelName);
         TestControlSystemChannel channel = channels.remove(channelName);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                1L * ONE_BILLION), 150000000);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                3L * ONE_BILLION), 150000000);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                5L * ONE_BILLION), 150000000);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                8L * ONE_BILLION), 150000000);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                10L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(1L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(3L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(5L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(8L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(10L * ONE_BILLION), 150000000);
         // We wait until all these samples have been written.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 0, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .size() >= 5) {
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            0, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 5) {
                 break;
             }
             Thread.sleep(50L);
         }
-        List<? extends Sample> foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(5, foundSamples.size());
         // We update the channel configuration and limit the retention period of
         // the raw samples to two seconds and add a decimation level with a
         // decimation period of five seconds and unlimited sample retention.
-        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(
-                null, channelName, null, ImmutableSet.of(0, 5), null, null,
+        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(null,
+                channelName, null, ImmutableSet.of(0, 5), null, null,
                 ImmutableMap.of(0, 2, 5, 0), null, null, null, null));
         // The channel should be started. This means that we should find an
         // entry in the channelCreated map. However, it can be a moment before
@@ -1161,29 +1148,28 @@ public class ArchiveServerIntegrationTest {
         // of old sample buckets (which might otherwise be delayed
         // significantly). However, the sample buckets should not be deleted
         // before the decimated samples have been generated.
-        sampleListener.onSampleReceived(channel, new TestSample(
-                12L * ONE_BILLION), 150000000);
-        sampleListener.onSampleReceived(channel, new TestSample(
-                16L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(12L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(16L * ONE_BILLION), 150000000);
         // We wait for the decimated samples to be generated. We expect two
         // decimated samples.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 5, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .size() >= 2) {
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            5, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 2) {
                 break;
             }
             Thread.sleep(50L);
         }
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 5, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 5,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(2, foundSamples.size());
         assertEquals(5L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(10L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
@@ -1195,27 +1181,26 @@ public class ArchiveServerIntegrationTest {
         // paused until the decimated samples have been generated. It is
         // rescheduled, but there is a long delay. By writing another sample, we
         // can force an earlier run.
-        sampleListener.onSampleReceived(channel, new TestSample(
-                17L * ONE_BILLION), 150000000);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(17L * ONE_BILLION), 150000000);
         // All raw samples except for the three last ones should be removed, but
         // we might have to wait a bit.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
             if (FutureUtils
-                    .getUnchecked(
-                            archiveAccessService.getSamples(channelName, 0, 0L,
-                                    TimeStampLimitMode.AT_OR_AFTER,
-                                    Long.MAX_VALUE,
-                                    TimeStampLimitMode.AT_OR_BEFORE)).all()
-                    .size() == 3) {
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            0, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() == 3) {
                 break;
             }
             Thread.sleep(50L);
         }
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(3, foundSamples.size());
         assertEquals(12L * ONE_BILLION, foundSamples.get(0).getTimeStamp());
         assertEquals(16L * ONE_BILLION, foundSamples.get(1).getTimeStamp());
@@ -1223,8 +1208,132 @@ public class ArchiveServerIntegrationTest {
         // Finally, we remove the channel so that we do not disturb any other
         // test. Removing the channel should also remove all sample buckets
         // (this is checked by another test).
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
+    }
+
+    /**
+     * Tests that generating decimated samples works as expected when source
+     * samples are much scarcer than the generated samples. In such a situation,
+     * the code will take a different path to limit the memory consumption. We
+     * cannot (easily) test that this path is taken, but we can ensure that this
+     * path does not introduce any bugs.
+     * 
+     * @throws Exception
+     *             if there is an error while running the test.
+     */
+    @Test
+    public void testSampleDecimationWithScarceSourceSamples() throws Exception {
+        final String channelName = "sampleDecimationWithScarceSourceSamples";
+        // We create a decimation level with a decimation period of 5 seconds.
+        FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
+                SERVER_UUID, channelName, "test", ImmutableSet.of(0, 5), null,
+                true, ImmutableMap.<String, String> of()));
+        // The channel should be started. This means that we should find an
+        // entry in the channelCreated map. However, it can be a moment before
+        // this happens.
+        long deadline = System.currentTimeMillis() + 10000L;
+        while (System.currentTimeMillis() < deadline) {
+            // We have to wait until the sample listener is available which
+            // might be a bit later than the created flag is set.
+            if (channelCreated.containsKey(channelName)
+                    && sampleListeners.containsKey(channelName)) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        assertTrue(channelCreated.containsKey(channelName));
+        channelCreated.remove(channelName);
+        assertFalse(channelDestroyed.containsKey(channelName));
+        SampleListener<TestSample> sampleListener = sampleListeners
+                .remove(channelName);
+        TestControlSystemChannel channel = channels.remove(channelName);
+        sampleListener.onSampleReceived(channel, new TestSample(20L), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(15000L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(35000L * ONE_BILLION), 100);
+        sampleListener.onSampleReceived(channel,
+                new TestSample(40000L * ONE_BILLION), 100);
+        // It can take a moment for the samples to be actually written and the
+        // decimated samples to be generated, so we have to wait a bit. We
+        // expect decimated samples with time stamps from 5 seconds to
+        // 39,995 seconds.
+        deadline = System.currentTimeMillis() + 30000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            5, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 7999) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 5,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
+        assertEquals(7999, foundSamples.size());
+        for (int i = 0; i < foundSamples.size(); ++i) {
+            long expectedTimeStamp = (i + 1) * 5L * ONE_BILLION;
+            assertEquals(expectedTimeStamp, foundSamples.get(i).getTimeStamp());
+        }
+        // We update the channel configuration and add another decimation level.
+        // By doing this, we can test that the code also works correctly when
+        // generating samples from data already stored in the database.
+        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(null,
+                channelName, null, ImmutableSet.of(0, 5, 7), null, null, null,
+                null, null, null, null));
+        // The channel should be started. This means that we should find an
+        // entry in the channelCreated map. However, it can be a moment before
+        // this happens.
+        deadline = System.currentTimeMillis() + 10000L;
+        while (System.currentTimeMillis() < deadline) {
+            // We have to wait until the sample listener is available which
+            // might be a bit later than the created flag is set.
+            if (channelCreated.containsKey(channelName)
+                    && sampleListeners.containsKey(channelName)) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        assertTrue(channelDestroyed.containsKey(channelName));
+        channelDestroyed.remove(channelName);
+        assertTrue(channelCreated.containsKey(channelName));
+        channelCreated.remove(channelName);
+        sampleListener = sampleListeners.remove(channelName);
+        channel = channels.remove(channelName);
+        // It can take a moment for the decimated samples to be generated, so we
+        // have to wait a bit. We expect decimated samples with time stamps from
+        // 7 to 39991.
+        deadline = System.currentTimeMillis() + 30000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            7, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 5713) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 7,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
+        assertEquals(5713, foundSamples.size());
+        for (int i = 0; i < foundSamples.size(); ++i) {
+            long expectedTimeStamp = (i + 1) * 7L * ONE_BILLION;
+            assertEquals(expectedTimeStamp, foundSamples.get(i).getTimeStamp());
+        }
+        // Finally, we remove the channel so that we do not disturb any other
+        // test. Removing the channel should also remove all sample buckets
+        // (this is checked by another test).
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
     }
 
     /**
@@ -1240,10 +1349,10 @@ public class ArchiveServerIntegrationTest {
         // We use retention period of 100 seconds for the raw samples.
         // Basically, the retention period does not matter because we can choose
         // the time stamps of our samples arbitrarily.
-        FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
-                SERVER_UUID, channelName, "test", ImmutableSet.of(0),
-                ImmutableMap.of(0, 100), true,
-                ImmutableMap.<String, String> of()));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.addChannel(SERVER_UUID, channelName,
+                        "test", ImmutableSet.of(0), ImmutableMap.of(0, 100),
+                        true, ImmutableMap.<String, String> of()));
         // The channel should be started. This means that we should find an
         // entry in the channelCreated map. However, it can be a moment before
         // this happens.
@@ -1274,8 +1383,8 @@ public class ArchiveServerIntegrationTest {
         int initialNumberOfSampleBuckets = sampleBuckets.size();
         sampleListener.onSampleReceived(channel, new TestSample(10L), 50000);
         sampleListener.onSampleReceived(channel, new TestSample(20L), 50000);
-        sampleListener
-                .onSampleReceived(channel, new TestSample(50L), 150000000);
+        sampleListener.onSampleReceived(channel, new TestSample(50L),
+                150000000);
         sampleListener.onSampleReceived(channel, new TestSample(100L),
                 150000000);
         sampleListener.onSampleReceived(channel, new TestSample(150L),
@@ -1295,10 +1404,11 @@ public class ArchiveServerIntegrationTest {
         // We also check that we can read the samples. However, we do not
         // request all of them. The samples in the last sample bucket might not
         // have been written yet (we only checked that the bucket exists).
-        List<? extends Sample> foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, 50L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, 50L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(3, foundSamples.size());
         assertEquals(10L, foundSamples.get(0).getTimeStamp());
         assertEquals(20L, foundSamples.get(1).getTimeStamp());
@@ -1320,10 +1430,11 @@ public class ArchiveServerIntegrationTest {
         }
         assertEquals(4, sampleBuckets.size() - initialNumberOfSampleBuckets);
         // The samples from the first sample bucket should have vanished.
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, 50L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, 50L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(1, foundSamples.size());
         assertEquals(50L, foundSamples.get(0).getTimeStamp());
         // When we write more samples, the second sample bucket should also
@@ -1341,8 +1452,8 @@ public class ArchiveServerIntegrationTest {
         // Finally, we remove the channel so that we do not disturb any other
         // test. Removing the channel should also remove all sample buckets
         // (this is checked by another test).
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
     }
 
     /**
@@ -1362,10 +1473,9 @@ public class ArchiveServerIntegrationTest {
     @Test
     public void testWriteAndReadSamples() throws Exception {
         final String channelName = "writeAndReadSamples";
-        FutureUtils
-                .getUnchecked(archiveConfigurationService.addChannel(
-                        SERVER_UUID, channelName, "test", ImmutableSet.of(0),
-                        ImmutableMap.of(0, 0), true,
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.addChannel(SERVER_UUID, channelName,
+                        "test", ImmutableSet.of(0), ImmutableMap.of(0, 0), true,
                         ImmutableMap.<String, String> of()));
         // The channel should be started. This means that we should find an
         // entry in the channelCreated map. However, it can be a moment before
@@ -1424,29 +1534,34 @@ public class ArchiveServerIntegrationTest {
         assertEquals(5, foundSampleBuckets.size());
         assertTrue(foundSampleBuckets.get(0).getBucketStartTime() <= 123L);
         assertTrue(foundSampleBuckets.get(0).getBucketEndTime() >= 123L);
-        assertTrue(foundSampleBuckets.get(0).getBucketEndTime() < foundSampleBuckets
-                .get(1).getBucketStartTime());
+        assertTrue(foundSampleBuckets.get(0)
+                .getBucketEndTime() < foundSampleBuckets.get(1)
+                        .getBucketStartTime());
         assertTrue(foundSampleBuckets.get(1).getBucketStartTime() <= 456L);
         assertTrue(foundSampleBuckets.get(1).getBucketEndTime() >= 456L);
-        assertTrue(foundSampleBuckets.get(1).getBucketEndTime() < foundSampleBuckets
-                .get(2).getBucketStartTime());
+        assertTrue(foundSampleBuckets.get(1)
+                .getBucketEndTime() < foundSampleBuckets.get(2)
+                        .getBucketStartTime());
         assertTrue(foundSampleBuckets.get(2).getBucketStartTime() <= 457L);
         assertTrue(foundSampleBuckets.get(2).getBucketEndTime() >= 458L);
-        assertTrue(foundSampleBuckets.get(2).getBucketEndTime() < foundSampleBuckets
-                .get(3).getBucketStartTime());
+        assertTrue(foundSampleBuckets.get(2)
+                .getBucketEndTime() < foundSampleBuckets.get(3)
+                        .getBucketStartTime());
         assertTrue(foundSampleBuckets.get(3).getBucketStartTime() <= 500L);
         assertTrue(foundSampleBuckets.get(3).getBucketEndTime() >= 500L);
-        assertTrue(foundSampleBuckets.get(3).getBucketEndTime() < foundSampleBuckets
-                .get(4).getBucketStartTime());
+        assertTrue(foundSampleBuckets.get(3)
+                .getBucketEndTime() < foundSampleBuckets.get(4)
+                        .getBucketStartTime());
         assertTrue(foundSampleBuckets.get(4).getBucketStartTime() <= 510L);
         assertTrue(foundSampleBuckets.get(4).getBucketEndTime() >= 515L);
         // We also check that we can read the samples. However, we do not
         // request all of them. The samples in the last sample bucket might not
         // have been written yet (we only checked that the bucket exists).
-        List<? extends Sample> foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 0L,
-                        TimeStampLimitMode.AT_OR_AFTER, 500L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, 500L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(5, foundSamples.size());
         assertEquals(123L, foundSamples.get(0).getTimeStamp());
         assertEquals(456L, foundSamples.get(1).getTimeStamp());
@@ -1463,17 +1578,19 @@ public class ArchiveServerIntegrationTest {
         // test.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
-            if (!FutureUtils.getUnchecked(
-                    archiveAccessService.getSamples(channelName, 0, 515L,
-                            TimeStampLimitMode.AT_OR_AFTER, 515L,
-                            TimeStampLimitMode.AT_OR_BEFORE)).isExhausted()) {
+            if (!FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            0, 515L, TimeStampLimitMode.AT_OR_AFTER, 515L,
+                            TimeStampLimitMode.AT_OR_BEFORE))
+                    .isExhausted()) {
                 break;
             }
         }
-        assertFalse(FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 515L,
-                        TimeStampLimitMode.AT_OR_AFTER, 515L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).isExhausted());
+        assertFalse(FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        515L, TimeStampLimitMode.AT_OR_AFTER, 515L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .isExhausted());
         FutureUtils.getUnchecked(archivingService.refreshChannel(channelName));
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
@@ -1499,34 +1616,39 @@ public class ArchiveServerIntegrationTest {
         // We have to wait for the second sample to be actually written.
         deadline = System.currentTimeMillis() + 10000L;
         while (System.currentTimeMillis() < deadline) {
-            if (!FutureUtils.getUnchecked(
-                    archiveAccessService.getSamples(channelName, 0, 520L,
-                            TimeStampLimitMode.AT_OR_AFTER, 520L,
-                            TimeStampLimitMode.AT_OR_BEFORE)).isExhausted()) {
+            if (!FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            0, 520L, TimeStampLimitMode.AT_OR_AFTER, 520L,
+                            TimeStampLimitMode.AT_OR_BEFORE))
+                    .isExhausted()) {
                 break;
             }
         }
-        assertFalse(FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 520L,
-                        TimeStampLimitMode.AT_OR_AFTER, 520L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).isExhausted());
+        assertFalse(FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        520L, TimeStampLimitMode.AT_OR_AFTER, 520L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .isExhausted());
         // The number of sample buckets should not have changed because the
         // sample should have been added to the existing bucket.
-        foundSampleBuckets = FutureUtils.getUnchecked(
-                channelMetaDataDAO.getSampleBuckets(channelName, 0)).all();
+        foundSampleBuckets = FutureUtils
+                .getUnchecked(
+                        channelMetaDataDAO.getSampleBuckets(channelName, 0))
+                .all();
         assertEquals(5, foundSampleBuckets.size());
         // The first sample should not have been written.
-        foundSamples = FutureUtils.getUnchecked(
-                archiveAccessService.getSamples(channelName, 0, 510L,
-                        TimeStampLimitMode.AT_OR_AFTER, 520L,
-                        TimeStampLimitMode.AT_OR_BEFORE)).all();
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 0,
+                        510L, TimeStampLimitMode.AT_OR_AFTER, 520L,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
         assertEquals(3, foundSamples.size());
         assertEquals(510L, foundSamples.get(0).getTimeStamp());
         assertEquals(515L, foundSamples.get(1).getTimeStamp());
         assertEquals(520L, foundSamples.get(2).getTimeStamp());
         // Remove the channel and test that the sample buckets are also removed.
-        FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                null, channelName));
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
         assertEquals(initialNumberOfSampleBuckets, sampleBuckets.size());
     }
 

@@ -247,7 +247,7 @@ public class ThrottlingSession extends AbstractSession {
      * Creates a throttling session that is backed by the specified session. The
      * newly created session limits the number of concurrently running read and
      * write statements according to the specified limits. Please see the
-     * {@linkplain} ThrottlingSession class documentation} for more information
+     * {@linkplain ThrottlingSession class documentation} for more information
      * about how throttling works.
      * 
      * @param maxConcurrentReadStatements

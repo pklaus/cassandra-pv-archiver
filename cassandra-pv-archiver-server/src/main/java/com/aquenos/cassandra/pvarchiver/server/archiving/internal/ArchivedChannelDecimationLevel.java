@@ -210,8 +210,7 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             int retentionPeriodSeconds, long currentBucketStartTime,
             ArchivingServiceInternalImpl archivingService,
             ArchivedChannel<SampleType> channel,
-            ChannelMetaDataDAO channelMetaDataDAO,
-            ExecutorService poolExecutor,
+            ChannelMetaDataDAO channelMetaDataDAO, ExecutorService poolExecutor,
             ScheduledExecutorService scheduledExecutor, UUID thisServerId) {
         assert (decimationPeriodSeconds >= 0);
         assert (retentionPeriodSeconds >= 0);
@@ -294,8 +293,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                 // When we do not have a bucket yet, this also means that we do
                 // not have any samples. Therefore, we can use the time of the
                 // current sample as the start time of the bucket.
-                ListenableFuture<Void> future = channel.createSampleBucket(
-                        this, nextRequest.getLeft().getTimeStamp());
+                ListenableFuture<Void> future = channel.createSampleBucket(this,
+                        nextRequest.getLeft().getTimeStamp());
                 // We do not want to run any other action until the asynchronous
                 // operation has completed. This protects us from trying to
                 // create a sample bucket twice.
@@ -377,8 +376,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                         // queue the channel again. This ensures that we will
                         // not cause a very high CPU load when there is an
                         // immediate failure after queuing it.
-                        scheduledExecutor.schedule(
-                                runWithPoolExecutor(new Runnable() {
+                        scheduledExecutor
+                                .schedule(runWithPoolExecutor(new Runnable() {
                                     @Override
                                     public void run() {
                                         synchronized (channel) {
@@ -386,7 +385,7 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                                         }
                                     }
                                 }), QUEUE_CHANNEL_DELAY_ON_ERROR_MILLISECONDS,
-                                TimeUnit.MILLISECONDS);
+                                        TimeUnit.MILLISECONDS);
                     }
                 }, poolExecutor);
                 return;
@@ -424,14 +423,13 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             // sure that the operation has finally failed and the bucket will
             // never turn up.
             if (currentBucketSize > MAX_BUCKET_SIZE_BYTES
-                    - nextRequest.getRight()
-                    && currentBucketSize != 0) {
+                    - nextRequest.getRight() && currentBucketSize != 0) {
                 // We create the new bucket with a start time that is equal to
                 // the time stamp of the new sample. This makes sense because
                 // the existing bucket is guaranteed to contain data up to the
                 // point in time just before our new sample.
-                ListenableFuture<Void> future = channel.createSampleBucket(
-                        this, sampleTimeStamp);
+                ListenableFuture<Void> future = channel.createSampleBucket(this,
+                        sampleTimeStamp);
                 // We do not want to run any other action until the asynchronous
                 // operation has completed. This protects us from trying to
                 // create a sample bucket twice.
@@ -469,7 +467,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                 return;
             }
             final int newBucketSize;
-            if (Integer.MAX_VALUE - nextRequest.getRight() < currentBucketSize) {
+            if (Integer.MAX_VALUE
+                    - nextRequest.getRight() < currentBucketSize) {
                 newBucketSize = Integer.MAX_VALUE;
             } else {
                 newBucketSize = currentBucketSize + nextRequest.getRight();
@@ -478,9 +477,11 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             try {
                 future = channel.getControlSystemSupport().writeSample(
                         nextRequest.getLeft(),
-                        new SampleBucketId(channelConfiguration
-                                .getChannelDataId(), decimationPeriodSeconds,
-                                currentBucketStartTime), newBucketSize);
+                        new SampleBucketId(
+                                channelConfiguration.getChannelDataId(),
+                                decimationPeriodSeconds,
+                                currentBucketStartTime),
+                        newBucketSize);
                 if (future == null) {
                     throw new NullPointerException(
                             "The control-system support's writeSample method returned null.");
@@ -491,11 +492,9 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                 // the contract of the ControlSystemSupport interface. Then, we
                 // simply return because this is the method of choice for
                 // aborting execution with the least undesired side-effects.
-                log.error(
-                        "The \""
-                                + channel.getControlSystemSupport().getId()
-                                + "\" control-system support's writeSample method violated its contract: "
-                                + t.getMessage(), t);
+                log.error("The \"" + channel.getControlSystemSupport().getId()
+                        + "\" control-system support's writeSample method violated its contract: "
+                        + t.getMessage(), t);
                 RuntimeException e = new RuntimeException(
                         "The control-system support's createSampleDecimator method violated its contract: "
                                 + t.getMessage());
@@ -524,6 +523,13 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                         // We actually handled the write request, so we can
                         // remove it from the queue.
                         writeQueue.poll();
+                        // If the write queue is empty now, we call the
+                        // corresponding method so that child classes have a
+                        // chance of scheduling operations that were postponed
+                        // because the queue was growing too large.
+                        if (writeQueue.isEmpty()) {
+                            onWriteQueueEmpty();
+                        }
                         channel.incrementSamplesWritten(1L);
                         currentBucketSize = newBucketSize;
                         lastSampleTimeStamp = newSampleTimeStamp;
@@ -564,8 +570,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                         // run other operations again.
                         waitingForAsynchronousWriteSampleOperation = false;
                     }
-                    scheduledExecutor.schedule(
-                            runWithPoolExecutor(new Runnable() {
+                    scheduledExecutor
+                            .schedule(runWithPoolExecutor(new Runnable() {
                                 @Override
                                 public void run() {
                                     synchronized (channel) {
@@ -573,7 +579,7 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                                     }
                                 }
                             }), QUEUE_CHANNEL_DELAY_ON_ERROR_MILLISECONDS,
-                            TimeUnit.MILLISECONDS);
+                                    TimeUnit.MILLISECONDS);
                 }
             }, poolExecutor);
         }
@@ -614,7 +620,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             public void run() {
                 synchronized (channel) {
                     if (channel.getControlSystemSupport() == null) {
-                        log.error("The removal of old sample buckets has been scheduled before setting the control-system support.");
+                        log.error(
+                                "The removal of old sample buckets has been scheduled before setting the control-system support.");
                         return;
                     }
                     removeOldSampleBuckets();
@@ -776,8 +783,9 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
         }
         ListenableFuture<SampleBucketState> future;
         try {
-            future = channel.getControlSystemSupport().getSampleBucketState(
-                    new SampleBucketId(channelConfiguration.getChannelDataId(),
+            future = channel.getControlSystemSupport()
+                    .getSampleBucketState(new SampleBucketId(
+                            channelConfiguration.getChannelDataId(),
                             decimationPeriodSeconds,
                             getCurrentBucketStartTime()));
             // getSampleBucketState should not return null.
@@ -791,14 +799,13 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             // violates the contract of the ControlSystemSupport interface.
             // Then, we return a failed future because this is the way of choice
             // for aborting execution with the least side-effects.
-            log.error(
-                    "The \""
-                            + channel.getControlSystemSupport().getId()
-                            + "\" control-system support's getSampleBucketState method violated its contract: "
-                            + t.getMessage(), t);
+            log.error("The \"" + channel.getControlSystemSupport().getId()
+                    + "\" control-system support's getSampleBucketState method violated its contract: "
+                    + t.getMessage(), t);
             RuntimeException e = new RuntimeException(
                     "The control-system support's getSampleBucketState method violated its contract: "
-                            + t.getMessage(), t);
+                            + t.getMessage(),
+                    t);
             channel.destroyWithException(e);
             return Futures.immediateFailedFuture(e);
         }
@@ -816,9 +823,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                         NullPointerException e = new NullPointerException(
                                 "The control-system support's getSampleBucketState method returned a future that provided a null value.");
                         log.error(
-                                "The \""
-                                        + channel.getControlSystemSupport()
-                                                .getId()
+                                "The \"" + channel.getControlSystemSupport()
+                                        .getId()
                                         + "\" control-system support violated its contract.",
                                 e);
                         throw e;
@@ -901,12 +907,31 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
 
     /**
      * <p>
+     * Called when a sample has been written and as a result the write queue is
+     * now empty. This event can be used by child classes in order to schedule
+     * operations that were postponed because the write queue was growing too
+     * large.
+     * </p>
+     * <p>
+     * This method is called while holding the channel mutex, so implementations
+     * must not perform any blocking operations.
+     * </p>
+     * <p>
+     * The default implementation provided by the base class simply does
+     * nothing.
+     * </p>
+     */
+    protected void onWriteQueueEmpty() {
+    }
+
+    /**
+     * <p>
      * Creates a runnable that runs the specified runnable asynchronously, using
      * the {@link #poolExecutor}. This is useful when a runnable's execution is
      * supposed to be started by another executor, but it should not run within
      * this executor, e.g. because it might acquire a mutex or might run for a
      * significant period of time. In particular, this method is useful when
-     * scheduling an asynchronos operation with the {@link #scheduledExecutor}.
+     * scheduling an asynchronous operation with the {@link #scheduledExecutor}.
      * </p>
      * 
      * <p>
@@ -998,9 +1023,9 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
         ListenableFuture<Void> createSampleBucketFuture = channelMetaDataDAO
                 .createSampleBucket(channelConfiguration.getChannelName(),
                         decimationPeriodSeconds, newBucketStartTime,
-                        Long.MAX_VALUE,
-                        currentBucketStartTime >= 0L ? currentBucketStartTime
-                                : null, true, thisServerId);
+                        Long.MAX_VALUE, currentBucketStartTime >= 0L
+                                ? currentBucketStartTime : null,
+                        true, thisServerId);
         Function<Void, Void> updateDecimationLevelState = new Function<Void, Void>() {
             @Override
             public Void apply(Void input) {
@@ -1013,29 +1038,24 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                     // of the "oldest" sample buckets and update its end time.
                     if (oldestSampleBuckets.isEmpty()) {
                         if (currentBucketStartTime < 0L) {
-                            oldestSampleBuckets
-                                    .add(new SampleBucketInformation(
-                                            Long.MAX_VALUE, newBucketStartTime,
-                                            channelConfiguration
-                                                    .getChannelDataId(),
-                                            channelConfiguration
-                                                    .getChannelName(),
-                                            decimationPeriodSeconds));
+                            oldestSampleBuckets.add(new SampleBucketInformation(
+                                    Long.MAX_VALUE, newBucketStartTime,
+                                    channelConfiguration.getChannelDataId(),
+                                    channelConfiguration.getChannelName(),
+                                    decimationPeriodSeconds));
                         }
                     } else {
                         SampleBucketInformation newestOldestSampleBucket = oldestSampleBuckets
                                 .getLast();
-                        if (newestOldestSampleBucket.getBucketStartTime() == currentBucketStartTime) {
+                        if (newestOldestSampleBucket
+                                .getBucketStartTime() == currentBucketStartTime) {
                             oldestSampleBuckets.removeLast();
-                            oldestSampleBuckets
-                                    .add(new SampleBucketInformation(
-                                            newBucketStartTime - 1L,
-                                            currentBucketStartTime,
-                                            channelConfiguration
-                                                    .getChannelDataId(),
-                                            channelConfiguration
-                                                    .getChannelName(),
-                                            decimationPeriodSeconds));
+                            oldestSampleBuckets.add(new SampleBucketInformation(
+                                    newBucketStartTime - 1L,
+                                    currentBucketStartTime,
+                                    channelConfiguration.getChannelDataId(),
+                                    channelConfiguration.getChannelName(),
+                                    decimationPeriodSeconds));
                         }
                     }
                     currentBucketSize = 0;
@@ -1127,7 +1147,8 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
                         try {
                             ObjectResultSet<SampleBucketInformation> resultSet = FutureUtils
                                     .getUnchecked(future);
-                            removeOldSampleBucketsProcessQueryResults(resultSet);
+                            removeOldSampleBucketsProcessQueryResults(
+                                    resultSet);
                         } catch (Throwable t) {
                             waitingForAsynchronousRemoveSampleBucketOperation = false;
                             removeOldSampleBucketsReschedule();
@@ -1186,13 +1207,14 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
         // means that enough time has passed that there has been one sample with
         // the time-stamp of the sample bucket and thus it should be okay to
         // delete the old data.
-        long mostRecentTimeStamp = (lastSampleTimeStamp > 0L) ? lastSampleTimeStamp
-                : currentBucketStartTime;
+        long mostRecentTimeStamp = (lastSampleTimeStamp > 0L)
+                ? lastSampleTimeStamp : currentBucketStartTime;
         // If the time for deleting the sample bucket has not come yet, we are
         // done. We use subtraction here because this is safer when the time
         // stamps get close to Long.MAX_VALUE.
-        if (mostRecentTimeStamp - retentionPeriodNanoseconds <= oldestSampleBuckets
-                .getFirst().getBucketEndTime()) {
+        if (mostRecentTimeStamp
+                - retentionPeriodNanoseconds <= oldestSampleBuckets.getFirst()
+                        .getBucketEndTime()) {
             return;
         }
         final SampleBucketInformation oldestSampleBucket = oldestSampleBuckets
@@ -1214,8 +1236,9 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
         // channel mutex.
         final ListenableFuture<Void> future;
         try {
-            future = Futures.transform(channel.getControlSystemSupport()
-                    .deleteSamples(oldestSampleBucket.getBucketId()),
+            future = Futures.transform(
+                    channel.getControlSystemSupport()
+                            .deleteSamples(oldestSampleBucket.getBucketId()),
                     new AsyncFunction<Void, Void>() {
                         @Override
                         public ListenableFuture<Void> apply(Void input)

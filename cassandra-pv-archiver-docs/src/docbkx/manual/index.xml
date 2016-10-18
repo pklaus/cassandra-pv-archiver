@@ -531,6 +531,38 @@
           installing this update.
         </para>
       </section>
+      <section xml:id="news.version_3.0.2">
+        <title>Cassandra PV Archiver 3.0.2</title>
+        <para>
+          Version 3.0.2 is a bugfix release that fixes an issue that could
+          result in an extreme memory consumption when generating decimated
+          samples.
+          When the source samples that were used for generating decimated were
+          very scarce (had a density that was much smaller than the density of
+          the generated samples), this could lead to an extreme memory
+          consumption, resulting in a denial of service.
+          As a side-effect, the server process would not respond any longer
+          because the thread generating the decimated samples would hold a mutex
+          for an extended period of time.
+          Typically, this issue would primarily occur when starting the server
+          after it had been stopped for some time or when adding new decimation
+          levels.
+        </para>
+        <para>
+          The bugfix limits the number of samples that are generated from a
+          single source sample, interrupting the process when the limit is
+          reached and waiting for the generated samples having been written to
+          the database before continuing. This limits the memory consumption and
+          also releases the mutex periodically so that threads waiting for the
+          mutex do not block for an extended period of time.
+        </para>
+        <para>
+          The bug fixed in this release only concerns internal implementation
+          details.
+          This means that data written by previous releases is correct and does
+          not have to be regenerated or updated.
+        </para>
+      </section>
     </section>
   </chapter>
 
