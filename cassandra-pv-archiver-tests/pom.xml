@@ -6,7 +6,7 @@
   <parent>
     <groupId>com.aquenos.cassandra.pvarchiver</groupId>
     <artifactId>cassandra-pv-archiver</artifactId>
-    <version>3.0.2</version>
+    <version>3.0.3</version>
   </parent>
 
   <artifactId>cassandra-pv-archiver-tests</artifactId>
