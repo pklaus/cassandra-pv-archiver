@@ -563,6 +563,56 @@
           not have to be regenerated or updated.
         </para>
       </section>
+      <section xml:id="news.version_3.0.3">
+        <title>Cassandra PV Archiver 3.0.3</title>
+        <para>
+          Version 3.0.3 is a bugfix release that fixes four issues.
+          Three of these issues affected the generation of decimated samples.
+          The fourth issue was in a shared component and would cause an
+          exception in certain situations with a very high system load.
+        </para>
+        <para>
+          The three bugs in the sample generation process could result in no
+          more decimated samples being generated for a certain channel.
+          This was caused by a problem that would result in already existing
+          decimated samples being generated again when the decimation process
+          was previously interrupted unexpectedly (e.g. due to a server
+          restart).
+          On its own, this bug would only have performance implications and not
+          affect correct behavior.
+          However, due to a second bug that was introduced in version 3.0.2, it
+          would lead to the whole decimation process for the channel being
+          brought to a halt.
+          The third bug could have a negative impact on performance because the
+          decimation process would not always be interrupted as intended, thus
+          potentially blocking the channel mutex for a long time.
+          However, it is believed that this bug did not result in incorrect
+          behavior.
+        </para>
+        <para>
+          The fourth bug concerned a component that provides a queue that is
+          time bounded, meaning that elements that have been added to the queue
+          some time ago, but have not been removed yet, are automatically
+          removed when new elements are added.
+          Due to a bug in the algorithm that takes care of automatically
+          removing such elements, an exception would be thrown if all elements
+          in the queue were considered old and thus marked for removal.
+          This lead to an exception when samples were added to the write queue,
+          but the write queue was not processed for a long time and no new
+          samples were added in this period of time.
+          In this case, the exception would occur when new samples were finally
+          added to the queue.
+          Typically, such a situation would only occur when the system was under
+          extremely high load, resulting in samples neither being written nor
+          new samples being added to the queue for more than 30 seconds.
+        </para>
+        <para>
+          The bugs fixed in this release only concern internal implementation
+          details.
+          This means that data written by previous releases is correct and does
+          not have to be regenerated or updated.
+        </para>
+      </section>
     </section>
   </chapter>
 

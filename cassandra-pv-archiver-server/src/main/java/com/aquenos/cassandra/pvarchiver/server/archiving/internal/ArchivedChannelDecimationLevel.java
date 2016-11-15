@@ -404,6 +404,13 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
             if ((lastSampleTimeStamp >= sampleTimeStamp)
                     || currentBucketStartTime > sampleTimeStamp) {
                 writeQueue.poll();
+                // If the write queue is empty now, we call the
+                // corresponding method so that child classes have a
+                // chance of scheduling operations that were postponed
+                // because the queue was growing too large.
+                if (writeQueue.isEmpty()) {
+                    onWriteQueueEmpty();
+                }
                 // We keep a counter for the number of samples that skipped back
                 // in time. This might be interesting to administrators because
                 // it could indicate a problem with clocks.

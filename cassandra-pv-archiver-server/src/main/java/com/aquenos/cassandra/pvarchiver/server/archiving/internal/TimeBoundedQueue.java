@@ -91,7 +91,7 @@ public class TimeBoundedQueue<E> implements BoundedQueue<E> {
                 && head.getLeft() < currentTime - timeLimitMilliseconds) {
             queue.poll();
             ++overflowCount;
-            head = queue.getFirst();
+            head = queue.peekFirst();
         }
         return queue.add(Pair.of(currentTime, element));
     }

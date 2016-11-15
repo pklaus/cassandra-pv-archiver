@@ -581,7 +581,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                         }
                     }
                 });
-                samplesProcessed = 0;
+                return;
             }
             ++samplesProcessed;
             nextSourceSample = resultSet.one();
@@ -710,6 +710,41 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 long lastDecimatedSampleTimeStamp = (sourceSample.getTimeStamp()
                         / decimationPeriodNanoseconds)
                         * decimationPeriodNanoseconds;
+                // The next decimation interval has to fit into the integer
+                // range completely. If it does not, we cannot calculate any
+                // more decimated samples.
+                if (lastDecimatedSampleTimeStamp > Long.MAX_VALUE
+                        - 2L * decimationPeriodNanoseconds) {
+                    nextDecimatedSampleTimeStampRangeExceeded = true;
+                    // When we stop the decimation process, we want the removal
+                    // process for the source decimation level to be able to
+                    // run. For this reason, we clear/set the flags that are
+                    // important for this process.
+                    sourceSampleQueryComplete = true;
+                    waitingForAsynchronousDecimationOperation = false;
+                    // We return null to indicate that the operation has already
+                    // finished. This is much more efficient that creating an
+                    // immediate future.
+                    return null;
+                }
+                nextDecimatedSampleTimeStamp = lastDecimatedSampleTimeStamp
+                        + decimationPeriodNanoseconds;
+            }
+            // If the generation of decimated sampled was interrupted earlier,
+            // it can be that the source sample is much older than the latest
+            // decimated sample. In this case inferring the decimated sample
+            // time-stamp from the source sample time-stamp is not optimal
+            // because it will lead to already existing decimated samples being
+            // generated again. Those samples are going to be dropped when
+            // trying to write them, but it still is unnecessary work. For this
+            // reason, we check that the time-stamp of the next decimated sample
+            // is actually greater than the time-stamp of the last decimated
+            // sample that has been written.
+            // We can safely call getLastSampleTimeStamp() because the last
+            // sample time-stamp has been initialized before calling this
+            // method.
+            if (nextDecimatedSampleTimeStamp <= getLastSampleTimeStamp()) {
+                long lastDecimatedSampleTimeStamp = getLastSampleTimeStamp();
                 // The next decimation interval has to fit into the integer
                 // range completely. If it does not, we cannot calculate any
                 // more decimated samples.
