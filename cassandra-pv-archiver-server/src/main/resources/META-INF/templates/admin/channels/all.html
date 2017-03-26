@@ -21,15 +21,15 @@
 
       <h1 class="page-header" th:text="#{channels.all.pageHeader}">All Channels</h1>
 
-      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${channelInformationAvailable}">
+      <div style="margin-bottom: 20px;" id="channels-all-action-buttons" sec:authorize="hasRole('ADMIN')">
         <a th:href="@{/admin/ui/channels/all/add}" class="btn btn-primary"><i class="fa fa-plus"></i> <span th:text="#{channels.all.buttons.add}" th:remove="tag"></span></a>
       </div>
 
-      <div th:if="!${channelInformationAvailable}" class="alert alert-danger" role="alert" th:text="#{channels.all.notAvailable}">
+      <div class="alert alert-danger" style="display: none;" id="channels-all-info-not-available" role="alert" th:text="#{channels.all.notAvailable}">
         Information about channels is currently not available. Maybe this server is not online?
       </div>
 
-      <table th:if="${channelInformationAvailable}" class="table table-striped" id="channels-all-channels-table">
+      <table class="table table-striped" id="channels-all-channels-table">
         <thead>
           <tr>
             <th th:text="#{channels.all.columnName.label}">Name</th>
@@ -38,32 +38,77 @@
           </tr>
         </thead>
         <tbody>
-          <tr th:each="channel : ${channelInformationList}">
-            <td>
-              <a th:href="${#uriExpander.expand('/admin/ui/channels/all/by-name/{name}/', #uriExpander.encode(channel.channelName))}" th:text="${channel.channelName}"></a>
-            </td>
-            <td th:text="${controlSystemNames[channel.controlSystemType]}"></td>
-            <td>
-              <a th:href="@{/admin/ui/channels/by-server/{serverId}/(serverId=${channel.serverId})}" th:text="${serverNames[channel.serverId]}" th:title="${channel.serverId}"></a>
-            </td>
-          </tr>
         </tbody>
       </table>
     </div>
 
-    <script type="text/javascript" layout:fragment="content-scripts">
+    <script type="text/javascript" th:inline="javascript" layout:fragment="content-scripts">
       /* <![CDATA[ */
       $(document).ready(function() {
         var table = $("#channels-all-channels-table");
-        if (table) {
-          table.DataTable({
-            "drawCallback": function(settings) {
-              if (!table.parent().hasClass("table-responsive")) {
-                table.wrap("<div class=\"table-responsive\"></div>");
+        var infoNotAvailableBox = $("#channels-all-info-not-available");
+        var actionButtons = $("#channels-all-action-buttons");
+        table.on('xhr.dt', function(e, settings, json, message) {
+          if (json == null) {
+            infoNotAvailableBox.show();
+            table.parents("div.dataTables_wrapper").hide();
+            if (actionButtons) {
+              actionButtons.hide();
+            }
+            return true
+          } else {
+            infoNotAvailableBox.hide();
+            table.parents("div.dataTables_wrapper").show();
+            if (actionButtons) {
+              actionButtons.show();
+            }
+            return false;
+          }
+        });
+        table.DataTable({
+          "ajax": {
+            "url": [[@{/admin/api/1.0/channels/all/}]],
+            "dataSrc": "channels"
+          },
+          columns: [
+            {
+              "data": "channelName",
+              "render": function(data, type, row, meta) {
+                var url = [[@{/admin/ui/channels/all/by-name/_channelName_/}]];
+                url = url.replace(
+                  "_channelName_", encodeURIComponentCustom(data));
+                var tag = $("<a/>");
+                tag.attr("href", url);
+                tag.text(data);
+                return tag.prop("outerHTML");
+              }
+            },
+            {
+              "data": "controlSystemName",
+              "render": $.fn.dataTable.render.text()
+            },
+            {
+              "data": null,
+              "render": function(data, type, row, meta) {
+                var serverId = data.serverId;
+                var serverName = data.serverName;
+                var url = [[@{/admin/ui/channels/by-server/_serverId_/}]];
+                url = url.replace("_serverId_", serverId);
+                var tag = $("<a/>");
+                tag.attr("href", url);
+                tag.attr("title", serverId);
+                tag.text(serverName);
+                return tag.prop("outerHTML");
               }
             }
-          });
-        }
+          ],
+          "deferRender": true,
+          "drawCallback": function(settings) {
+            if (!table.parent().hasClass("table-responsive")) {
+              table.wrap("<div class=\"table-responsive\"></div>");
+            }
+          }
+        });
 
         $("button.channels-all-page-message-close").click(function(event) {
           var messageName = $(this).data("page-message-name");

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -21,10 +21,11 @@ import java.util.UUID;
  */
 public class ServerStatus {
 
-    private boolean online;
-    private boolean removable;
-    private UUID serverId;
-    private String serverName;
+    private final long lastOnlineTime;
+    private final boolean online;
+    private final boolean removable;
+    private final UUID serverId;
+    private final String serverName;
 
     /**
      * Creates a status object encapsulating the specified information.
@@ -42,13 +43,42 @@ public class ServerStatus {
      *            <code>true</code> if the server has been offline for a
      *            sufficient amount of time and may be removed,
      *            <code>false</code> otherwise.
+     * @param lastOnlineTime
+     *            last time the server registered itself with the cluster. The
+     *            time is specified as the number of milliseconds since January
+     *            1st, 1970, 00:00:00 UTC. The time is according to the local
+     *            clock of the server.
      */
     public ServerStatus(UUID serverId, String serverName, boolean online,
-            boolean removable) {
+            boolean removable, long lastOnlineTime) {
+        this.lastOnlineTime = lastOnlineTime;
+        this.online = online;
         this.removable = removable;
         this.serverId = serverId;
         this.serverName = serverName;
-        this.online = online;
+    }
+
+    /**
+     * Returns the last time at which the server registered itself with the
+     * cluster. The time is specified as the number of milliseconds since
+     * January 1st, 1970, 00:00:00 UTC. The time is retrieved from the local
+     * clock of the server at the time of registration, so it might not be
+     * accurate.
+     * 
+     * @return last registration time for the server.
+     */
+    public long getLastOnlineTime() {
+        return lastOnlineTime;
+    }
+
+    /**
+     * Tells whether this server is currently online.
+     * 
+     * @return <code>true</code> if the server is online, <code>false</code> if
+     *         it is offline.
+     */
+    public boolean isOnline() {
+        return online;
     }
 
     /**
@@ -61,16 +91,6 @@ public class ServerStatus {
      */
     public boolean isRemovable() {
         return removable;
-    }
-
-    /**
-     * Tells whether this server is currently online.
-     * 
-     * @return <code>true</code> if the server is online, <code>false</code> if
-     *         it is offline.
-     */
-    public boolean isOnline() {
-        return online;
     }
 
     /**

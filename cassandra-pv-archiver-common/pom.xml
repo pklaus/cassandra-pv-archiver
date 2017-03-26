@@ -6,7 +6,7 @@
   <parent>
     <groupId>com.aquenos.cassandra.pvarchiver</groupId>
     <artifactId>cassandra-pv-archiver</artifactId>
-    <version>3.0.3</version>
+    <version>3.1.0</version>
   </parent>
 
   <artifactId>cassandra-pv-archiver-common</artifactId>
@@ -24,5 +24,19 @@
       <artifactId>commons-lang3</artifactId>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>

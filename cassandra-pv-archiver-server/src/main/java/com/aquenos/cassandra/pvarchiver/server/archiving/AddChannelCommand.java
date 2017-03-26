@@ -157,7 +157,7 @@ public final class AddChannelCommand extends ArchiveConfigurationCommand {
     /**
      * Returns the set containing the decimation levels that shall be created
      * for the channel. Each decimation level is identified by the period
-     * between two samples in the respective decimation level (in seconds). THe
+     * between two samples in the respective decimation level (in seconds). The
      * decimation level zero is used for raw samples. The set is never
      * <code>null</code>, never empty, and does not contain <code>null</code>
      * elements. It always contains the element zero.
