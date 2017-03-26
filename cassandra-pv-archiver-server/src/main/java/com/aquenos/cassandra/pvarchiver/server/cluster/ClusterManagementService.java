@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -524,13 +524,14 @@ public class ClusterManagementService implements
                 return null;
             }
             long currentTime = System.currentTimeMillis();
-            return new ServerStatus(
-                    server.getServerId(),
+            long lastOnlineTime = server.getLastOnlineTime().getTime();
+            return new ServerStatus(server.getServerId(),
                     server.getServerName(),
-                    server.getLastOnlineTime().getTime() >= currentTime
+                    lastOnlineTime >= currentTime
                             - OTHER_REGISTRATION_VALID_MILLISECONDS,
-                    server.getLastOnlineTime().getTime() < currentTime
-                            - MINIMUM_REGISTRATION_AGE_BEFORE_DELETE_MILLISECONDS);
+                    lastOnlineTime < currentTime
+                            - MINIMUM_REGISTRATION_AGE_BEFORE_DELETE_MILLISECONDS,
+                    lastOnlineTime);
         }
     }
 
@@ -569,7 +570,7 @@ public class ClusterManagementService implements
                 long lastOnlineTime = server.getLastOnlineTime().getTime();
                 servers.add(new ServerStatus(server.getServerId(), server
                         .getServerName(), lastOnlineTime >= onlineTimeLimit,
-                        lastOnlineTime < deletableTimeLimit));
+                        lastOnlineTime < deletableTimeLimit, lastOnlineTime));
             }
             return servers;
         }
@@ -585,7 +586,8 @@ public class ClusterManagementService implements
      * @return server status for this server (never <code>null</code>).
      */
     public ServerStatus getThisServer() {
-        return new ServerStatus(serverId, serverName, isOnline(), false);
+        return new ServerStatus(serverId, serverName, isOnline(), false,
+                lastUpdateSuccessTime);
     }
 
     /**

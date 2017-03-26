@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -66,17 +66,15 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            return Futures
-                    .transform(
-                            operation.channelMetaDataDAO
-                                    .createChannelDecimationLevels(
-                                            operation.channelName,
-                                            operation.serverId,
-                                            operation.addDecimationLevels,
-                                            operation.decimationLevelToRetentionPeriod != null ? operation.decimationLevelToRetentionPeriod
-                                                    : Collections
-                                                            .<Integer, Integer> emptyMap()),
-                            operation.returnThis);
+            return Futures.transform(
+                    operation.channelMetaDataDAO.createChannelDecimationLevels(
+                            operation.channelName, operation.serverId,
+                            operation.addDecimationLevels,
+                            operation.decimationLevelToRetentionPeriod != null
+                                    ? operation.decimationLevelToRetentionPeriod
+                                    : Collections
+                                            .<Integer, Integer> emptyMap()),
+                    operation.returnThis);
         }
     };
 
@@ -87,26 +85,20 @@ public final class UpdateChannelOperation {
             operation.operationId = UUID.randomUUID();
             operation.pendingOperationCreatedTime = System.currentTimeMillis();
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
-                            operation.serverId,
-                            operation.channelName,
-                            operation.operationId,
+                    .createPendingChannelOperation(operation.serverId,
+                            operation.channelName, operation.operationId,
                             PendingChannelOperationConstants.OPERATION_UPDATE,
                             "",
                             PendingChannelOperationConstants.PENDING_OPERATION_TTL_SECONDS);
-            return Futures
-                    .transform(
-                            future,
-                            new AsyncFunction<Pair<Boolean, UUID>, UpdateChannelOperation>() {
-                                @Override
-                                public ListenableFuture<UpdateChannelOperation> apply(
-                                        Pair<Boolean, UUID> input)
-                                        throws Exception {
-                                    operation.createdPendingOperation = input
-                                            .getLeft();
-                                    return operation.immediateFutureForThis;
-                                }
-                            });
+            return Futures.transform(future,
+                    new AsyncFunction<Pair<Boolean, UUID>, UpdateChannelOperation>() {
+                        @Override
+                        public ListenableFuture<UpdateChannelOperation> apply(
+                                Pair<Boolean, UUID> input) throws Exception {
+                            operation.createdPendingOperation = input.getLeft();
+                            return operation.immediateFutureForThis;
+                        }
+                    });
         }
     };
 
@@ -128,9 +120,9 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            return Futures.transform(operation.channelMetaDataDAO
-                    .deleteChannelDecimationLevels(operation.channelName,
-                            operation.serverId,
+            return Futures.transform(
+                    operation.channelMetaDataDAO.deleteChannelDecimationLevels(
+                            operation.channelName, operation.serverId,
                             operation.removeDecimationLevels),
                     operation.returnThis);
         }
@@ -154,14 +146,12 @@ public final class UpdateChannelOperation {
             // the same server (thus using the same clock) or will be delayed
             // until the server is considered "offline".
             ListenableFuture<Pair<Boolean, UUID>> future;
-            if (operation.modified
-                    && (!operation.thisServerId.equals(operation.serverId) || !operation.clusterManagementService
-                            .isOnline())) {
+            if (operation.modified && (!operation.thisServerId
+                    .equals(operation.serverId)
+                    || !operation.clusterManagementService.isOnline())) {
                 future = operation.channelMetaDataDAO
-                        .updatePendingChannelOperation(
-                                operation.serverId,
-                                operation.channelName,
-                                operation.operationId,
+                        .updatePendingChannelOperation(operation.serverId,
+                                operation.channelName, operation.operationId,
                                 UUID.randomUUID(),
                                 PendingChannelOperationConstants.OPERATION_PROTECTIVE,
                                 "{ serverId: \"" + operation.thisServerId
@@ -205,8 +195,8 @@ public final class UpdateChannelOperation {
                         // behavior violates the contract of the
                         // ControlSystemSupport interface.
                         ListenableFuture<Void> future = operation.controlSystemSupport
-                                .deleteSamples(sampleBucketInformation
-                                        .getBucketId());
+                                .deleteSamples(
+                                        sampleBucketInformation.getBucketId());
                         // deleteSamples should not return null either.
                         if (future == null) {
                             throw new NullPointerException(
@@ -234,37 +224,35 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            return Futures
-                    .transform(
-                            operation.interNodeCommunicationService
-                                    .runArchiveConfigurationCommands(
-                                            operation.serverBaseUrl,
-                                            Collections
-                                                    .singletonList(operation.command)),
-                            new Function<List<ArchiveConfigurationCommandResult>, UpdateChannelOperation>() {
-                                @Override
-                                public UpdateChannelOperation apply(
-                                        List<ArchiveConfigurationCommandResult> input) {
-                                    assert (input.size() == 1);
-                                    ArchiveConfigurationCommandResult result = input
-                                            .get(0);
-                                    if (result.isSuccess()) {
-                                        return operation;
-                                    } else {
-                                        throw new RuntimeException(
-                                                "Server "
-                                                        + operation.serverId
-                                                        + " reported an error when trying to update channel \""
-                                                        + StringEscapeUtils
-                                                                .escapeJava(operation.channelName)
-                                                        + "\""
-                                                        + (result
-                                                                .getErrorMessage() != null ? ": "
-                                                                + result.getErrorMessage()
-                                                                : "."));
-                                    }
-                                }
-                            });
+            return Futures.transform(
+                    operation.interNodeCommunicationService
+                            .runArchiveConfigurationCommands(
+                                    operation.serverBaseUrl,
+                                    Collections
+                                            .singletonList(operation.command)),
+                    new Function<List<ArchiveConfigurationCommandResult>, UpdateChannelOperation>() {
+                        @Override
+                        public UpdateChannelOperation apply(
+                                List<ArchiveConfigurationCommandResult> input) {
+                            assert (input.size() == 1);
+                            ArchiveConfigurationCommandResult result = input
+                                    .get(0);
+                            if (result.isSuccess()) {
+                                return operation;
+                            } else {
+                                throw new RuntimeException("Server "
+                                        + operation.serverId
+                                        + " reported an error when trying to update channel \""
+                                        + StringEscapeUtils.escapeJava(
+                                                operation.channelName)
+                                        + "\""
+                                        + (result.getErrorMessage() != null
+                                                ? ": " + result
+                                                        .getErrorMessage()
+                                                : "."));
+                            }
+                        }
+                    });
         }
     };
 
@@ -280,112 +268,118 @@ public final class UpdateChannelOperation {
             if (operation.channelInformation == null) {
                 return operation.immediateFutureForThis;
             }
-            return Futures
-                    .transform(
-                            operation.channelMetaDataDAO.getChannelByServer(
-                                    operation.channelInformation.getServerId(),
-                                    operation.channelName),
-                            new Function<ChannelConfiguration, UpdateChannelOperation>() {
-                                @Override
-                                public UpdateChannelOperation apply(
-                                        ChannelConfiguration input) {
-                                    operation.channelConfiguration = input;
-                                    operation.controlSystemSupport = operation.controlSystemSupportRegistry
-                                            .getControlSystemSupport(input
+            return Futures.transform(
+                    operation.channelMetaDataDAO.getChannelByServer(
+                            operation.channelInformation.getServerId(),
+                            operation.channelName),
+                    new Function<ChannelConfiguration, UpdateChannelOperation>() {
+                        @Override
+                        public UpdateChannelOperation apply(
+                                ChannelConfiguration input) {
+                            operation.channelConfiguration = input;
+                            // The channel configuration may be null if the
+                            // channel has been deleted or moved in the
+                            // meantime. This will be handled correctly in
+                            // UPDATE_CHANNEL_STEP1 and UPDATE_CHANNEL_STEP3,
+                            // so we simply skip the rest of the logic here
+                            // because we cannot compare the existing with the
+                            // target configuration if there is no existing
+                            // configuration.
+                            if (operation.channelConfiguration == null) {
+                                return operation;
+                            }
+                            operation.controlSystemSupport = operation.controlSystemSupportRegistry
+                                    .getControlSystemSupport(
+                                            operation.channelConfiguration
                                                     .getControlSystemType());
-                                    Set<Integer> existingDecimationLevels = operation.channelConfiguration
-                                            .getDecimationLevelToCurrentBucketStartTime()
-                                            .keySet();
-                                    boolean decimationLevelsModified = ((operation.decimationLevels != null && !operation.decimationLevels
+                            Set<Integer> existingDecimationLevels = operation.channelConfiguration
+                                    .getDecimationLevelToCurrentBucketStartTime()
+                                    .keySet();
+                            boolean decimationLevelsModified = ((operation.decimationLevels != null
+                                    && !operation.decimationLevels
                                             .equals(existingDecimationLevels))
-                                            || Sets.intersection(
-                                                    existingDecimationLevels,
-                                                    operation.addDecimationLevels)
-                                                    .size() != operation.addDecimationLevels
-                                                    .size() || !Sets
-                                            .intersection(
-                                                    existingDecimationLevels,
-                                                    operation.removeDecimationLevels)
+                                    || Sets.intersection(
+                                            existingDecimationLevels,
+                                            operation.addDecimationLevels)
+                                            .size() != operation.addDecimationLevels
+                                                    .size()
+                                    || !Sets.intersection(
+                                            existingDecimationLevels,
+                                            operation.removeDecimationLevels)
                                             .isEmpty());
-                                    Map<Integer, Integer> existingDecimationLevelToRetentionPeriod = operation.channelConfiguration
-                                            .getDecimationLevelToRetentionPeriod();
-                                    boolean decimationLevelRetentionPeriodsModified = (operation.decimationLevelToRetentionPeriod != null && !Maps
-                                            .difference(
-                                                    existingDecimationLevelToRetentionPeriod,
-                                                    operation.decimationLevelToRetentionPeriod)
+                            Map<Integer, Integer> existingDecimationLevelToRetentionPeriod = operation.channelConfiguration
+                                    .getDecimationLevelToRetentionPeriod();
+                            boolean decimationLevelRetentionPeriodsModified = (operation.decimationLevelToRetentionPeriod != null
+                                    && !Maps.difference(
+                                            existingDecimationLevelToRetentionPeriod,
+                                            operation.decimationLevelToRetentionPeriod)
                                             .entriesDiffering().isEmpty());
-                                    boolean enabledModified = (operation.enabled != null && operation.enabled != operation.channelConfiguration
+                            boolean enabledModified = (operation.enabled != null
+                                    && operation.enabled != operation.channelConfiguration
                                             .isEnabled());
-                                    Map<String, String> existingOptions = operation.channelConfiguration
-                                            .getOptions();
-                                    boolean optionsModified = ((operation.options != null && !operation.options
+                            Map<String, String> existingOptions = operation.channelConfiguration
+                                    .getOptions();
+                            boolean optionsModified = ((operation.options != null
+                                    && !operation.options
                                             .equals(existingOptions))
-                                            || !Maps.difference(
-                                                    existingOptions,
-                                                    operation.addOptions)
-                                                    .entriesOnlyOnRight()
-                                                    .isEmpty()
-                                            || !Maps.difference(
-                                                    existingOptions,
-                                                    operation.addOptions)
-                                                    .entriesDiffering()
-                                                    .isEmpty() || !Sets
-                                            .intersection(
-                                                    existingOptions.keySet(),
-                                                    operation.removeOptions)
-                                            .isEmpty());
-                                    operation.configurationModified = (decimationLevelsModified
-                                            || decimationLevelRetentionPeriodsModified
-                                            || enabledModified || optionsModified);
-                                    // We have to verify that after applying the
-                                    // updates, there still are no decimation
-                                    // levels that have a retention period less
-                                    // than the one of the preceding decimation
-                                    // level.
-                                    // If all decimation levels are going to be
-                                    // replaced, the retention periods have
-                                    // already been checked and we can continue
-                                    // without a check.
-                                    // If existing retention periods might be
-                                    // kept, we have to check whether the
-                                    // existing retention periods (after
-                                    // removing the decimation levels that are
-                                    // going to be removed) are compatible with
-                                    // the new retention periods. The new
-                                    // retention periods have already been
-                                    // filtered to not contain periods for
-                                    // decimation levels that are going to be
-                                    // removed, so we only have to filter the
-                                    // existing ones.
-                                    operation.verifyRetentionPeriodsException = null;
-                                    if (operation.decimationLevels == null) {
-                                        TreeMap<Integer, Integer> mergedDecimationLevelToRetentionPeriod = new TreeMap<Integer, Integer>();
-                                        mergedDecimationLevelToRetentionPeriod.putAll(Maps
-                                                .filterKeys(
-                                                        existingDecimationLevelToRetentionPeriod,
-                                                        Predicates.not(Predicates
-                                                                .in(operation.removeDecimationLevels))));
-                                        // Updated retention periods will win
-                                        // over existing ones, so we add them
-                                        // second.
-                                        mergedDecimationLevelToRetentionPeriod
-                                                .putAll(operation.decimationLevelToRetentionPeriod);
-                                        try {
-                                            ArchiveConfigurationUtils
-                                                    .verifyRetentionPeriodsAscending(mergedDecimationLevelToRetentionPeriod);
-                                        } catch (RuntimeException e) {
-                                            // We store the exception so that it
-                                            // can be used in one of the next
-                                            // steps. We do not throw it
-                                            // directly, because there might be
-                                            // a pending operation that first
-                                            // has to be cleaned up.
-                                            operation.verifyRetentionPeriodsException = e;
-                                        }
-                                    }
-                                    return operation;
+                                    || !Maps.difference(existingOptions,
+                                            operation.addOptions)
+                                            .entriesOnlyOnRight()
+                                            .isEmpty()
+                                    || !Maps.difference(existingOptions,
+                                            operation.addOptions)
+                                            .entriesDiffering()
+                                            .isEmpty()
+                                    || !Sets.intersection(
+                                            existingOptions.keySet(),
+                                            operation.removeOptions).isEmpty());
+                            operation.configurationModified = (decimationLevelsModified
+                                    || decimationLevelRetentionPeriodsModified
+                                    || enabledModified || optionsModified);
+                            // We have to verify that after applying the
+                            // updates, there still are no decimation levels
+                            // that have a retention period less than the one of
+                            // the preceding decimation level.
+                            // If all decimation levels are going to be
+                            // replaced, the retention periods have already been
+                            // checked and we can continue without a check.
+                            // If existing retention periods might be kept, we
+                            // have to check whether the existing retention
+                            // periods (after removing the decimation levels
+                            // that are going to be removed) are compatible with
+                            // the new retention periods. The new retention
+                            // periods have already been filtered to not contain
+                            // periods for decimation levels that are going to
+                            // be removed, so we only have to filter the
+                            // existing ones.
+                            operation.verifyRetentionPeriodsException = null;
+                            if (operation.decimationLevels == null) {
+                                TreeMap<Integer, Integer> mergedDecimationLevelToRetentionPeriod = new TreeMap<Integer, Integer>();
+                                mergedDecimationLevelToRetentionPeriod
+                                        .putAll(Maps.filterKeys(
+                                                existingDecimationLevelToRetentionPeriod,
+                                                Predicates.not(Predicates.in(
+                                                        operation.removeDecimationLevels))));
+                                // Updated retention periods will win over
+                                // existing ones, so we add them second.
+                                mergedDecimationLevelToRetentionPeriod.putAll(
+                                        operation.decimationLevelToRetentionPeriod);
+                                try {
+                                    ArchiveConfigurationUtils
+                                            .verifyRetentionPeriodsAscending(
+                                                    mergedDecimationLevelToRetentionPeriod);
+                                } catch (RuntimeException e) {
+                                    // We store the exception so that it can be
+                                    // used in one of the next steps. We do not
+                                    // throw it directly, because there might be
+                                    // a pending operation that first has to be
+                                    // cleaned up.
+                                    operation.verifyRetentionPeriodsException = e;
                                 }
-                            });
+                            }
+                            return operation;
+                        }
+                    });
         }
     };
 
@@ -393,8 +387,9 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            return Futures.transform(operation.channelInformationCache
-                    .getChannelAsync(operation.channelName, true),
+            return Futures.transform(
+                    operation.channelInformationCache
+                            .getChannelAsync(operation.channelName, true),
                     new Function<ChannelInformation, UpdateChannelOperation>() {
                         @Override
                         public UpdateChannelOperation apply(
@@ -449,11 +444,12 @@ public final class UpdateChannelOperation {
             // do not want to add decimation levels that already exist and we do
             // not want to remove ones that do not exist.
             operation.addDecimationLevels = Sets.difference(
-                    operation.decimationLevels, operation.channelConfiguration
+                    operation.decimationLevels,
+                    operation.channelConfiguration
                             .getDecimationLevelToCurrentBucketStartTime()
                             .keySet());
-            operation.removeDecimationLevels = Sets.difference(
-                    operation.channelConfiguration
+            operation.removeDecimationLevels = Sets
+                    .difference(operation.channelConfiguration
                             .getDecimationLevelToCurrentBucketStartTime()
                             .keySet(), operation.decimationLevels);
             return operation.immediateFutureForThis;
@@ -465,23 +461,24 @@ public final class UpdateChannelOperation {
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
             if (operation.thisServerId.equals(operation.serverId)) {
-                return Futures.transform(operation.archivingService
-                        .refreshChannel(operation.channelName),
-                        operation.returnThis);
+                return Futures
+                        .transform(
+                                operation.archivingService
+                                        .refreshChannel(operation.channelName),
+                                operation.returnThis);
             } else {
                 String targetServerBaseUrl = operation.clusterManagementService
                         .getInterNodeCommunicationUrl(operation.serverId);
                 if (targetServerBaseUrl != null) {
-                    return Futures
-                            .transform(
-                                    operation.interNodeCommunicationService
-                                            .runArchiveConfigurationCommands(
-                                                    targetServerBaseUrl,
-                                                    Collections
-                                                            .singletonList(new RefreshChannelCommand(
-                                                                    operation.channelName,
-                                                                    operation.serverId))),
-                                    operation.returnThis);
+                    return Futures.transform(
+                            operation.interNodeCommunicationService
+                                    .runArchiveConfigurationCommands(
+                                            targetServerBaseUrl,
+                                            Collections.singletonList(
+                                                    new RefreshChannelCommand(
+                                                            operation.channelName,
+                                                            operation.serverId))),
+                            operation.returnThis);
                 } else {
                     return operation.immediateFutureForThis;
                 }
@@ -494,8 +491,9 @@ public final class UpdateChannelOperation {
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
             throw new IllegalStateException("The control-sytem support \""
-                    + StringEscapeUtils.escapeJava(operation.channelInformation
-                            .getControlSystemType()) + "\" is not available.");
+                    + StringEscapeUtils.escapeJava(
+                            operation.channelInformation.getControlSystemType())
+                    + "\" is not available.");
         }
     };
 
@@ -507,12 +505,12 @@ public final class UpdateChannelOperation {
             // operation, something is going wrong. If we continued, we would
             // risk making changes after the pending operation has expired, so
             // we rather throw an exception.
-            if (System.currentTimeMillis() > operation.pendingOperationCreatedTime + 120000L) {
-                throw new RuntimeException(
-                        "Channel \""
-                                + StringEscapeUtils
-                                        .escapeJava(operation.channelName)
-                                + "\" cannot be updated because the operation took too long to finish.");
+            if (System
+                    .currentTimeMillis() > operation.pendingOperationCreatedTime
+                            + 120000L) {
+                throw new RuntimeException("Channel \""
+                        + StringEscapeUtils.escapeJava(operation.channelName)
+                        + "\" cannot be updated because the operation took too long to finish.");
             } else {
                 return operation.immediateFutureForThis;
             }
@@ -533,11 +531,9 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            throw new PendingChannelOperationException(
-                    "Channel \""
-                            + StringEscapeUtils
-                                    .escapeJava(operation.channelName)
-                            + "\" cannot be updated because another operation for this channel is pending.");
+            throw new PendingChannelOperationException("Channel \""
+                    + StringEscapeUtils.escapeJava(operation.channelName)
+                    + "\" cannot be updated because another operation for this channel is pending.");
         }
     };
 
@@ -545,17 +541,14 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            throw new IllegalArgumentException(
-                    "The channel \""
-                            + StringEscapeUtils
-                                    .escapeJava(operation.channelName)
-                            + "\" has the control-system type \""
-                            + StringEscapeUtils
-                                    .escapeJava(operation.controlSystemType)
-                            + "\", but the control-system type \""
-                            + StringEscapeUtils
-                                    .escapeJava(operation.expectedControlSystemType)
-                            + "\" was specified.");
+            throw new IllegalArgumentException("The channel \""
+                    + StringEscapeUtils.escapeJava(operation.channelName)
+                    + "\" has the control-system type \""
+                    + StringEscapeUtils.escapeJava(operation.controlSystemType)
+                    + "\", but the control-system type \""
+                    + StringEscapeUtils
+                            .escapeJava(operation.expectedControlSystemType)
+                    + "\" was specified.");
         }
     };
 
@@ -633,6 +626,17 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
+            // We can only update a channel that already exists. If we did not
+            // get a channel configuration, the channel has been deleted or
+            // moved after we got the initial information. Anyway, we have to
+            // delete the pending operation and check the channel information so
+            // that we can use the new server ID if the channel has moved. We
+            // set the needChannelInformation flag so that the cached channel
+            // information is not used.
+            if (operation.channelConfiguration == null) {
+                operation.needChannelInformation = true;
+                return UPDATE_CHANNEL_STEP4B.apply(operation);
+            }
             // The channel configuration might have changed since we got it the
             // last time (before creating the pending operation). Therefore, we
             // basically have to run all checks again.
@@ -646,17 +650,6 @@ public final class UpdateChannelOperation {
                     && !operation.expectedControlSystemType
                             .equals(operation.controlSystemType)) {
                 return UPDATE_CHANNEL_STEP4A.apply(operation);
-            }
-            // We can only move a channel that already exists. If we did not get
-            // a channel configuration, the channel has been deleted or moved
-            // after we got the initial information. Anyway, we have to delete
-            // the pending operation and check the channel information so that
-            // we can use the new server ID if the channel has moved. We set the
-            // needChannelInformation flag so that the cached channel
-            // information is not used.
-            if (operation.channelConfiguration == null) {
-                operation.needChannelInformation = true;
-                return UPDATE_CHANNEL_STEP4B.apply(operation);
             }
             // If we got the channel configuration and there are no
             // modifications, we are done. However, we still have to delete the
@@ -690,11 +683,13 @@ public final class UpdateChannelOperation {
             // result in undesired results. We can use the decimationLevels
             // before we calculated the correct set of decimation levels in
             // PREPARE_CREATE_DELETE_DECIMATION_LEVELS.
-            Map<Integer, Integer> updatedDecimationLevelToRetentionPeriod = ((operation.decimationLevelToRetentionPeriod != null) ? Maps
-                    .filterKeys(operation.decimationLevelToRetentionPeriod,
+            Map<Integer, Integer> updatedDecimationLevelToRetentionPeriod = ((operation.decimationLevelToRetentionPeriod != null)
+                    ? Maps.filterKeys(
+                            operation.decimationLevelToRetentionPeriod,
                             Predicates.in(operation.decimationLevels))
                     : Collections.<Integer, Integer> emptyMap());
-            boolean updatedEnabled = (operation.enabled != null) ? operation.enabled
+            boolean updatedEnabled = (operation.enabled != null)
+                    ? operation.enabled
                     : operation.channelConfiguration.isEnabled();
             Map<String, String> updatedOptions;
             if (operation.options != null) {
@@ -727,8 +722,9 @@ public final class UpdateChannelOperation {
         @Override
         public ListenableFuture<UpdateChannelOperation> apply(
                 final UpdateChannelOperation operation) throws Exception {
-            return Futures.transform(operation.clusterManagementService
-                    .verifyServerOffline(operation.serverId),
+            return Futures.transform(
+                    operation.clusterManagementService
+                            .verifyServerOffline(operation.serverId),
                     new AsyncFunction<Boolean, UpdateChannelOperation>() {
                         @Override
                         public ListenableFuture<UpdateChannelOperation> apply(
@@ -743,7 +739,8 @@ public final class UpdateChannelOperation {
                             // the server's online status again.
                             if (!input) {
                                 operation.serverBaseUrl = operation.clusterManagementService
-                                        .getInterNodeCommunicationUrl(operation.serverId);
+                                        .getInterNodeCommunicationUrl(
+                                                operation.serverId);
                                 if (operation.serverBaseUrl == null) {
                                     return Futures.transform(
                                             operation.immediateFutureForThis,
@@ -790,10 +787,8 @@ public final class UpdateChannelOperation {
     // now, we delegate to the server.
     private static final AsyncFunction<UpdateChannelOperation, UpdateChannelOperation> UPDATE_CHANNEL_STEP4D = compose(
             VERIFY_SERVER_OFFLINE,
-            ifThenElse(
-                    VERIFIED_SERVER_OFFLINE,
-                    ifThenElse(
-                            CONTROL_SYSTEM_SUPPORT_MISSING,
+            ifThenElse(VERIFIED_SERVER_OFFLINE,
+                    ifThenElse(CONTROL_SYSTEM_SUPPORT_MISSING,
                             compose(DELETE_PENDING_OPERATION,
                                     THROW_CONTROL_SYSTEM_SUPPORT_MISSING),
                             compose(PREPARE_CREATE_DELETE_DECIMATION_LEVELS,
@@ -824,8 +819,7 @@ public final class UpdateChannelOperation {
             CONTROL_SYSTEM_SUPPORT_MISSING,
             THROW_CONTROL_SYSTEM_SUPPORT_MISSING,
             compose(CREATE_PENDING_OPERATION,
-                    ifThenElse(
-                            CREATED_PENDING_OPERATION,
+                    ifThenElse(CREATED_PENDING_OPERATION,
                             compose(GET_CHANNEL_CONFIGURATION,
                                     UPDATE_CHANNEL_STEP3),
                             THROW_PENDING_OPERATION_EXCEPTION)));

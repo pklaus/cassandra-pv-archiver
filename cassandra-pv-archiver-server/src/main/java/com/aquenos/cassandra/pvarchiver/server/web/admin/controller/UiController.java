@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -89,11 +89,10 @@ import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.Abs
 import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.AbstractAddEditChannelForm.TimePeriodUnit;
 import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.AddChannelForm;
 import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.ChangePasswordForm;
+import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.ConfigurationImportExportUtils;
 import com.aquenos.cassandra.pvarchiver.server.web.admin.controller.internal.EditChannelForm;
 import com.google.common.base.Function;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -101,7 +100,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Sets;
 import com.google.common.net.HttpHeaders;
 
 /**
@@ -127,8 +125,8 @@ public class UiController {
      * 
      * @author Sebastian Marsching
      */
-    private static class ChannelOverviewServerEntry implements
-            Comparable<ChannelOverviewServerEntry> {
+    private static class ChannelOverviewServerEntry
+            implements Comparable<ChannelOverviewServerEntry> {
 
         public String serverName;
         public UUID serverId;
@@ -172,16 +170,6 @@ public class UiController {
     private CassandraProvider cassandraProvider;
     private ChannelInformationCache channelInformationCache;
     private ChannelMetaDataDAO channelMetaDataDAO;
-    private final Function<ChannelStatus, ChannelConfiguration> channelStatusToConfiguration = new Function<ChannelStatus, ChannelConfiguration>() {
-        @Override
-        public ChannelConfiguration apply(ChannelStatus input) {
-            if (input == null) {
-                return null;
-            } else {
-                return input.getChannelConfiguration();
-            }
-        }
-    };
     private ClusterManagementService clusterManagementService;
     private ControlSystemSupportRegistry controlSystemSupportRegistry;
     private InterNodeCommunicationService interNodeCommunicationService;
@@ -361,8 +349,8 @@ public class UiController {
         try {
             modelMap.put("cassandraClusterName", cassandraProvider.getCluster()
                     .getMetadata().getClusterName());
-            modelMap.put("cassandraKeyspaceName", cassandraProvider
-                    .getSession().getLoggedKeyspace());
+            modelMap.put("cassandraKeyspaceName",
+                    cassandraProvider.getSession().getLoggedKeyspace());
 
         } catch (RuntimeException e) {
             modelMap.put("cassandraError", e);
@@ -405,8 +393,8 @@ public class UiController {
     public void initBinder(WebDataBinder binder) {
         ArrayList<Validator> validators = new ArrayList<Validator>(
                 binder.getValidators());
-        binder.replaceValidators(Lists.transform(validators,
-                new Function<Validator, Validator>() {
+        binder.replaceValidators(Lists
+                .transform(validators, new Function<Validator, Validator>() {
                     @Override
                     public Validator apply(final Validator input) {
                         if (input == null) {
@@ -527,14 +515,12 @@ public class UiController {
                     "The specified password is incorrect.");
             return new ModelAndView("account/change-password");
         } catch (UsernameNotFoundException e) {
-            formBindingResult
-                    .reject("UsernameNotFoundError",
-                            "The user does not exist in the database. Maybe it has been removed since signing in?");
+            formBindingResult.reject("UsernameNotFoundError",
+                    "The user does not exist in the database. Maybe it has been removed since signing in?");
             return new ModelAndView("account/change-password");
         } catch (Exception e) {
-            formBindingResult
-                    .reject("DatabaseAccessError",
-                            "There was an error while trying to change the password. Please try again later.");
+            formBindingResult.reject("DatabaseAccessError",
+                    "There was an error while trying to change the password. Please try again later.");
             return new ModelAndView("account/change-password");
         }
         // The password change has been successful, so we reset all of the form
@@ -652,61 +638,12 @@ public class UiController {
      * Returns the all channels view. This view presents all channels,
      * regardless of the server they belong to.
      * 
-     * @param response
-     *            HTTP servlet response. The response is used to send the
-     *            appropriate status code in case the information for the
-     *            details view cannot be gathered successfully.
      * @return all channels view and associated model parameters.
      */
     @RequestMapping(value = "/channels/all", method = RequestMethod.GET)
-    public ModelAndView channelsAll(HttpServletResponse response) {
-        HashMap<String, Object> modelMap = new HashMap<String, Object>();
-        boolean channelInformationAvailable = true;
-        try {
-            SortedMap<String, ChannelInformation> channels = channelInformationCache
-                    .getChannels();
-            Map<String, String> controlSystemNames = new HashMap<String, String>();
-            Map<UUID, String> serverNames = new HashMap<UUID, String>();
-            for (ChannelInformation channelInformation : channels.values()) {
-                String controlSystemType = channelInformation
-                        .getControlSystemType();
-                if (!controlSystemNames.containsKey(controlSystemType)) {
-                    ControlSystemSupport<?> controlSystemSupport = controlSystemSupportRegistry
-                            .getControlSystemSupport(channelInformation
-                                    .getControlSystemType());
-                    if (controlSystemSupport == null) {
-                        controlSystemNames.put(controlSystemType,
-                                controlSystemType);
-                    } else {
-                        controlSystemNames.put(controlSystemType,
-                                controlSystemSupport.getName());
-                    }
-                }
-                UUID serverId = channelInformation.getServerId();
-                if (!serverNames.containsKey(serverId)) {
-                    ServerStatus serverStatus = clusterManagementService
-                            .getServer(serverId);
-                    if (serverStatus == null) {
-                        serverNames.put(serverId, "unknown");
-                    } else {
-                        serverNames.put(serverId, serverStatus.getServerName());
-                    }
-                }
-            }
-            modelMap.put("channelInformationList", channels.values());
-            modelMap.put("controlSystemNames", controlSystemNames);
-            modelMap.put("serverNames", serverNames);
-        } catch (IllegalStateException e) {
-            channelInformationAvailable = false;
-        }
-        if (!channelInformationAvailable) {
-            // If we could not get the information because the service is
-            // currently not available, we indicate this by sending error code
-            // 503.
-            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-        }
-        modelMap.put("channelInformationAvailable", channelInformationAvailable);
-        return new ModelAndView("channels/all", modelMap);
+    public ModelAndView channelsAll() {
+        // The model data is retrieved via AJAX, so we only need the view.
+        return new ModelAndView("channels/all");
     }
 
     /**
@@ -725,87 +662,36 @@ public class UiController {
     public ModelAndView channelsByServer(@PathVariable UUID serverId,
             HttpServletResponse response) {
         HashMap<String, Object> modelMap = new HashMap<String, Object>();
-        UUID thisServerId = clusterManagementService.getThisServer()
-                .getServerId();
-        List<ChannelStatus> channelStatusList = null;
-        try {
-            if (thisServerId.equals(serverId)) {
-                channelStatusList = archivingService
-                        .getChannelStatusForAllChannels();
-            } else {
-                String targetServerUrl = clusterManagementService
-                        .getInterNodeCommunicationUrl(serverId);
-                channelStatusList = FutureUtils
-                        .getUnchecked(interNodeCommunicationService
-                                .getArchivingStatus(targetServerUrl));
-            }
-        } catch (RuntimeException e) {
-            // There are many reasons why we might not be able to get the
-            // status. The archiving service might not be initialized yet, the
-            // target server might not be online, etc.
-            // We do not treat this as an error. Instead we fall back to reading
-            // the configuration from the database.
-        }
-        List<ChannelConfiguration> channelConfigurationList = null;
-        if (channelStatusList == null) {
-            try {
-                channelConfigurationList = ImmutableList.copyOf(FutureUtils
-                        .getUnchecked(channelMetaDataDAO
-                                .getChannelsByServer(serverId)));
-            } catch (RuntimeException e) {
-                // If the database is not available, we might not be able to get
-                // the configuration either. We still do not want to throw an
-                // exception, which would result in an error response but
-                // instead signal the problem through the model so that the view
-                // can render an appropriate message.
-            }
-        } else {
-            // The channel status includes the configuration, so we can simply
-            // transform the list.
-            channelConfigurationList = Lists.transform(channelStatusList,
-                    channelStatusToConfiguration);
-        }
-        Map<String, String> controlSystemNames = new HashMap<String, String>();
-        if (channelConfigurationList != null) {
-            for (ChannelConfiguration configuration : channelConfigurationList) {
-                String controlSystemType = configuration.getControlSystemType();
-                if (!controlSystemNames.containsKey(controlSystemType)) {
-                    ControlSystemSupport<?> controlSystemSupport = controlSystemSupportRegistry
-                            .getControlSystemSupport(controlSystemType);
-                    if (controlSystemSupport == null) {
-                        controlSystemNames.put(controlSystemType,
-                                controlSystemType);
-                    } else {
-                        controlSystemNames.put(controlSystemType,
-                                controlSystemSupport.getName());
-                    }
-                }
-            }
-        }
         ServerStatus serverStatus = clusterManagementService
                 .getServer(serverId);
         String serverName = serverStatus != null ? serverStatus.getServerName()
                 : "unknown";
-        boolean serverExists = serverStatus != null
-                || channelConfigurationList == null
-                || !channelConfigurationList.isEmpty();
-        if (channelConfigurationList == null) {
-            // If we could not get the information because the service is
-            // currently not available, we indicate this by sending error code
-            // 503.
-            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-        } else if (!serverExists) {
+        boolean serverExists;
+        if (serverStatus == null) {
+            serverName = "unknown";
+            // If we cannot get the server status. Typically, this will only
+            // happen when a server is not registered in the cluster any longer.
+            // However, there might still be channels registered to this server,
+            // so we check the database to be sure before returning a 404 error.
+            try {
+                serverExists = !Iterables.isEmpty(FutureUtils.getUnchecked(
+                        channelMetaDataDAO.getChannelsByServer(serverId)));
+            } catch (RuntimeException e) {
+                // If the database is not available, we send an appropriate
+                // error code.
+                response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                return null;
+            }
+        } else {
+            serverName = serverStatus.getServerName();
+            serverExists = true;
+        }
+        if (!serverExists) {
             // If the server does not exist at all, we want to indicate this
             // using a 404 response. However, we do not send an error because we
             // still want to display the error message in the regular page.
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         }
-        modelMap.put("channelConfigurationAvailable",
-                channelConfigurationList != null);
-        modelMap.put("channelConfigurationList", channelConfigurationList);
-        modelMap.put("channelStatusAvailable", channelStatusList != null);
-        modelMap.put("channelStatusList", channelStatusList);
-        modelMap.put("controlSystemNames", controlSystemNames);
         modelMap.put("serverExists", serverExists);
         modelMap.put("serverId", serverId);
         modelMap.put("serverName", serverName);
@@ -829,54 +715,18 @@ public class UiController {
     @RequestMapping(value = "/channels/by-server/{serverId}/export", method = RequestMethod.GET)
     public ModelAndView channelsByServerExport(@PathVariable UUID serverId,
             HttpServletResponse response) {
-        UUID thisServerId = clusterManagementService.getThisServer()
-                .getServerId();
-        List<ChannelStatus> channelStatusList = null;
-        try {
-            if (thisServerId.equals(serverId)) {
-                channelStatusList = archivingService
-                        .getChannelStatusForAllChannels();
-            } else {
-                String targetServerUrl = clusterManagementService
-                        .getInterNodeCommunicationUrl(serverId);
-                channelStatusList = FutureUtils
-                        .getUnchecked(interNodeCommunicationService
-                                .getArchivingStatus(targetServerUrl));
-            }
-        } catch (RuntimeException e) {
-            // There are many reasons why we might not be able to get the
-            // status. The archiving service might not be initialized yet, the
-            // target server might not be online, etc.
-            // We do not treat this as an error. Instead we fall back to reading
-            // the configuration from the database.
-        }
-        List<ChannelConfiguration> channelConfigurationList = null;
-        if (channelStatusList == null) {
-            try {
-                channelConfigurationList = ImmutableList.copyOf(FutureUtils
-                        .getUnchecked(channelMetaDataDAO
-                                .getChannelsByServer(serverId)));
-            } catch (RuntimeException e) {
-                // If the database is not available, we might not be able to get
-                // the configuration either. We still do not want to throw an
-                // exception, which would result in an error response but
-                // instead signal the problem through the model so that the view
-                // can render an appropriate message.
-            }
-        } else {
-            // The channel status includes the configuration, so we can simply
-            // transform the list.
-            channelConfigurationList = Lists.transform(channelStatusList,
-                    channelStatusToConfiguration);
-        }
+        List<ChannelConfiguration> channelConfigurationList = ConfigurationImportExportUtils
+                .getChannelConfigurationForExport(serverId, archivingService,
+                        channelMetaDataDAO, clusterManagementService,
+                        interNodeCommunicationService);
         ServerStatus serverStatus = clusterManagementService
                 .getServer(serverId);
         String serverName = serverStatus != null ? serverStatus.getServerName()
                 : "unknown";
-        boolean serverExists = serverStatus != null
-                || channelConfigurationList == null
-                || !channelConfigurationList.isEmpty();
-        if (channelConfigurationList != null && serverExists) {
+        // A server is considered existent if its ID is known in the cluster or
+        // if there is at least one channel for that server.
+        if (channelConfigurationList != null && (serverStatus != null
+                || !channelConfigurationList.isEmpty())) {
             ArchiveServerConfigurationXmlExport xmlExport = new ArchiveServerConfigurationXmlExport(
                     channelConfigurationList);
             response.setContentType("application/xml;charset=UTF-8");
@@ -885,8 +735,7 @@ public class UiController {
             // virtually all platforms (and are also safe for use in an HTTP
             // header).
             String filename = (new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss")
-                    .format(new Date()))
-                    + "_"
+                    .format(new Date())) + "_"
                     + serverName.replaceAll("[^A-Za-z0-9_\\-.]", "") + ".xml";
             response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
                     "inline; filename=\"" + filename + "\"");
@@ -895,12 +744,17 @@ public class UiController {
             } catch (IOException e) {
                 throw new RuntimeException(
                         "Unexpected I/O exception when trying to get the output stream for the HTTP response: "
-                                + e.getMessage(), e);
+                                + e.getMessage(),
+                        e);
             }
             // We already handled the response, so Spring should not take care
             // of it.
             return null;
         } else {
+            // If there is any error (server does not exist, database not
+            // available, etc.), we redirect to the channel list view. The
+            // channel list view basically does the same that we do here, so it
+            // will display the appropriate error.
             return new ModelAndView("redirect:/admin/ui/channels/by-server/"
                     + serverId.toString() + "/");
         }
@@ -921,8 +775,8 @@ public class UiController {
     public ModelAndView channelsByServerImportGet(@PathVariable UUID serverId) {
         ServerStatus serverStatus = clusterManagementService
                 .getServer(serverId);
-        String serverName = (serverStatus != null) ? serverStatus
-                .getServerName() : "unknown";
+        String serverName = (serverStatus != null)
+                ? serverStatus.getServerName() : "unknown";
         HashMap<String, Object> modelMap = new HashMap<String, Object>();
         modelMap.put("addChannels", true);
         modelMap.put("addOrUpdateFailed", null);
@@ -996,11 +850,13 @@ public class UiController {
                 // An IOException here is very unlikely so that we simply throw
                 // it
                 // and let the default error handler handle it.
-                throw new RuntimeException("Reading the uploaded file failed: "
-                        + e.getMessage(), e);
+                throw new RuntimeException(
+                        "Reading the uploaded file failed: " + e.getMessage(),
+                        e);
             }
             try {
-                xmlImport = new ArchiveServerConfigurationXmlImport(inputStream);
+                xmlImport = new ArchiveServerConfigurationXmlImport(
+                        inputStream);
             } catch (RuntimeException e) {
                 String exceptionMessage = e.getMessage();
                 if (exceptionMessage == null) {
@@ -1022,173 +878,106 @@ public class UiController {
         TreeSet<String> removeSucceeded = null;
         TreeMap<String, String> addOrUpdateFailed = null;
         TreeMap<String, String> removeFailed = null;
+        List<ArchiveConfigurationCommand> commands = null;
         if (xmlImport != null) {
-            HashSet<String> channelNamesInConfiguration = new HashSet<String>();
-            ArrayList<ArchiveConfigurationCommand> commands = new ArrayList<ArchiveConfigurationCommand>(
-                    xmlImport.getChannels().size());
-            if (addChannels && updateChannels) {
-                for (ChannelConfiguration channel : xmlImport.getChannels()) {
-                    channelNamesInConfiguration.add(channel.getChannelName());
-                    commands.add(new AddOrUpdateChannelCommand(channel
-                            .getChannelName(), channel.getControlSystemType(),
-                            channel.getDecimationLevelToRetentionPeriod()
-                                    .keySet(), channel
-                                    .getDecimationLevelToRetentionPeriod(),
-                            channel.isEnabled(), channel.getOptions(), serverId));
+            try {
+                commands = ConfigurationImportExportUtils
+                        .generateConfigurationCommands(xmlImport, addChannels,
+                                removeChannels, updateChannels, serverId,
+                                channelInformationCache, channelMetaDataDAO);
+            } catch (RuntimeException e) {
+                String exceptionMessage = e.getMessage();
+                if (exceptionMessage == null) {
+                    exceptionMessage = e.getClass().getName();
                 }
-            } else if (addChannels) {
-                for (ChannelConfiguration channel : xmlImport.getChannels()) {
-                    channelNamesInConfiguration.add(channel.getChannelName());
-                    commands.add(new AddChannelCommand(
-                            channel.getChannelName(), channel
-                                    .getControlSystemType(), channel
-                                    .getDecimationLevelToRetentionPeriod()
-                                    .keySet(), channel
-                                    .getDecimationLevelToRetentionPeriod(),
-                            channel.isEnabled(), channel.getOptions(), serverId));
-                }
-            } else if (updateChannels) {
-                for (ChannelConfiguration channel : xmlImport.getChannels()) {
-                    channelNamesInConfiguration.add(channel.getChannelName());
-                    commands.add(new UpdateChannelCommand(channel
-                            .getChannelName(), channel.getControlSystemType(),
-                            serverId, channel
-                                    .getDecimationLevelToRetentionPeriod()
-                                    .keySet(), null, null, channel
-                                    .getDecimationLevelToRetentionPeriod(),
-                            channel.isEnabled(), channel.getOptions(), null,
-                            null));
-                }
-            } else {
-                for (ChannelConfiguration channel : xmlImport.getChannels()) {
-                    channelNamesInConfiguration.add(channel.getChannelName());
-                }
+                globalError = new DefaultMessageSourceResolvable(
+                        new String[] { "DatabaseAccessError" },
+                        new Object[] { exceptionMessage });
             }
-            if (removeChannels) {
-                Set<String> existingChannelNames = null;
-                try {
-                    existingChannelNames = channelInformationCache.getChannels(
-                            serverId).keySet();
-                } catch (IllegalStateException e) {
-                    // If we cannot get the information from the cache, this is
-                    // not a fatal error. We still can try to get it from the
-                    // database directly.
+        }
+        // We only continue if there was no error while creating the list of
+        // commands.
+        List<ArchiveConfigurationCommandResult> results = null;
+        if (commands != null) {
+            try {
+                results = FutureUtils.getUnchecked(archiveConfigurationService
+                        .runConfigurationCommands(commands));
+            } catch (RuntimeException e) {
+                String exceptionMessage = e.getMessage();
+                if (exceptionMessage == null) {
+                    exceptionMessage = e.getClass().getName();
                 }
-                if (existingChannelNames == null) {
-                    try {
-                        existingChannelNames = ImmutableSet
-                                .copyOf(Iterables.transform(
-                                        FutureUtils
-                                                .getUnchecked(channelMetaDataDAO
-                                                        .getChannelsByServer(serverId)),
-                                        new Function<ChannelConfiguration, String>() {
-                                            @Override
-                                            public String apply(
-                                                    ChannelConfiguration input) {
-                                                return input.getChannelName();
-                                            }
-                                        }));
-                    } catch (RuntimeException e) {
-                        String exceptionMessage = e.getMessage();
-                        if (exceptionMessage == null) {
-                            exceptionMessage = e.getClass().getName();
-                        }
-                        globalError = new DefaultMessageSourceResolvable(
-                                new String[] { "DatabaseAccessError" },
-                                new Object[] { exceptionMessage });
-                    }
-                }
-                if (existingChannelNames != null) {
-                    for (String channelName : Sets.difference(
-                            existingChannelNames, channelNamesInConfiguration)) {
-                        commands.add(new RemoveChannelCommand(channelName,
-                                serverId));
-                    }
-                }
+                globalError = new DefaultMessageSourceResolvable(
+                        new String[] { "DatabaseAccessError" },
+                        new Object[] { exceptionMessage });
             }
-            // We only continue if there was no error while creating the list of
-            // commands.
-            List<ArchiveConfigurationCommandResult> results = null;
-            if (globalError == null) {
-                try {
-                    results = FutureUtils
-                            .getUnchecked(archiveConfigurationService
-                                    .runConfigurationCommands(commands));
-                } catch (RuntimeException e) {
-                    String exceptionMessage = e.getMessage();
-                    if (exceptionMessage == null) {
-                        exceptionMessage = e.getClass().getName();
+        }
+        if (results != null) {
+            addOrUpdateSucceeded = new TreeSet<String>();
+            removeSucceeded = new TreeSet<String>();
+            addOrUpdateFailed = new TreeMap<String, String>();
+            removeFailed = new TreeMap<String, String>();
+            for (ArchiveConfigurationCommandResult result : results) {
+                switch (result.getCommand().getCommandType()) {
+                case ADD_CHANNEL:
+                    if (result.isSuccess()) {
+                        addOrUpdateSucceeded
+                                .add(((AddChannelCommand) result.getCommand())
+                                        .getChannelName());
+                    } else {
+                        addOrUpdateFailed.put(
+                                ((AddChannelCommand) result.getCommand())
+                                        .getChannelName(),
+                                result.getErrorMessage());
                     }
-                    globalError = new DefaultMessageSourceResolvable(
-                            new String[] { "DatabaseAccessError" },
-                            new Object[] { exceptionMessage });
-                }
-            }
-            if (globalError == null) {
-                addOrUpdateSucceeded = new TreeSet<String>();
-                removeSucceeded = new TreeSet<String>();
-                addOrUpdateFailed = new TreeMap<String, String>();
-                removeFailed = new TreeMap<String, String>();
-                for (ArchiveConfigurationCommandResult result : results) {
-                    switch (result.getCommand().getCommandType()) {
-                    case ADD_CHANNEL:
-                        if (result.isSuccess()) {
-                            addOrUpdateSucceeded
-                                    .add(((AddChannelCommand) result
-                                            .getCommand()).getChannelName());
-                        } else {
-                            addOrUpdateFailed.put(((AddChannelCommand) result
-                                    .getCommand()).getChannelName(), result
-                                    .getErrorMessage());
-                        }
-                        break;
-                    case ADD_OR_UPDATE_CHANNEL:
-                        if (result.isSuccess()) {
-                            addOrUpdateSucceeded
-                                    .add(((AddOrUpdateChannelCommand) result
-                                            .getCommand()).getChannelName());
-                        } else {
-                            addOrUpdateFailed.put(
-                                    ((AddOrUpdateChannelCommand) result
-                                            .getCommand()).getChannelName(),
-                                    result.getErrorMessage());
-                        }
-                        break;
-                    case REMOVE_CHANNEL:
-                        if (result.isSuccess()) {
-                            removeSucceeded.add(((RemoveChannelCommand) result
-                                    .getCommand()).getChannelName());
-                        } else {
-                            removeFailed
-                                    .put(((RemoveChannelCommand) result
-                                            .getCommand()).getChannelName(),
-                                            result.getErrorMessage());
-                        }
-                        break;
-                    case UPDATE_CHANNEL:
-                        if (result.isSuccess()) {
-                            addOrUpdateSucceeded
-                                    .add(((UpdateChannelCommand) result
-                                            .getCommand()).getChannelName());
-                        } else {
-                            addOrUpdateFailed
-                                    .put(((UpdateChannelCommand) result
-                                            .getCommand()).getChannelName(),
-                                            result.getErrorMessage());
-                        }
-                        break;
-                    default:
-                        // We should never see any other commands because we can
-                        // only get results for commands that we have sent.
-                        break;
+                    break;
+                case ADD_OR_UPDATE_CHANNEL:
+                    if (result.isSuccess()) {
+                        addOrUpdateSucceeded
+                                .add(((AddOrUpdateChannelCommand) result
+                                        .getCommand()).getChannelName());
+                    } else {
+                        addOrUpdateFailed.put(
+                                ((AddOrUpdateChannelCommand) result
+                                        .getCommand()).getChannelName(),
+                                result.getErrorMessage());
                     }
+                    break;
+                case REMOVE_CHANNEL:
+                    if (result.isSuccess()) {
+                        removeSucceeded.add(
+                                ((RemoveChannelCommand) result.getCommand())
+                                        .getChannelName());
+                    } else {
+                        removeFailed.put(
+                                ((RemoveChannelCommand) result.getCommand())
+                                        .getChannelName(),
+                                result.getErrorMessage());
+                    }
+                    break;
+                case UPDATE_CHANNEL:
+                    if (result.isSuccess()) {
+                        addOrUpdateSucceeded.add(
+                                ((UpdateChannelCommand) result.getCommand())
+                                        .getChannelName());
+                    } else {
+                        addOrUpdateFailed.put(
+                                ((UpdateChannelCommand) result.getCommand())
+                                        .getChannelName(),
+                                result.getErrorMessage());
+                    }
+                    break;
+                default:
+                    // We should never see any other commands because we can
+                    // only get results for commands that we have sent.
+                    break;
                 }
             }
         }
         ServerStatus serverStatus = clusterManagementService
                 .getServer(serverId);
-        String serverName = (serverStatus != null) ? serverStatus
-                .getServerName() : "unknown";
+        String serverName = (serverStatus != null)
+                ? serverStatus.getServerName() : "unknown";
         HashMap<String, Object> modelMap = new HashMap<String, Object>();
         modelMap.put("addChannels", addChannels);
         modelMap.put("addOrUpdateFailed", addOrUpdateFailed);
@@ -1201,7 +990,8 @@ public class UiController {
         modelMap.put("serverId", serverId);
         modelMap.put("serverName", serverName);
         modelMap.put("showForm", (globalError != null) || (fileError != null));
-        modelMap.put("showResult", (globalError == null) && (fileError == null));
+        modelMap.put("showResult",
+                (globalError == null) && (fileError == null));
         modelMap.put("updateChannels", updateChannels);
         return new ModelAndView("channels/import", modelMap);
     }
@@ -1373,8 +1163,8 @@ public class UiController {
         UUID serverId;
         try {
             ChannelInformation channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             if (channelInformation == null) {
                 channelExists = false;
                 serverId = null;
@@ -1704,9 +1494,8 @@ public class UiController {
      */
     @Secured("ROLE_ADMIN")
     @RequestMapping(value = "/channels/by-server/{serverId}/by-name/{channelName}/reinitialize", method = RequestMethod.POST)
-    public ModelAndView channelByServerReinitialize(
-            @PathVariable UUID serverId, @PathVariable String channelName,
-            HttpServletResponse response) {
+    public ModelAndView channelByServerReinitialize(@PathVariable UUID serverId,
+            @PathVariable String channelName, HttpServletResponse response) {
         // The channel name is encoded, so we have to decoded it first.
         channelName = CustomUrlCodec.decode(channelName);
         // We do not check whether the channel exists. There are situations in
@@ -1884,14 +1673,13 @@ public class UiController {
             } catch (IOException e) {
                 throw new RuntimeException(
                         "Error while trying to send error response: "
-                                + e.getMessage(), e);
+                                + e.getMessage(),
+                        e);
             }
             return null;
         } else if (!serverStatus.isRemovable()) {
-            throw new IllegalArgumentException(
-                    "Server "
-                            + serverId.toString()
-                            + " cannot be removed because it has not been offline for a sufficient time.");
+            throw new IllegalArgumentException("Server " + serverId.toString()
+                    + " cannot be removed because it has not been offline for a sufficient time.");
         }
         clusterManagementService.removeServer(serverId);
         return new ModelAndView("redirect:/admin/ui/");
@@ -1903,7 +1691,8 @@ public class UiController {
         }
     }
 
-    private void afterValidate(AbstractAddEditChannelForm target, Errors errors) {
+    private void afterValidate(AbstractAddEditChannelForm target,
+            Errors errors) {
         // In addition to the annotation-based validations, we want to run some
         // validations that can not be expressed with annotations. For the
         // decimation levels, we apply some normalizations at the same time.
@@ -1954,8 +1743,8 @@ public class UiController {
         if (target instanceof EditChannelForm) {
             EditChannelForm typedTarget = (EditChannelForm) target;
             if (typedTarget.getRemoveDecimationLevels() == null) {
-                typedTarget
-                        .setRemoveDecimationLevels(new TreeMap<Integer, Boolean>());
+                typedTarget.setRemoveDecimationLevels(
+                        new TreeMap<Integer, Boolean>());
             }
             try {
                 typedTarget.getRemoveDecimationLevels().remove(null);
@@ -1976,16 +1765,16 @@ public class UiController {
     private ModelAndView channelAddPrepareForm(UUID serverIdFromRequest,
             HttpServletResponse response, String viewMode) {
         AddChannelForm form = new AddChannelForm();
-        form.setDecimationLevels(ImmutableSortedMap.of(0,
-                defaultRawDecimationLevel()));
+        form.setDecimationLevels(
+                ImmutableSortedMap.of(0, defaultRawDecimationLevel()));
         form.setEnabled(true);
         HashMap<String, Object> modelMap = new HashMap<String, Object>();
         modelMap.put("viewMode", viewMode);
         if (serverIdFromRequest == null) {
             // If the server has not been specified in the path, we preselect
             // the on which the UI is running.
-            form.setServerId(clusterManagementService.getThisServer()
-                    .getServerId());
+            form.setServerId(
+                    clusterManagementService.getThisServer().getServerId());
         } else {
             // If the server has been specified in the path, we use that server.
             // In this case, this will just be a hidden field and the user will
@@ -2036,8 +1825,8 @@ public class UiController {
         // these servers, we can ensure that the channel can later be removed (a
         // channel cannot be removed if the control-system support is not
         // present).
-        if (controlSystemSupportRegistry.getControlSystemSupport(form
-                .getControlSystemType()) == null) {
+        if (controlSystemSupportRegistry
+                .getControlSystemSupport(form.getControlSystemType()) == null) {
             formBindingResult.rejectValue("controlSystemType",
                     "ControlSystemSupportAvailable",
                     "The specified control-system support is not available.");
@@ -2048,14 +1837,14 @@ public class UiController {
         if (serverIdFromRequest != null
                 && !serverIdFromRequest.equals(form.getServerId())) {
             try {
-                response.sendError(
-                        HttpServletResponse.SC_BAD_REQUEST,
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST,
                         "The server ID from the path and the server ID from the form data do not match.");
                 return null;
             } catch (IOException e) {
                 throw new RuntimeException(
                         "Error while trying to send error response: "
-                                + e.getMessage(), e);
+                                + e.getMessage(),
+                        e);
             }
         }
         // We have to check for errors again because we might have added some.
@@ -2068,21 +1857,21 @@ public class UiController {
         Map<Integer, Integer> decimationLevelToRetentionPeriod = new HashMap<Integer, Integer>();
         for (DecimationLevel decimationLevel : form.getDecimationLevels()
                 .values()) {
-            decimationLevelToRetentionPeriod.put(decimationLevel
-                    .getDecimationPeriod().getSeconds(), decimationLevel
-                    .getRetentionPeriod().getSeconds());
+            decimationLevelToRetentionPeriod.put(
+                    decimationLevel.getDecimationPeriod().getSeconds(),
+                    decimationLevel.getRetentionPeriod().getSeconds());
         }
         Map<String, String> options = new HashMap<String, String>();
         for (ControlSystemOption option : form.getOptions().values()) {
             options.put(option.getName(), option.getValue());
         }
         try {
-            FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
-                    form.getServerId(), form.getChannelName(),
-                    form.getControlSystemType(),
-                    decimationLevelToRetentionPeriod.keySet(),
-                    decimationLevelToRetentionPeriod, form.getEnabled(),
-                    options));
+            FutureUtils.getUnchecked(
+                    archiveConfigurationService.addChannel(form.getServerId(),
+                            form.getChannelName(), form.getControlSystemType(),
+                            decimationLevelToRetentionPeriod.keySet(),
+                            decimationLevelToRetentionPeriod, form.getEnabled(),
+                            options));
         } catch (ChannelAlreadyExistsException e) {
             formBindingResult.rejectValue("channelName", "ChannelNameUnique",
                     "channel name already in use");
@@ -2146,8 +1935,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2166,14 +1955,11 @@ public class UiController {
             // The channel exists, but does it belong to the specified server
             // (if a server was specified)? If not, we want to redirect to the
             // correct server.
-            if (serverIdFromRequest != null
-                    && !serverIdFromRequest.equals(channelInformation
-                            .getServerId())) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + channelInformation.getServerId()
-                                + "/by-name/"
-                                + CustomUrlCodec.encode(channelName));
+            if (serverIdFromRequest != null && !serverIdFromRequest
+                    .equals(channelInformation.getServerId())) {
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + channelInformation.getServerId() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName));
             }
             // Next, we want to get the channel's status. However, we do not
             // consider it fatal if we cannot get the status (most likely the
@@ -2186,8 +1972,8 @@ public class UiController {
                             .getChannelStatus(channelName);
                 } else {
                     String targetServerUrl = clusterManagementService
-                            .getInterNodeCommunicationUrl(channelInformation
-                                    .getServerId());
+                            .getInterNodeCommunicationUrl(
+                                    channelInformation.getServerId());
                     channelStatus = FutureUtils
                             .getUnchecked(interNodeCommunicationService
                                     .getArchivingStatusForChannel(
@@ -2219,8 +2005,8 @@ public class UiController {
         String controlSystemName = null;
         if (channelConfiguration != null) {
             ControlSystemSupport<?> controlSystemSupport = controlSystemSupportRegistry
-                    .getControlSystemSupport(channelConfiguration
-                            .getControlSystemType());
+                    .getControlSystemSupport(
+                            channelConfiguration.getControlSystemType());
             if (controlSystemSupport == null) {
                 controlSystemName = channelConfiguration.getControlSystemType();
             } else {
@@ -2293,14 +2079,11 @@ public class UiController {
             // server.
             ChannelConfiguration channelConfiguration = (ChannelConfiguration) modelMap
                     .get("channelConfiguration");
-            if (serverIdFromRequest != null
-                    && !serverIdFromRequest.equals(channelConfiguration
-                            .getServerId())) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + channelConfiguration.getServerId()
-                                + "/by-name/"
-                                + CustomUrlCodec.encode(channelName) + "/edit");
+            if (serverIdFromRequest != null && !serverIdFromRequest
+                    .equals(channelConfiguration.getServerId())) {
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + channelConfiguration.getServerId() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName) + "/edit");
             }
             // We want to populate the form with the data from the existing
             // configuration.
@@ -2310,8 +2093,7 @@ public class UiController {
             for (Map.Entry<Integer, Integer> decimationLevelEntry : channelConfiguration
                     .getDecimationLevelToRetentionPeriod().entrySet()) {
                 ++i;
-                decimationLevels.put(
-                        i,
+                decimationLevels.put(i,
                         createDecimationLevel(decimationLevelEntry.getKey(),
                                 decimationLevelEntry.getValue()));
                 removeDecimationLevels.put(i, false);
@@ -2357,9 +2139,8 @@ public class UiController {
         channelName = CustomUrlCodec.decode(channelName);
         // If there was a validation error, we again show the form to the user.
         if (formBindingResult.hasErrors()) {
-            return channelEditProcessFormError(channelName,
-                    serverIdFromRequest, form, formBindingResult, response,
-                    viewMode);
+            return channelEditProcessFormError(channelName, serverIdFromRequest,
+                    form, formBindingResult, response, viewMode);
         }
         // We check whether the specified channel still exists.
         try {
@@ -2380,9 +2161,8 @@ public class UiController {
         }
         // We have to check for errors again because we might have added some.
         if (formBindingResult.hasErrors()) {
-            return channelEditProcessFormError(channelName,
-                    serverIdFromRequest, form, formBindingResult, response,
-                    viewMode);
+            return channelEditProcessFormError(channelName, serverIdFromRequest,
+                    form, formBindingResult, response, viewMode);
         }
         // If the validation was successful, we know that the data in the form
         // is well-formed and thus we can use it without any further checks.
@@ -2399,8 +2179,8 @@ public class UiController {
             Boolean removeDecimationLevel = form.getRemoveDecimationLevels()
                     .get(i);
             if (removeDecimationLevel != null && removeDecimationLevel) {
-                decimationLevelsRemoved.add(decimationLevel
-                        .getDecimationPeriod().getSeconds());
+                decimationLevelsRemoved.add(
+                        decimationLevel.getDecimationPeriod().getSeconds());
             } else {
                 Integer decimationPeriodInSeconds = decimationLevel
                         .getDecimationPeriod().getSeconds();
@@ -2449,9 +2229,8 @@ public class UiController {
         }
         // If the operation failed, we added an error to the binding result.
         if (formBindingResult.hasErrors()) {
-            return channelEditProcessFormError(channelName,
-                    serverIdFromRequest, form, formBindingResult, response,
-                    viewMode);
+            return channelEditProcessFormError(channelName, serverIdFromRequest,
+                    form, formBindingResult, response, viewMode);
         }
         // After successfully updating the channel, we redirect to its details
         // page. Depending on the view-mode, the URL looks slightly different.
@@ -2501,8 +2280,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2529,10 +2308,9 @@ public class UiController {
             // server.
             if (serverIdFromRequest != null
                     && !serverIdFromRequest.equals(serverId)) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverId.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(channelName) + "/move");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverId.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName) + "/move");
             }
             ServerStatus serverStatus = clusterManagementService
                     .getServer(serverId);
@@ -2592,8 +2370,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2650,11 +2428,10 @@ public class UiController {
                                 + CustomUrlCodec.encode(channelName)
                                 + "/?message.moved");
             } else {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + newServerId.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(channelName)
-                                + "/?message.moved");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + newServerId.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName)
+                        + "/?message.moved");
             }
         }
         String serverName = "unknown";
@@ -2664,10 +2441,9 @@ public class UiController {
             // server.
             if (serverIdFromRequest != null
                     && !serverIdFromRequest.equals(serverId)) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverId.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(channelName) + "/move");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverId.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName) + "/move");
             }
             ServerStatus serverStatus = clusterManagementService
                     .getServer(serverId);
@@ -2704,8 +2480,8 @@ public class UiController {
         modelMap.put("channelExists", channelExists);
         modelMap.put("channelName", channelName);
         modelMap.put("globalError", globalError);
-        modelMap.put("newServerId", (newServerId == null) ? serverId
-                : newServerId);
+        modelMap.put("newServerId",
+                (newServerId == null) ? serverId : newServerId);
         modelMap.put("newServerIdError", newServerIdError);
         modelMap.put("serverChanged", serverChanged);
         modelMap.put("serverId", serverId);
@@ -2724,8 +2500,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2752,11 +2528,9 @@ public class UiController {
             // server.
             if (serverIdFromRequest != null
                     && !serverIdFromRequest.equals(serverId)) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverId.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(channelName)
-                                + "/remove");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverId.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName) + "/remove");
             }
             ServerStatus serverStatus = clusterManagementService
                     .getServer(serverId);
@@ -2795,8 +2569,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2813,8 +2587,8 @@ public class UiController {
         DefaultMessageSourceResolvable globalError = null;
         boolean removeSuccessful = false;
         try {
-            FutureUtils.getUnchecked(archiveConfigurationService.removeChannel(
-                    null, channelName));
+            FutureUtils.getUnchecked(archiveConfigurationService
+                    .removeChannel(null, channelName));
             removeSuccessful = true;
         } catch (NoSuchChannelException e) {
             channelExists = false;
@@ -2839,10 +2613,9 @@ public class UiController {
                 return new ModelAndView(
                         "redirect:/admin/ui/channels/all/?message.channelDeleted");
             } else {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverIdFromRequest.toString()
-                                + "/?message.channelDeleted");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverIdFromRequest.toString()
+                        + "/?message.channelDeleted");
             }
         }
         UUID serverId;
@@ -2895,8 +2668,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -2923,11 +2696,9 @@ public class UiController {
             // server.
             if (serverIdFromRequest != null
                     && !serverIdFromRequest.equals(serverId)) {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverId.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(channelName)
-                                + "/rename");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverId.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(channelName) + "/rename");
             }
             ServerStatus serverStatus = clusterManagementService
                     .getServer(serverId);
@@ -2968,8 +2739,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            oldChannelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(oldChannelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -3027,11 +2798,10 @@ public class UiController {
                                 + CustomUrlCodec.encode(newChannelName)
                                 + "/?message.renamed");
             } else {
-                return new ModelAndView(
-                        "redirect:/admin/ui/channels/by-server/"
-                                + serverIdFromRequest.toString() + "/by-name/"
-                                + CustomUrlCodec.encode(newChannelName)
-                                + "/?message.renamed");
+                return new ModelAndView("redirect:/admin/ui/channels/by-server/"
+                        + serverIdFromRequest.toString() + "/by-name/"
+                        + CustomUrlCodec.encode(newChannelName)
+                        + "/?message.renamed");
             }
         }
         UUID serverId;
@@ -3069,8 +2839,8 @@ public class UiController {
         modelMap.put("channelExists", channelExists);
         modelMap.put("channelName", oldChannelName);
         modelMap.put("globalError", globalError);
-        modelMap.put("newChannelName", (newChannelName == null) ? ""
-                : newChannelName);
+        modelMap.put("newChannelName",
+                (newChannelName == null) ? "" : newChannelName);
         modelMap.put("newChannelNameError", newChannelNameError);
         modelMap.put("serverId", serverId);
         modelMap.put("serverName", serverName);
@@ -3078,9 +2848,10 @@ public class UiController {
         return new ModelAndView("channels/rename", modelMap);
     }
 
-    private DecimationLevel createDecimationLevel(
-            int decimationPeriodInSeconds, int retentionPeriodInSeconds) {
-        TimePeriod decimationPeriod = createTimePeriod(decimationPeriodInSeconds);
+    private DecimationLevel createDecimationLevel(int decimationPeriodInSeconds,
+            int retentionPeriodInSeconds) {
+        TimePeriod decimationPeriod = createTimePeriod(
+                decimationPeriodInSeconds);
         TimePeriod retentionPeriod = createTimePeriod(retentionPeriodInSeconds);
         DecimationLevel decimationLevel = new DecimationLevel();
         decimationLevel.setDecimationPeriod(decimationPeriod);
@@ -3121,9 +2892,7 @@ public class UiController {
         // If the list of decimation levels is null or empty, this always is an
         // error.
         if (decimationLevels == null || decimationLevels.isEmpty()) {
-            errors.rejectValue(
-                    "decimationLevels",
-                    "RawDecimationLevelExists",
+            errors.rejectValue("decimationLevels", "RawDecimationLevelExists",
                     "The decimation level for raw samples is missing or is not the first decimation level.");
             return;
         }
@@ -3154,8 +2923,8 @@ public class UiController {
                     if (i == 0) {
                         decimationPeriod.setUnit(TimePeriodUnit.ZERO);
                     } else {
-                        if (decimationPeriod.getUnit().equals(
-                                TimePeriodUnit.ZERO)) {
+                        if (decimationPeriod.getUnit()
+                                .equals(TimePeriodUnit.ZERO)) {
                             decimationPeriod.setUnit(TimePeriodUnit.SECONDS);
                         }
                     }
@@ -3182,8 +2951,10 @@ public class UiController {
                 // annotation-based validation, so we only add an error if it is
                 // positive.
                 if (decimationPeriod.getCounts() > 0) {
-                    errors.rejectValue("decimationLevels[" + i
-                            + "].decimationPeriod.counts", "Max",
+                    errors.rejectValue(
+                            "decimationLevels[" + i
+                                    + "].decimationPeriod.counts",
+                            "Max",
                             new Object[] { decimationPeriod.getCounts() },
                             "number too large");
                 }
@@ -3221,9 +2992,10 @@ public class UiController {
                 // annotation-based validation, so we only add an error if it is
                 // positive.
                 if (retentionPeriod.getCounts() > 0) {
-                    errors.rejectValue("decimationLevels[" + i
-                            + "].retentionPeriod.counts", "Max",
-                            new Object[] { retentionPeriod.getCounts() },
+                    errors.rejectValue(
+                            "decimationLevels[" + i
+                                    + "].retentionPeriod.counts",
+                            "Max", new Object[] { retentionPeriod.getCounts() },
                             "number too large");
                 }
             } catch (NullPointerException e) {
@@ -3237,14 +3009,13 @@ public class UiController {
         // samples and this decimation level may never be removed.
         DecimationLevel firstDecimationLevel = decimationLevels.get(0);
         if (firstDecimationLevel == null
-                || firstDecimationLevel.getDecimationPeriod().getCounts() == null
+                || firstDecimationLevel.getDecimationPeriod()
+                        .getCounts() == null
                 || firstDecimationLevel.getDecimationPeriod().getCounts() != 0
                 || (removeDecimationLevels != null
-                        && removeDecimationLevels.get(0) != null && removeDecimationLevels
-                            .get(0))) {
-            errors.rejectValue(
-                    "decimationLevels",
-                    "RawDecimationLevelExists",
+                        && removeDecimationLevels.get(0) != null
+                        && removeDecimationLevels.get(0))) {
+            errors.rejectValue("decimationLevels", "RawDecimationLevelExists",
                     "The decimation level for raw samples is missing or is not the first decimation level.");
             return;
         }
@@ -3276,13 +3047,14 @@ public class UiController {
                 // validation.
                 continue;
             } else if (decimationPeriodInSeconds == 0 && i != 0) {
-                errors.rejectValue("decimationLevels[" + i
-                        + "].decimationPeriod.counts", "Min",
+                errors.rejectValue(
+                        "decimationLevels[" + i + "].decimationPeriod.counts",
+                        "Min",
                         "The decimation period must be strictly positive.");
             } else if (seenDecimationPeriods
                     .contains(decimationPeriodInSeconds)) {
-                errors.rejectValue("decimationLevels[" + i
-                        + "].decimationPeriod.counts",
+                errors.rejectValue(
+                        "decimationLevels[" + i + "].decimationPeriod.counts",
                         "UniqueDecimationPeriod",
                         "The decimation period must be unique.");
             } else {
@@ -3308,8 +3080,8 @@ public class UiController {
         ChannelInformation channelInformation;
         try {
             channelInformation = FutureUtils
-                    .getUnchecked(channelInformationCache.getChannelAsync(
-                            channelName, false));
+                    .getUnchecked(channelInformationCache
+                            .getChannelAsync(channelName, false));
             channelExists = channelInformation != null;
         } catch (RuntimeException e) {
             // If there is an error while getting the channel information, we
@@ -3337,8 +3109,8 @@ public class UiController {
         String controlSystemName = null;
         if (channelConfiguration != null) {
             ControlSystemSupport<?> controlSystemSupport = controlSystemSupportRegistry
-                    .getControlSystemSupport(channelConfiguration
-                            .getControlSystemType());
+                    .getControlSystemSupport(
+                            channelConfiguration.getControlSystemType());
             if (controlSystemSupport == null) {
                 controlSystemName = channelConfiguration.getControlSystemType();
             } else {
@@ -3457,9 +3229,10 @@ public class UiController {
             DecimationLevel decimationLevel = decimationLevelEntry.getValue();
             // We can safely use the getSeconds() method because the decimation
             // levels have already been validated and normalized.
-            sortedDecimationLevels.put(decimationLevel.getDecimationPeriod()
-                    .getSeconds(), Pair.of(decimationLevel.getRetentionPeriod()
-                    .getSeconds(), index));
+            sortedDecimationLevels.put(
+                    decimationLevel.getDecimationPeriod().getSeconds(),
+                    Pair.of(decimationLevel.getRetentionPeriod().getSeconds(),
+                            index));
         }
         Integer lastDecimationPeriod = null;
         Integer lastRetentionPeriod = null;
@@ -3478,7 +3251,8 @@ public class UiController {
                 continue;
             }
             if (retentionPeriod.intValue() != 0
-                    && (lastRetentionPeriod.intValue() == 0 || retentionPeriod < lastRetentionPeriod)) {
+                    && (lastRetentionPeriod.intValue() == 0
+                            || retentionPeriod < lastRetentionPeriod)) {
                 DecimationLevel decimationLevel = decimationLevels.get(index);
                 DecimationLevel lastDecimationLevel = decimationLevels
                         .get(lastIndex);
@@ -3510,7 +3284,8 @@ public class UiController {
         }
     }
 
-    private void validateOptions(AbstractAddEditChannelForm form, Errors errors) {
+    private void validateOptions(AbstractAddEditChannelForm form,
+            Errors errors) {
         NavigableMap<Integer, ControlSystemOption> options = form.getOptions();
         if (options == null || options.isEmpty()) {
             return;

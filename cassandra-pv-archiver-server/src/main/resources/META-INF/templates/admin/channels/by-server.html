@@ -21,13 +21,13 @@
 
       <h1 class="page-header" th:text="#{channels.byServer.pageHeader(${serverName})}">Channels for Server XXXXX</h1>
 
-      <div style="margin-bottom: 20px;" sec:authorize="hasRole('ADMIN')" th:if="${serverExists and channelConfigurationAvailable}">
+      <div style="margin-bottom: 20px;" id="channels-by-server-action-buttons" sec:authorize="hasRole('ADMIN')" th:if="${serverExists}">
         <a th:href="@{/admin/ui/channels/by-server/{serverId}/add(serverId=${serverId})}" class="btn btn-primary"><i class="fa fa-plus"></i> <span th:text="#{channels.byServer.buttons.add}" th:remove="tag"></span></a>
         <a th:href="@{/admin/ui/channels/by-server/{serverId}/import(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-download"></i> <span th:text="#{channels.byServer.buttons.import}" th:remove="tag"></span></a>
         <a th:href="@{/admin/ui/channels/by-server/{serverId}/export(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-upload"></i> <span th:text="#{channels.byServer.buttons.export}" th:remove="tag"></span></a>
       </div>
 
-      <div style="margin-bottom: 20px;" sec:authorize="!hasRole('ADMIN')" th:if="${serverExists and channelConfigurationAvailable}">
+      <div style="margin-bottom: 20px;" id="channels-by-server-action-buttons" sec:authorize="!hasRole('ADMIN')" th:if="${serverExists}">
         <a th:href="@{/admin/ui/channels/by-server/{serverId}/export(serverId=${serverId})}" class="btn btn-default"><i class="fa fa-upload"></i> <span th:text="#{channels.byServer.buttons.export}" th:remove="tag"></span></a>
       </div>
 
@@ -35,35 +35,15 @@
         The specified server does not exist.
       </div>
 
-      <div th:if="${serverExists and !channelConfigurationAvailable}" class="alert alert-danger" role="alert" th:text="#{channels.byServer.configurationNotAvailable}">
+      <div th:if="${serverExists}" class="alert alert-danger" style="display: none;" id="channels-by-server-info-not-available" role="alert" th:text="#{channels.byServer.configurationNotAvailable}">
         Information about channels is currently not available. Maybe this server is not online?
       </div>
 
-      <div th:if="${serverExists and !channelStatusAvailable}" class="alert alert-warning" role="alert" th:text="#{channels.byServer.statusNotAvailable}">
+      <div th:if="${serverExists}" class="alert alert-warning" style="display: none;" id="channels-by-server-status-not-available" role="alert" th:text="#{channels.byServer.statusNotAvailable}">
         Status information is currently not available. Maybe the target server is not online or has not been fully initialized yet?
       </div>
 
-      <table th:if="${serverExists and channelConfigurationAvailable and !channelStatusAvailable}" class="table table-striped" id="channels-by-server-channel-configuration-table">
-        <thead>
-          <tr>
-            <th th:text="#{channels.byServer.columnName.label}">Name</th>
-            <th th:text="#{channels.byServer.columnControlSystemType.label}">Control System</th>
-            <th th:text="#{channels.byServer.columnEnabled.label}">Enabled</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr th:each="channel : ${channelConfigurationList}" style="cursor: pointer;">
-            <td>
-              <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channel.channelName)})}" th:text="${channel.channelName}"></a>
-            </td>
-            <td th:text="${controlSystemNames[channel.controlSystemType]}"></td>
-            <td th:if="!${channel.enabled}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnEnabled.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnEnabled.disabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.disabled}"></i></td>
-            <td th:if="${channel.enabled}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnEnabled.enabled}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnEnabled.enabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.enabled}"></i></td>
-          </tr>
-        </tbody>
-      </table>
-      
-      <table th:if="${serverExists and channelStatusAvailable}" class="table table-striped" id="channels-by-server-channel-status-table">
+      <table th:if="${serverExists}" class="table table-striped" id="channels-by-server-channel-status-table">
         <thead>
           <tr>
             <th th:text="#{channels.byServer.columnName.label}">Name</th>
@@ -75,48 +55,222 @@
           </tr>
         </thead>
         <tbody>
-          <tr th:each="channel : ${channelStatusList}" style="cursor: pointer;">
-            <td>
-              <a th:href="${#uriExpander.expand('/admin/ui/channels/by-server/{serverId}/by-name/{name}/', {'serverId': serverId, 'name': #uriExpander.encode(channel.channelName)})}" th:text="${channel.channelName}"></a>
-            </td>
-            <td th:text="${controlSystemNames[channel.channelConfiguration.controlSystemType]}"></td>
-            <td th:if="!${channel.channelConfiguration.enabled}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnEnabled.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnEnabled.disabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.disabled}"></i></td>
-            <td th:if="${channel.channelConfiguration.enabled}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnEnabled.enabled}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnEnabled.enabled}" th:attr="aria-label=#{channels.byServer.columnEnabled.enabled}"></i></td>
-            <td th:if="${channel.state.name() == 'INITIALIZING'}" data-sort="0" th:attr="data-filter=#{channels.byServer.columnState.initializing}"><i class="fa fa-clock-o text-info" th:title="#{channels.byServer.columnState.initializing}" th:attr="aria-label=#{channels.byServer.columnState.initializing}"></i></td>
-            <td th:if="${channel.state.name() == 'OK'}" data-sort="1" th:attr="data-filter=#{channels.byServer.columnState.ok}"><i class="fa fa-check-circle-o text-success" th:title="#{channels.byServer.columnState.ok}" th:attr="aria-label=#{channels.byServer.columnState.ok}"></i></td>
-            <td th:if="${channel.state.name() == 'DISABLED'}" data-sort="2" th:attr="data-filter=#{channels.byServer.columnState.disabled}"><i class="fa fa-times-circle-o" th:title="#{channels.byServer.columnState.disabled}" th:attr="aria-label=#{channels.byServer.columnState.disabled}"></i></td>
-            <td th:if="${channel.state.name() == 'DISCONNECTED'}" data-sort="3" th:attr="data-filter=#{channels.byServer.columnState.disconnected}"><i class="fa fa-times-circle-o text-warning" th:title="#{channels.byServer.columnState.disconnected}" th:attr="aria-label=#{channels.byServer.columnState.disconnected}"></i></td>
-            <td th:if="${channel.state.name() == 'ERROR'}" data-sort="4" th:attr="data-filter=#{channels.byServer.columnState.error}"><i class="fa fa-times-circle-o text-danger" th:title="#{channels.byServer.columnState.error}" th:attr="aria-label=#{channels.byServer.columnState.error}"></i></td>
-            <td th:if="${channel.state.name() == 'DESTROYED'}" data-sort="5" th:attr="data-filter=#{channels.byServer.columnState.destroyed}"><i class="fa fa-times-circle-o text-danger" th:title="#{channels.byServer.columnState.destroyed}" th:attr="aria-label=#{channels.byServer.columnState.destroyed}"></i></td>
-            <td th:text="${{channel.totalSamplesDropped}}"></td>
-            <td th:text="${{channel.totalSamplesWritten}}"></td>
-          </tr>
         </tbody>
       </table>
     </div>
 
-    <script type="text/javascript" layout:fragment="content-scripts">
+    <script type="text/javascript" th:inline="javascript" layout:fragment="content-scripts">
       /* <![CDATA[ */
       $(document).ready(function() {
-        var table = $("#channels-by-server-channel-configuration-table");
+        var i18nColumnEnabledDisabled =
+          [[#{channels.byServer.columnEnabled.disabled}]];
+        var i18nColumnEnabledEnabled =
+          [[#{channels.byServer.columnEnabled.enabled}]];
+        var i18nColumnStateDestroyed =
+          [[#{channels.byServer.columnState.destroyed}]];
+        var i18nColumnStateDisabled =
+          [[#{channels.byServer.columnState.disabled}]];
+        var i18nColumnStateDisconnected =
+          [[#{channels.byServer.columnState.disconnected}]];
+        var i18nColumnStateError =
+          [[#{channels.byServer.columnState.error}]];
+        var i18nColumnStateInitializing =
+          [[#{channels.byServer.columnState.initializing}]];
+        var i18nColumnStateOk =
+          [[#{channels.byServer.columnState.ok}]];
+
+        var serverId = [[${serverId}]];
+        var ajaxUrl = [[@{/admin/api/1.0/channels/by-server/_serverId_/}]];
+        ajaxUrl = ajaxUrl.replace("_serverId_", encodeURIComponent(serverId));
+
+        var infoNotAvailableBox = $("#channels-by-server-info-not-available");
+        var statusNotAvailableBox = $("#channels-by-server-status-not-available");
+        var actionButtons = $("#channels-by-server-action-buttons");
+        var table = $("#channels-by-server-channel-status-table");
         if (table) {
-          table.DataTable({
-            "drawCallback": function(settings) {
-              if (!table.parent().hasClass("table-responsive")) {
-                table.wrap("<div class=\"table-responsive\"></div>");
+          table.on('xhr.dt', function(e, settings, json, message) {
+            if (json == null) {
+              infoNotAvailableBox.show();
+              statusNotAvailableBox.hide();
+              table.parents("div.dataTables_wrapper").hide();
+              actionButtons.hide();
+              return true
+            } else {
+              infoNotAvailableBox.hide();
+              // Inspect data and decide whether status is available.
+              var statusAvailable = json.statusAvailable;
+              if (statusAvailable) {
+                statusNotAvailableBox.hide();
+              } else {
+                statusNotAvailableBox.show();
               }
-            },
-            "fnRowCallback": function(row, data, displayIndex) {
-              $(row).click(function() {
-                window.location.href = $("td > a", row).attr("href");
-              });
+              table.DataTable().column(3).visible(statusAvailable, false);
+              table.DataTable().column(4).visible(statusAvailable, false);
+              table.DataTable().column(5).visible(statusAvailable, true);
+              table.parents("div.dataTables_wrapper").show();
+              actionButtons.show();
+              return false;
             }
           });
-        }
-
-        table = $("#channels-by-server-channel-status-table");
-        if (table) {
           table.DataTable({
+            "ajax": {
+              "url": ajaxUrl,
+              "dataSrc": "channels"
+            },
+            columns: [
+              {
+                "data": "channelName",
+                "render": function(data, type, row, meta) {
+                  var url = [[@{/admin/ui/channels/by-server/_serverId_/by-name/_channelName_/}]];
+                  url = url.replace(
+                    "_serverId_", encodeURIComponent(serverId));
+                  url = url.replace(
+                    "_channelName_", encodeURIComponentCustom(data));
+                  var tag = $("<a/>");
+                  tag.attr("href", url);
+                  tag.text(data);
+                  return tag.prop("outerHTML");
+                }
+              },
+              {
+                "data": "controlSystemName",
+                "render": $.fn.dataTable.render.text()
+              },
+              {
+                "data": "enabled",
+                "render": function(data, type, row, meta) {
+                  // If status information is not available, the column will be
+                  // hidden anyway.
+                  if (data == null) {
+                    return "";
+                  }
+                  switch (type) {
+                  case "filter":
+                    if (data) {
+                      return i18nColumnEnabledEnabled;
+                    } else {
+                      return i18nColumnEnabledDisabled;
+                    }
+                  case "sort":
+                  case "type":
+                    if (data) {
+                      return "1";
+                    } else {
+                      return "0";
+                    }
+                  default:
+                    var cssClass;
+                    var label;
+                    if (data) {
+                      cssClass = "fa fa-check-circle-o text-success";
+                      label = i18nColumnEnabledEnabled;
+                    } else {
+                      cssClass = "fa fa-times-circle-o";
+                      label = i18nColumnEnabledDisabled;
+                    }
+                    var tag = $("<i/>");
+                    tag.addClass(cssClass);
+                    tag.attr("aria-label", label);
+                    tag.attr("title", label);
+                    return tag.prop("outerHTML");
+                  }
+                }
+              },
+              {
+                "data": "state",
+                "render": function(data, type, row, meta) {
+                  // If status information is not available, the column will be
+                  // hidden anyway.
+                  if (data == null) {
+                    return "";
+                  }
+                  switch (type) {
+                  case "filter":
+                    switch (data) {
+                    case "DESTROYED":
+                      return i18nColumnStateDestroyed;
+                    case "DISABLED":
+                      return i18nColumnStateDisabled;
+                    case "DISCONNECTED":
+                      return i18nColumnStateDisconnected;
+                    case "ERROR":
+                      return i18nColumnStateError;
+                    case "INITIALIZING":
+                      return i18nColumnStateInitializing;
+                    case "OK":
+                      return i18nColumnStateOk;
+                    default:
+                      return "";
+                    }
+                  case "sort":
+                  case "type":
+                    switch (data) {
+                    case "DESTROYED":
+                      return "5";
+                    case "DISABLED":
+                      return "2";
+                    case "DISCONNECTED":
+                      return "3";
+                    case "ERROR":
+                      return "4";
+                    case "INITIALIZING":
+                      return "0";
+                    case "OK":
+                      return "1";
+                    default:
+                      return "";
+                    }
+                  default:
+                    var cssClass;
+                    var label;
+                    switch (data) {
+                    case "DESTROYED":
+                      cssClass = "fa fa-times-circle-o text-danger";
+                      label = i18nColumnStateDestroyed;
+                      break;
+                    case "DISABLED":
+                      cssClass = "fa fa-times-circle-o";
+                      label = i18nColumnStateDisabled;
+                      break;
+                    case "DISCONNECTED":
+                      cssClass = "fa fa-times-circle-o text-warning";
+                      label = i18nColumnStateDisconnected;
+                      break;
+                    case "ERROR":
+                      cssClass = "fa fa-times-circle-o text-danger";
+                      label = i18nColumnStateError;
+                      break;
+                    case "INITIALIZING":
+                      cssClass = "fa fa-clock-o text-info";
+                      label = i18nColumnStateInitializing;
+                      break;
+                    case "OK":
+                      cssClass = "fa fa-check-circle-o text-success";
+                      label = i18nColumnStateOk;
+                      break;
+                    default:
+                      cssClass = "";
+                      label = "";
+                      break;
+                    }
+                    var tag = $("<i/>");
+                    tag.addClass(cssClass);
+                    tag.attr("aria-label", label);
+                    tag.attr("title", label);
+                    return tag.prop("outerHTML");
+                  }
+                }
+              },
+              {
+                "data": "totalSamplesDropped",
+                "render": $.fn.dataTable.render.text()
+              },
+              {
+                "data": "totalSamplesWritten",
+                "render": $.fn.dataTable.render.text()
+              }
+            ],
+            "deferRender": true,
             "drawCallback": function(settings) {
               if (!table.parent().hasClass("table-responsive")) {
                 table.wrap("<div class=\"table-responsive\"></div>");

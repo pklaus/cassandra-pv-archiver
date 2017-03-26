@@ -70,7 +70,7 @@ public final class UpdateChannelCommand extends ArchiveConfigurationCommand {
      * </p>
      * 
      * <p>
-     * The set if decimation levels that shall be added and removed can be
+     * The set of decimation levels that shall be added and removed can be
      * described in an explicit or in a differential fashion. For an explicit
      * description, use the <code>decimationLevels</code> argument. For a
      * differential description, use the <code>addDecimationLevels</code> and

@@ -12,6 +12,7 @@
     <subtitle>Version ${project.version}</subtitle>
     <copyright>
       <year>2016</year>
+      <year>2017</year>
       <holder>aquenos GmbH</holder>
     </copyright>
     <author>
@@ -614,6 +615,66 @@
         </para>
       </section>
     </section>
+
+    <section xml:id="news.version_3.1">
+      <title>Cassandra PV Archiver 3.1</title>
+      <para>
+        The Cassandra PV Archiver 3.1 adds a few new features and updates its
+        dependencies to their respective newest versions.
+        It is compatible with the Cassandra PV Archiver 3.0.x, meaning that it
+        can operate on data stored by the Cassandra PV Archiver 3.0.x and the
+        APIs supported by the Cassandra PV Archiver 3.0.x are fully supported.
+      </para>
+      <para>
+        The following features have been added in this release:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <simpara>
+            A web-service API for managing the server has been added.
+            This API is described in detail in
+            <xref linkend="admin_api"/>.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The administrative user-interface now uses AJAX to load the list of
+            channels asynchronously.
+            This improves the performance when displaying a list containing a
+            large number of channels. 
+          </simpara>
+        </listitem>
+      </itemizedlist>
+      <para>
+        There also are some bugfixes and minor improvements:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <simpara>
+            For each module containing Java code, a source JAR is generated in
+            addition to the binary JAR.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            A <literal>NullPointerException</literal> that could occur when
+            updating a channel while concurrently moving or deleting it has been
+            fixed.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The launcher script on Windows now works correctly when the path
+            where the Cassandra PV Archiver is installed contains spaces.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            All library dependencies have been updated to their newest versions.
+          </simpara>
+        </listitem>
+      </itemizedlist>
+    </section>
   </chapter>
 
   <chapter xml:id="server">
@@ -660,6 +721,26 @@
         3.x. Most likely, it is also going to be compatible with newer versions
         of Cassandra.
       </para>
+      <warning>
+        <para>
+          Apache Cassandra 3.0.0 through 3.0.8 and 3.1 through 3.7 have a
+          <link xlink:href="https://issues.apache.org/jira/browse/CASSANDRA-12107">bug</link>
+          that affects the Cassandra PV Archiver.
+          This bug can cause serious issues when deleting or renaming channels.
+          The symptoms are channels appearing in some views and missing in
+          others, even channels that have been added after deleting some other
+          channels.
+        </para>
+        <para>
+          For this reason, it is strongly recommended to avoid the affected
+          versions of Apache Cassandra. The bug has been fixed in versions 3.0.9
+          and 3.8.0.
+          Apache Cassandra 2.2.x should not be affected either.
+          When using one of the affected version of Apache Cassandra, avoid
+          deleting or moving channels until you have upgraded to a version of
+          Apache Cassandra that is not affected.
+        </para>
+      </warning>
       <para>
         In the simplest case, the Cassandra cluster may consist of only a single
         node running on the same system as the Cassandra PV Archiver server.
@@ -3566,6 +3647,2385 @@ GET /archive-access/api/1.0/archive/1/samples/testCalc?start=0&
   "type" : "double",
   "value" : [ 12.0 ]
 } ]
+]]></programlisting>
+      </simplesect>
+    </section>
+  </appendix>
+
+  <appendix xml:id="admin_api">
+    <title>Administrative API</title>
+    <para>
+      The JSON-based administrative web-service API can be used to monitor and
+      configure the Cassandra PV Archiver server.
+      It offers most of the functions available through the
+      <link linkend="server.admin_ui">administrative user interface</link>, but
+      is designed to be used by other software (e.g. scripts used for automating
+      the configuration management).
+    </para>
+    <section xml:id="admin_api.general">
+      <title>General considerations</title>
+      <para>
+        The base URL used for all requests concerning this API is:
+<programlisting>
+http://<replaceable>&lt;server&gt;</replaceable>:<replaceable>&lt;port&gt;</replaceable>/admin/api/<replaceable>&lt;version number&gt;</replaceable>
+</programlisting>
+        In this URL <replaceable>&lt;server&gt;</replaceable> is the hostname or
+        IP address of the archive server,
+        <replaceable>&lt;port&gt;</replaceable> is the TCP port number of the
+        administrative interface, and
+        <replaceable>&lt;version number&gt;</replaceable> is the protocol
+        version.
+        At the moment, the only protocol version supported by the server is 1.0.
+        This base has to be prepended to all URLs that are mentioned in this
+        protocol specification.
+        If not configured explicitly in the server configuration, the
+        administrative interface is made available on port 4812.
+      </para>
+      <para>
+        The API uses JSON for both request and response bodies.
+        Requests only reading data typically use the <literal>GET</literal>
+        method and have an empty request body.
+        If there are any parameters, they are passed as part of the URL (in the
+        path or query string).
+        When passing parameters as part of the path (not the query string), they
+        have to be encoded in a non-standard way (see
+        <xref linkend="admin_api.general.uri_encode"/> for details).
+        Read requests do not require authentication.
+      </para>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          Requests making modification typically use the <literal>POST</literal>
+          method (unless specified differently).
+          Such requests typically expect parameters in the request’s body.
+          For some requests however, some of the parameters might still have to
+          be specified as part of the URL.
+          Requests making modifications must be accompanied by an
+          <literal>Authorization</literal> HTTP header for HTTP basic
+          authentication.
+        </para>
+      </simplesect>
+      <simplesect>
+        <title>Response</title>
+        <para>
+          Invalid credentials result may result in a response with status 403
+          (forbidden), even if the requested resource does actually not require
+          authentication.
+          For this reason, requests to resources not requiring authentication
+          should rather be made without an <literal>Authorization</literal>
+          header than a header containing invalid credentials.
+        </para>
+        <para>
+          Invalid request parameters (e.g. a request body that does not adhere
+          to the format specified for the respective function) may result in a
+          response with status 400 (bad request).
+        </para>
+        <para>
+          The response is always sent in the JSON format (MIME type
+          <literal>application/json</literal>) unless there is an error (which
+          is identified by a corresponding HTTP status code).
+          The request body (if present) also has to be sent in the JSON format
+          (MIME type <literal>application/json</literal>).
+        </para>
+      </simplesect>
+      <simplesect>
+        <title>JSON format</title>
+        <para>
+          Unless specified differently, numbers are always serialized as JSON
+          strings for three reasons:
+          First, JSON numbers cannot be used as keys in maps (attribute names in
+          JSON objects).
+          Second, certain special numbers (e.g. positive and negative infinity)
+          cannot be specified as JSON numbers.
+          Third, many JSON parsers convert all numbers to 64-bit floating point
+          values, resulting in precision loss for large integers.
+        </para>
+        <para>
+          As a general rule, when the member of a JSON object may have a value
+          of <literal>null</literal>, it may also be missing.
+          A missing member must always be interpreted in the same way as the
+          respective member having a <literal>null</literal> value.
+        </para>
+      </simplesect>
+      <simplesect xml:id="admin_api.general.uri_encode">
+        <title>Encoding URI components</title>
+        <para>
+          Parameters that are passed as part of the query string use
+          regular URI encoding (as specified by
+          <link xlink:href="https://tools.ietf.org/html/rfc3986#section-2.1">RFC 3986</link>).
+          Parameters that are passed as part of the path use a slightly
+          different encoding that is specified in this section.
+        </para>
+        <para>
+          In order to encode a parameter value, it is first serialized as UTF-8.
+          In the resulting byte sequence, each byte that does not represent one
+          of the ASCII characters “A” to “Z”, “a” to “z”, “0” to “9”, “-”
+          (minus), or “_” (underscore) is escaped by a three byte sequence in
+          the form “~” (tilde), hex digit, hex digit.
+          The two hex digits are the escaped byte’s value in hexadecimal
+          representation.
+          The hex digits “A” to “F” should be represented in upper case.
+        </para>
+        <para>
+          For example, the string “some test” is encoded as “some~20test”.
+          The string “allowed_characters_only” stays the same.
+          The string “a/b” is encoded as “a~2Fb”.
+          The string “süper” is encoded as “s~C3~BCper”.
+        </para>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.channels_all">
+      <title>List all channels</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for retrieving the list of all channels has the
+          following form:
+        </para>
+<programlisting>
+/channels/all/
+</programlisting>
+        <para>
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the <literal>channels</literal>
+          attribute as its only member.
+          The <literal>channels</literal> attribute has an array as its value
+          that contains an element for each channel.
+          Each of these elements is an object with the following attributes:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelDataId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  internal ID for the channel
+                </entry>
+              </row>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  channel’s name
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the control-system support used for the
+                  channel
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support used for
+                  the channel
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels that exist for the channel (specified in
+                  seconds)
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  ID of the server that owns the channel
+                </entry>
+              </row>
+              <row>
+                <entry>serverName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the server that owns the channel
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If the list of channels is currently not available, HTTP error code
+          503 (service unavailable) is returned and the response body is
+          invalid.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /admin/api/1.0/channels/all/
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "channels": [
+    {
+      "channelDataId": "ef126a63-375b-4f28-a1d1-17e8f42271a9",
+      "channelName": "someChannel",
+      "controlSystemName": "Channel Access",
+      "controlSystemType": "channel_access",
+      "decimationLevels": ["0", "30", "900"],
+      "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd",
+      "serverName": "myserver"
+    },
+    {
+      "channelDataId": "0993955f-d16e-486d-ac3b-6a1841c0fd3f",
+      "channelName": "someOtherChannel",
+      "controlSystemName": "Channel Access",
+      "controlSystemType": "channel_access",
+      "decimationLevels": ["0"],
+      "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd",
+      "serverName": "myserver"
+    }
+  ]
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.channels_by_server">
+      <title>List channels for a server</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for retrieving the list of channels for a server has
+          the following form:
+        </para>
+<programlisting>
+/channels/by-server/<replaceable>&lt;server ID&gt;</replaceable>/
+</programlisting>
+        <para>
+          The <replaceable>&lt;server ID&gt;</replaceable> has to be replaced by
+          the UUID associated with the respective server.
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the <literal>channels</literal> and
+          <literal>statusAvailable</literal> attributes as its members.
+          The <literal>statusAvailable</literal> attribute is a boolean
+          indicating whether the list of channels includes status information
+          (<literal>true</literal>) or only configuration information
+          (<literal>false</literal>).
+          Status information is only available if the specified server is
+          online.
+          The <literal>channels</literal> attribute has an array as its value
+          that contains an element for each channel.
+          Each of these elements is an object with the following attributes:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelDataId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  internal ID for the channel
+                </entry>
+              </row>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  channel’s name
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the control-system support used for the
+                  channel
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support used for
+                  the channel
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevelToRetentionPeriod</entry>
+                <entry>map of int to int</entry>
+                <entry>object with string attribute values</entry>
+                <entry>
+                  decimation levels that exist for the channel and their
+                  respective retention periods (both specified in seconds)
+                </entry>
+              </row>
+              <row>
+                <entry>enabled</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if the channel is enabled,
+                  <literal>false</literal> if it is disabled.
+                </entry>
+              </row>
+              <row>
+                <entry>errorMessage</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message for the channel. May be <literal>null</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>options</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string attribute values</entry>
+                <entry>
+                  control-system-specific configuration options that have been
+                  specified for the channel (the attribute name is the option
+                  name and the attribute value is the option value) 
+                </entry>
+              </row>
+              <row>
+                <entry>state</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  channel’s current state. One of <literal>destroyed</literal>,
+                  <literal>disabled</literal>, <literal>disconnected</literal>,
+                  <literal>error</literal>, <literal>initializing</literal>,
+                  or <literal>ok</literal>.
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesDropped</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that have been dropped for the channel
+                  (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesSkippedBack</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that were discarded because they skipped
+                  back in time (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesWritten</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that have been written for the channel
+                  (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If the list of channels is currently not available, HTTP error code
+          503 (service unavailable) is returned and the response body is
+          invalid.
+          If the specified server does not exist, HTTP error code 404 (not
+          found) is returned and the response body is invalid.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /admin/api/1.0/channels/by-server/7cf8f393-cd00-46ae-9343-53e9cb5793fd/
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "channels": [
+    {
+      "channelDataId": "ef126a63-375b-4f28-a1d1-17e8f42271a9",
+      "channelName": "someChannel",
+      "controlSystemName": "Channel Access",
+      "controlSystemType": "channel_access",
+      "decimationLevelToRetentionPeriod": {
+        "0": "864000",
+        "30": "31536000",
+        "900": "0"
+      },
+      "enabled": true,
+      "errorMessage": null,
+      "options": {},
+      "state": "OK",
+      "totalSamplesDropped": "0",
+      "totalSamplesSkippedBack": "1",
+      "totalSamplesWritten": "42"
+    },
+    {
+      "channelDataId": "0993955f-d16e-486d-ac3b-6a1841c0fd3f",
+      "channelName": "someOtherChannel",
+      "controlSystemName": "Channel Access",
+      "controlSystemType": "channel_access",
+      "decimationLevelToRetentionPeriod": {"0": "0"},
+      "enabled": true,
+      "errorMessage": "Invalid control-system option \"noSuchOption\".",
+      "options": {
+        "noSuchOption": "some value"
+      },
+      "state": "ERROR",
+      "totalSamplesDropped": "0",
+      "totalSamplesSkippedBack": "0",
+      "totalSamplesWritten": "0"
+    }
+  ],
+  statusAvailable: true
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.channel_details">
+      <title>Inspect a single channel</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for retrieving information about a single channel has
+          the following form:
+        </para>
+<programlisting>
+/channels/all/by-name/<replaceable>&lt;channel-name&gt;/</replaceable>
+/channels/by-server/<replaceable>&lt;server ID&gt;</replaceable>/by-name/<replaceable>&lt;channel-name&gt;/</replaceable>
+</programlisting>
+        <para>
+          Both variants return the same data.
+          The only difference between them is that the variant that includes the
+          server ID in the URL will return status code 404 (not found) when the
+          channel exists, but belongs to a different server.
+          The <replaceable>&lt;channel name&gt;</replaceable> has to be replaced
+          by the encoded form of the channel name.
+          The <replaceable>&lt;server ID&gt;</replaceable> has to be replaced by
+          the UUID associated with the respective server.
+          Only use the second variant if the query shall be limited to a
+          specific server.
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the following attributes:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelDataId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  internal ID for the channel
+                </entry>
+              </row>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  channel’s name
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the control-system support used for the
+                  channel
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support used for
+                  the channel
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevelToRetentionPeriod</entry>
+                <entry>map of int to int</entry>
+                <entry>object with string attribute values</entry>
+                <entry>
+                  decimation levels that exist for the channel and their
+                  respective retention periods (both specified in seconds)
+                </entry>
+              </row>
+              <row>
+                <entry>enabled</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if the channel is enabled,
+                  <literal>false</literal> if it is disabled.
+                </entry>
+              </row>
+              <row>
+                <entry>errorMessage</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message for the channel. May be <literal>null</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>options</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string attribute values</entry>
+                <entry>
+                  control-system-specific configuration options that have been
+                  specified for the channel (the attribute name is the option
+                  name and the attribute value is the option value) 
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  ID of the server that owns the channel
+                </entry>
+              </row>
+              <row>
+                <entry>serverName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the server that owns the channel
+                </entry>
+              </row>
+              <row>
+                <entry>state</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  channel’s current state. One of <literal>destroyed</literal>,
+                  <literal>disabled</literal>, <literal>disconnected</literal>,
+                  <literal>error</literal>, <literal>initializing</literal>,
+                  or <literal>ok</literal>.
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesDropped</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that have been dropped for the channel
+                  (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesSkippedBack</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that were discarded because they skipped
+                  back in time (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesWritten</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  number of samples that have been written for the channel
+                  (since the last reinitialization).
+                  <literal>null</literal> if status information is not
+                  available.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If information about the channel can currently not be retrieved, HTTP
+          error code 503 (service unavailable) is returned and the response body
+          is invalid.
+          If the channel does not exist or if a server ID has been specified and
+          the channel belongs to a different server, HTTP error code 404 (not
+          found) is returned and the response body is invalid.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /admin/api/1.0/channels/all/by-name/someChannel/
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "channelDataId": "ef126a63-375b-4f28-a1d1-17e8f42271a9",
+  "channelName": "someChannel",
+  "controlSystemName": "Channel Access",
+  "controlSystemType": "channel_access",
+  "decimationLevelToRetentionPeriod": {
+    "0": "864000",
+    "30": "31536000",
+    "900": "0"
+  },
+  "enabled": true,
+  "errorMessage": null,
+  "options": {},
+  "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd",
+  "serverName": "myserver",
+  "state": "OK",
+  "totalSamplesDropped": "0",
+  "totalSamplesSkippedBack": "1",
+  "totalSamplesWritten": "42"
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.channels_by_server_import">
+      <title>Import channel configuration for a server</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for importing the channel configuration for a server
+          has the following form:
+        </para>
+<programlisting>
+/channels/by-server/<replaceable>&lt;server ID&gt;</replaceable>/import
+</programlisting>
+        <para>
+          The <replaceable>&lt;server ID&gt;</replaceable> has to be replaced by
+          the UUID associated with the respective server.
+          The request must use the <literal>POST</literal> method.
+        </para>
+        <para>
+          The request body must be a JSON object with the following members:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>addChannels</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if channels present in the
+                  configuration file, but missing on the server shall be added
+                  to the server.
+                  <literal>false</literal> if no new channels shall be added to
+                  the server.
+                  Default is <literal>false</literal>. 
+                </entry>
+              </row>
+              <row>
+                <entry>configurationFile</entry>
+                <entry>array of byte</entry>
+                <entry>string</entry>
+                <entry>
+                  Base64
+                  (<link xlink:href="https://tools.ietf.org/html/rfc4648">RFC 4648</link>)
+                  encoded contents of the configuration file that shall be
+                  imported.
+                </entry>
+              </row>
+              <row>
+                <entry>removeChannels</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if channels missing in the
+                  configuration file, but present on the server shall be removed
+                  from the server.
+                  <literal>false</literal> if no new channels shall be removed
+                  from the server.
+                  Default is <literal>false</literal>. 
+                </entry>
+              </row>
+              <row>
+                <entry>simulate</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if no modifications shall be made.
+                  This means that the response will have the same content as if
+                  all changes where applied successfully.
+                  This is useful in combination with the
+                  <literal>removeChannels</literal> option in order to see which
+                  channels would be removed.
+                  Default is <literal>false</literal>. 
+                </entry>
+              </row>
+              <row>
+                <entry>updateChannels</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if channels present in the
+                  configuration file and also present on the server shall be
+                  updated to match the configuration specified in the file.
+                  <literal>false</literal> if no existing channels shall be
+                  changed.
+                  Default is <literal>false</literal>. 
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the with the following members:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>addOrUpdateFailed</entry>
+                <entry>map of string to string</entry>
+                <entry>object (with string attribute values)</entry>
+                <entry>
+                  object with a member for each channels for which an add or
+                  update operation failed.
+                  The channel name is the member’s key and the corresponding
+                  error message is the member’s value.
+                  May be <literal>null</literal> if there is a global error or
+                  if the data is sent in response to a request that has the
+                  <literal>simulate</literal> flag set.
+                </entry>
+              </row>
+              <row>
+                <entry>addOrUpdateSucceeded</entry>
+                <entry>set of string</entry>
+                <entry>array of string</entry>
+                <entry>
+                  list of channels for which an add or update operation was
+                  successful.
+                  In case of an update operation, this does not necessarily mean
+                  that the server configuration has been updated.
+                  It might also have already been identical to the configuration
+                  specified by the file.
+                  May be <literal>null</literal> if there is a global error.
+                </entry>
+              </row>
+              <row>
+                <entry>errorMessage</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message indicating a global problem.
+                  Such a problem does not affect a specific channel, but the
+                  import process in general (e.g. a syntax error in the
+                  configuration file).
+                  If such an error is present, no changes have been made to the
+                  server configuration.
+                  <literal>null</literal> if there is no global error. 
+                </entry>
+              </row>
+              <row>
+                <entry>removeFailed</entry>
+                <entry>map of string to string</entry>
+                <entry>object (with string attribute values)</entry>
+                <entry>
+                  object with a member for each channel for which a remove
+                  operation failed.
+                  The channel name is the member’s key and the corresponding
+                  error message is the member’s value.
+                  May be <literal>null</literal> if there is a global error or
+                  if the data is sent in response to a request that has the
+                  <literal>simulate</literal> flag set.
+                </entry>
+              </row>
+              <row>
+                <entry>removeSucceeded</entry>
+                <entry>set of string</entry>
+                <entry>array of string</entry>
+                <entry>
+                  list of channels for which a remove operation was successful.
+                  May be <literal>null</literal> if there is a global error.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If there is a problem with the request parameters (e.g. a syntax eror
+          in the configuration file), HTTP error code 400 (bad request) is
+          returned.
+          If there is a general problem with the request body, the response body
+          is invalid.
+          If there only is a problem with the contents of the configuration
+          file, a valid JSON response with the <literal>errorMessage</literal>
+          set is returned.
+          If the user could not be authenticated or is not authorized to use
+          the import function, HTTP error code 403 (forbidden) is returned and
+          the response body is invalid.
+          If there is an error when applying the changes for at least one
+          channel, HTTP error code 500 (internal server error) is returned and
+          the channel is added to the <literal>addOrUpdateFailed</literal> or
+          <literal>removeFailed</literal> maps.
+          If there is a general problem while processing the request (e.g. the
+          database is currently unavailable), HTTP error code 503 (service
+          unavailable) is returned and the <literal>errorMessage</literal> is
+          set in the response.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+POST /admin/api/1.0/channels/by-server/7cf8f393-cd00-46ae-9343-53e9cb5793fd/import
+
+{
+  "addChannels": true,
+  "configurationFile": "PD94bWwgdmVy... (shortened for this example)",
+  "removeChannels": true
+}
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "addOrUpdateFailed": {
+    "someChannel": "Channel \"someChannel\" cannot be added because a channel
+↪with the same name already exists."
+  },
+  "addOrUpdateSucceed": [
+    "newChannel"
+  ],
+  "errorMessage": null,
+  "removeFailed": {},
+  "removeSucceeded": [
+    "someOtherChannel"
+  ]
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.channels_by_server_export">
+      <title>Export channel configuration for a server</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for exporting the channel configuration for a server
+          has the following form:
+        </para>
+<programlisting>
+/channels/by-server/<replaceable>&lt;server ID&gt;</replaceable>/export
+</programlisting>
+        <para>
+          The <replaceable>&lt;server ID&gt;</replaceable> has to be replaced by
+          the UUID associated with the respective server.
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the with the following members:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>configurationFile</entry>
+                <entry>array of byte</entry>
+                <entry>string</entry>
+                <entry>
+                  Base64
+                  (<link xlink:href="https://tools.ietf.org/html/rfc4648">RFC 4648</link>)
+                  encoded contents of the exported configuration file
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If there is a general problem while processing the request (e.g. the
+          database is currently unavailable), HTTP error code 503 (service
+          unavailable) is returned and the <literal>errorMessage</literal> is
+          set in the response.
+          If the specified server does not exist, HTTP error code 404 (not
+          found) is returned and the response body is invalid.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /admin/api/1.0/channels/by-server/7cf8f393-cd00-46ae-9343-53e9cb5793fd/export
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "configurationFile": "PD94bWwgdmVy... (shortened for this example)"
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.run_archive_configuration_commands">
+      <title>Run archive configuration commands</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for running archive configuration commands has the
+          following form:
+        </para>
+<programlisting>
+/run-archive-configuration-commands
+</programlisting>
+        <para>
+          The request must use the <literal>POST</literal> method.
+        </para>
+        <para>
+          The request body must be a JSON object that has a single member.
+          This member has the key <literal>commands</literal> and an array as
+          its value.
+          Each of the array elements must be a JSON object that represents an
+          archive configuration command.
+        </para>
+        <para>
+          The format of the object depends on the respective command and is
+          described in
+          <xref linkend="admin_api.run_archive_configuration_commands.commands"/>.
+          Commands may be processed in parallel, so a single request should
+          never specify more than one command that affects the same channel as
+          the result is not predictable.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the with the following members:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>errorMessage</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message indicating a global problem.
+                  Such a problem does not affect a specific channel, but the
+                  whole execution (e.g. problems while accessing the database).
+                  If such an error is present, no changes have been made to the
+                  server configuration.
+                  <literal>null</literal> if there is no global error. 
+                </entry>
+              </row>
+              <row>
+                <entry>results</entry>
+                <entry>array of object</entry>
+                <entry>array of object</entry>
+                <entry>
+                  result object for each command that was specified in the
+                  request.
+                  The results have the same order as the commands had in the
+                  request.
+                  May be <literal>null</literal> if
+                  <literal>errorMessage</literal> is set.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          Each result object is a JSON object with the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>command</entry>
+                <entry>object</entry>
+                <entry>object</entry>
+                <entry>
+                  command to which this result belongs.
+                  This command object is equal to the one that has been
+                  specified in the request, but some members may differ slightly
+                  due to normalization.
+                </entry>
+              </row>
+              <row>
+                <entry>errorMessage</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message describing the reason for which the operation
+                  failed.
+                  <literal>null</literal> if the operation was successful or if
+                  no explanation for the error is available.
+                </entry>
+              </row>
+              <row>
+                <entry>success</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if the command was executed
+                  successfully, <literal>false</literal> if the command failed.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If the user could not be authenticated or is not authorized to use
+          the import function, HTTP error code 403 (forbidden) is returned and
+          the response body is invalid.
+          If there is an error for at least one command, HTTP error code 500
+          (internal server error) is returned and the <literal>success</literal>
+          member of the corresponding command or commands is set to
+          <literal>false</literal>.
+          If there is a general problem while processing the request (e.g. the
+          database is currently unavailable), HTTP error code 503 (service
+          unavailable) is returned and the <literal>errorMessage</literal> is
+          set in the response.
+        </para>
+      </simplesect>
+
+      <simplesect xml:id="admin_api.run_archive_configuration_commands.commands">
+        <title>Archive Configuration Commands</title>
+        <para>
+          There are seven different archive configuration commands:
+        </para>
+        <itemizedlist>
+          <listitem>
+            <simpara>
+              add channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              add or update channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              move channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              refresh channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              remove channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              rename channel
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              update channel
+            </simpara>
+          </listitem>
+        </itemizedlist>
+        <para>
+          Each command is described by a JSON object, but except for the common
+          <literal>commandType</literal> member, each of the different commands
+          has a slightly different structure.
+        </para>
+        <bridgehead>Add channel</bridgehead>
+        <para>
+          The add channel command adds a new channel to the archive
+          configuration.
+          The channel is only added if it does not exist yet.
+          If there already is a channel with the same name, the operation fails.
+          The object for the add channel command has the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be added. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string <literal>add_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support that shall
+                  be used for the channel.
+                  This is the same identifier that is also used in configuration
+                  files. 
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels for the channel (identified by their
+                  decimation periods specified in seconds).
+                  The raw decimation level (with a decimation period of zero) is
+                  always added, even if it is not specified in the array.
+                  If the whole array is <literal>null</literal>, this is
+                  interpreted like an array containing zero as its only element.
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevelToRetentionPeriod</entry>
+                <entry>map of int to int</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  retention period for each decimation level (specified in
+                  seconds).
+                  Each member uses the decimation period of the respective
+                  decimation level as its key and the retention period as its
+                  value.
+                  A value of zero means that samples shall be retained
+                  indefinitely.
+                  Entries for a decimation level that is not also specified in
+                  <literal>decimationLevels</literal> are discarded (except for
+                  the raw decimation level which is always included implicitly).
+                  Negative retention periods are converted to zero.
+                  If a decimation level is specified in
+                  <literal>decimationLevels</literal>, but not in
+                  <literal>decimationLevelToRetentionPeriod</literal>, a
+                  retention period of zero is assumed.
+                  If the whole object is <literal>null</literal>, a retention
+                  period of zero is used for all decimation levels.
+                </entry>
+              </row>
+              <row>
+                <entry>enabled</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if archiving shall be enabled for the
+                  channel, <literal>false</literal> if archiving shall be
+                  disabled.
+                </entry>
+              </row>
+              <row>
+                <entry>options</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  control-system-specific configuration options.
+                  The member key is the option name and the member value is the
+                  option value.
+                  Specifying <literal>null</literal> has the same effect as
+                  specifying an empty object.  
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  UUID of the server to which the channel shall be added.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Add or update channel</bridgehead>
+        <para>
+          The add or update channel command is very similar to the add channel
+          command.
+          However, instead of failing when the specified channel already exists,
+          it updates the channel configuration to match the specified
+          configuration.
+        </para>
+        <para>
+          The control-system type of a channel cannot be changed, so the command
+          fails if the channel exists, but its control-system type does not
+          match the specified control-system type.
+          The command also fails when the specified server ID does not match the
+          server ID of the already existing channel.
+          Channels can be moved from one server to another one, but the move
+          channel command has to be used for this task.
+        </para>
+        <para>
+          The object for the add or update channel command has the same
+          structure as the add channel command, only the value of the
+          <literal>commandType</literal> member is different:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be added or updated. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string
+                  <literal>add_or_update_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>controlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support that shall
+                  be used for the channel.
+                  This is the same identifier that is also used in configuration
+                  files. 
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels for the channel (identified by their
+                  decimation periods specified in seconds).
+                  The raw decimation level (with a decimation period of zero) is
+                  always added, even if it is not specified in the array.
+                  If the whole array is <literal>null</literal>, this is
+                  interpreted like an array containing zero as its only element.
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevelToRetentionPeriod</entry>
+                <entry>map of int to int</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  retention period for each decimation level (specified in
+                  seconds).
+                  Each member uses the decimation period of the respective
+                  decimation level as its key and the retention period as its
+                  value.
+                  A value of zero means that samples shall be retained
+                  indefinitely.
+                  Entries for a decimation level that is not also specified in
+                  <literal>decimationLevels</literal> are discarded (except for
+                  the raw decimation level which is always included implicitly).
+                  Negative retention periods are converted to zero.
+                  If a decimation level is specified in
+                  <literal>decimationLevels</literal>, but not in
+                  <literal>decimationLevelToRetentionPeriod</literal>, a
+                  retention period of zero is assumed.
+                  If the whole object is <literal>null</literal>, a retention
+                  period of zero is used for all decimation levels.
+                </entry>
+              </row>
+              <row>
+                <entry>enabled</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if archiving shall be enabled for the
+                  channel, <literal>false</literal> if archiving shall be
+                  disabled.
+                </entry>
+              </row>
+              <row>
+                <entry>options</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  control-system-specific configuration options.
+                  The member key is the option name and the member value is the
+                  option value.
+                  Specifying <literal>null</literal> has the same effect as
+                  specifying an empty object.  
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  UUID of the server to which the channel shall be added if it
+                  does not exist yet or to which it must belong if it already
+                  exists.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Move channel</bridgehead>
+        <para>
+          The move channel command moves a channel from one server to a
+          another one.
+          If the specified channel does not exist, the command fails.
+          It also fails if the specified <literal>expectedOldServerId</literal>
+          does not match the server ID of the channel’s current server.
+          The object for the move channel command has the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be moved. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string <literal>move_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>expectedOldServerId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  expected UUID of the server which currently owns the channel.
+                  If <literal>null</literal>, the channel is moved regardless of
+                  the server it currently belongs to.
+                </entry>
+              </row>
+              <row>
+                <entry>newServerId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  UUID of the server to which the channel shall be moved.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Refresh channel</bridgehead>
+        <para>
+          The refresh channel command causes a server to temporarily stop
+          archiving for that channel, reload its configuration, and resume
+          archiving with the freshly loaded configuration.
+          This command succeeds, even if the channel does not exist or actually
+          exists on a different server.
+          However, the actual refresh action only happens on the specified
+          server.
+          The object for the refresh channel command has the following
+          structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be refreshed. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string <literal>refresh_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  UUID of the server on which the refresh action should run.
+                  This does not have to be, but typically should be the UUID of
+                  the server that owns the channel.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Remove channel</bridgehead>
+        <para>
+          The remove channel command deletes a channel (and all its data).
+          If the specified channel does not exist, the command fails.
+          It also fails if the specified <literal>expectedServerId</literal>
+          does not match the server ID of the channel’s current server.
+          The object for the remove channel command has the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be deleted. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string <literal>remove_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>expectedServerId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  expected UUID of the server which currently owns the channel.
+                  If <literal>null</literal>, the channel is deleted regardless
+                  of the server it currently belongs to.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Rename channel</bridgehead>
+        <para>
+          The rename channel command changes the name of a channel.
+          If the specified channel does not exist or the specified
+          <literal>newChannelName</literal> is already in use, the command
+          fails.
+          It also fails if the specified <literal>expectedServerId</literal>
+          does not match the server ID of the channel’s current server.
+          The object for the rename channel command has the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string <literal>rename_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>expectedServerId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  expected UUID of the server which currently owns the channel.
+                  If <literal>null</literal>, the channel is renamed regardless
+                  of the server it currently belongs to.
+                </entry>
+              </row>
+              <row>
+                <entry>newChannelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  new name for the channel. 
+                </entry>
+              </row>
+              <row>
+                <entry>oldChannelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  old name of the channel. 
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <bridgehead>Update channel</bridgehead>
+        <para>
+          The update channel command updates the configuration of an existing
+          channel. If the specified channel does not exist, the operation fails.
+          It also fails if the <literal>expectedControlSystemType</literal> does
+          not match the actual control-system type of the channel or the
+          <literal>expectedServerId</literal> does not match the ID of the
+          server that owns the channel.
+        </para>
+        <para>
+          The set of decimation levels that shall be added and removed can be
+          described in an explicit or in a differential fashion.
+          For an explicit description, use the
+          <literal>decimationLevels</literal> member.
+          For a differential description, use the
+          <literal>addDecimationLevels</literal> and
+          <literal>removeDecimationLevels</literal> members.
+          Only one of the two ways to describe the change can be used at the
+          same time.
+          Setting both <literal>decimationLevels</literal> and either or both of
+          <literal>addDecimationLevels</literal> and
+          <literal>removeDecimationLevels</literal> results in an error.
+        </para>
+        <para>
+          If decimation levels are listed in <literal>decimationLevels</literal>
+          or <literal>addDecimationLevels</literal>, but do not have a
+          corresponding entry in
+          <literal>decimationLevelToRetentionPeriod</literal>, a retention
+          period of zero is assumed for these decimation levels, even if they
+          already exist with a different retention period.
+        </para>
+        <para>
+          Like the decimation levels, the control-system-specific configuration
+          options can also be described in an explicit or in a differential
+          fashion.
+          For an explicit description, use the <literal>options</literal>
+          member.
+          For a differential description, use the <literal>addOptions</literal>
+          and <literal>removeOptions</literal> members.
+          Only one of the two ways to describe the change can be used at the
+          same time.
+          Setting both <literal>options</literal> and either or both of
+          <literal>addOptions</literal> and <literal>removeOptions</literal>
+          results in an error.
+        </para>
+        <para>
+          The object for the update channel command has the following structure:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>addDecimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels (identified by their decimation periods
+                  specified in seconds) that shall be added for the channel.
+                  If the whole array is <literal>null</literal> and 
+                  <literal>decimationLevels</literal> is also
+                  <literal>null</literal>, no decimation levels are added.
+                </entry>
+              </row>
+              <row>
+                <entry>addOptions</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  control-system-specific configuration options that shall be
+                  added to the channel configuration.
+                  The member key is the option name and the member value is the
+                  option value.
+                  If one of the specified options already exists, its value is
+                  updated with the specified value.
+                  If this member is <literal>null</literal> and
+                  <literal>options</literal> is also <literal>null</literal>,
+                  no control-system-specific options are added for the channel.
+                </entry>
+              </row>
+              <row>
+                <entry>channelName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the channel that shall be updated. 
+                </entry>
+              </row>
+              <row>
+                <entry>commandType</entry>
+                <entry>enum</entry>
+                <entry>string</entry>
+                <entry>
+                  always the literal string
+                  <literal>update_channel</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels for the channel (identified by their
+                  decimation periods specified in seconds).
+                  The raw decimation level (with a decimation period of zero) is
+                  always added, even if it is not specified in the array.
+                  If the whole array is <literal>null</literal> and 
+                  <literal>addDecimationLevels</literal> and
+                  <literal>removeDecimationLevels</literal> are also
+                  <literal>null</literal>, no decimation levels are added or
+                  removed.
+                  If the array is not <literal>null</literal> all existing
+                  decimation levels (except for the special raw decimation
+                  level) that are not also specified in the array are removed.
+                </entry>
+              </row>
+              <row>
+                <entry>decimationLevelToRetentionPeriod</entry>
+                <entry>map of int to int</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  retention period for each decimation level (specified in
+                  seconds).
+                  Each member uses the decimation period of the respective
+                  decimation level as its key and the retention period as its
+                  value.
+                  A value of zero means that samples shall be retained
+                  indefinitely.
+                  Entries for a decimation level that are not also specified in
+                  <literal>decimationLevels</literal> or 
+                  <literal>addDecimationLevels</literal> and that do not already
+                  exist, are discarded (except for the raw decimation level
+                  which is always included implicitly).
+                  Negative retention periods are converted to zero.
+                  If a decimation level is specified in
+                  <literal>decimationLevels</literal> or
+                  <literal>addDecimationLevels</literal>, but not in
+                  <literal>decimationLevelToRetentionPeriod</literal>, a
+                  retention period of zero is assumed.
+                  If the whole object is <literal>null</literal>, a retention
+                  period of zero is used for all decimation levels that are
+                  newly added and the retention periods of all other decimation
+                  levels are not changed.
+                </entry>
+              </row>
+              <row>
+                <entry>enabled</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  <literal>true</literal> if archiving shall be enabled for the
+                  channel, <literal>false</literal> if archiving shall be
+                  disabled.
+                  If <literal>null</literal>, the enabled flag is not changed.
+                </entry>
+              </row>
+              <row>
+                <entry>expectedControlSystemType</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  internal identifier for the control-system support that is
+                  expected to be used for the channel.
+                  If <literal>null</literal>, the channel is updated regardless
+                  of its control-system type.  
+                </entry>
+              </row>
+              <row>
+                <entry>expectedServerId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  UUID of the server to which the channel must belong.
+                  If <literal>null</literal>, the channel is updated regardless
+                  of the server to which it belongs.
+                </entry>
+              </row>
+              <row>
+                <entry>options</entry>
+                <entry>map of string to string</entry>
+                <entry>object with string member values</entry>
+                <entry>
+                  control-system-specific configuration options.
+                  The member key is the option name and the member value is the
+                  option value.
+                  If this member is not <literal>null</literal>, all options
+                  are replaced by the specified options, removing options that
+                  existed before, but were not specified.
+                  If this member is <literal>null</literal> and both
+                  <literal>addOptions</literal> and
+                  <literal>removeOptions</literal> are also
+                  <literal>null</literal>, the control-system specific options
+                  for the channel are not changed.  
+                </entry>
+              </row>
+              <row>
+                <entry>removeDecimationLevels</entry>
+                <entry>set of int</entry>
+                <entry>array of string</entry>
+                <entry>
+                  decimation levels (identified by their decimation periods
+                  specified in seconds) that shall be removed from the channel.
+                  If the whole array is <literal>null</literal> and 
+                  <literal>decimationLevels</literal> is also
+                  <literal>null</literal>, no decimation levels are removed.
+                  The special decimation level for raw samples is never removed,
+                  even if zero is an element of this array.
+                </entry>
+              </row>
+              <row>
+                <entry>removeOptions</entry>
+                <entry>set of string</entry>
+                <entry>array of string</entry>
+                <entry>
+                  control-system-specific configuration options (identified by
+                  their names) that shall be removed from the channel
+                  configuration.
+                  If one of the specified options does not exist, it simply is
+                  not removed.
+                  If this member is <literal>null</literal> and
+                  <literal>options</literal> is also <literal>null</literal>,
+                  no control-system-specific options are removed from the
+                  channel configuration.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+POST /admin/api/1.0/run-archive-configuration-commands
+
+{
+  "commands": [
+    {
+      "channelName": "someExistingChannel",
+      "commandType": "add_channel",
+      "controlSystemType": "channel_access",
+      "decimationLevels": ["0", "30", "300"],
+      "decimationLevelToRetentionPeriod": {
+        "0": "864000"
+      },
+      "enabled": true,
+      "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd"
+    },
+    {
+      "channelName": "someNewChannel",
+      "commandType": "add_channel",
+      "controlSystemType": "channel_access",
+      "decimationLevelToRetentionPeriod": {
+        "0": "31536000"
+      },
+      "enabled": true,
+      "options": {
+        "someControlSystemOption": "someValue"
+      },
+      "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd"
+    },
+    {
+      "addDecimationLevels": ["30"],
+      "channelName": "someOtherChannel",
+      "commandType": "update_channel",
+      "decimationLevelToRetentionPeriod": {
+        "0": "864000",
+        "30": "31536000"
+      }
+    }
+  ]
+}
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "results": [
+    {
+      "command": {
+        "channelName": "someExistingChannel",
+        "commandType": "add_channel",
+        "controlSystemType": "channel_access",
+        "decimationLevels": ["0", "30", "300"],
+        "decimationLevelToRetentionPeriod": {
+          "0": "864000",
+          "30": "0",
+          "300": "0"
+        },
+        "enabled": true,
+        "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd"
+      },
+      "errorMessage": "Channel \"someExistingChannel\" cannot be added because a
+↪channel with the same name already exists.",
+      "success": false
+    },
+    {
+      "command": {
+        "channelName": "someNewChannel",
+        "commandType": "add_channel",
+        "controlSystemType": "channel_access",
+        "decimationLevels": ["0"],
+        "decimationLevelToRetentionPeriod": {
+          "0": "31536000"
+        },
+        "enabled": true,
+        "options": {
+          "someControlSystemOption": "someValue"
+        },
+        "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd"
+      },
+      "success": true
+    },
+    {
+      "command": {
+        "addDecimationLevels": ["30"],
+        "channelName": "someOtherChannel",
+        "commandType": "update_channel",
+        "decimationLevelToRetentionPeriod": {
+          "0": "864000",
+          "30": "31536000"
+        }
+      },
+      "success": true
+    }
+  ]
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.cluster_status">
+      <title>Get the cluster status</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          The request URL for retrieving the cluster status has the following
+          form:
+        </para>
+<programlisting>
+/cluster-status/
+</programlisting>
+        <para>
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the <literal>servers</literal>
+          attribute as its only member.
+          The <literal>servers</literal> attribute has an array as its value
+          that contains an element for each server in the cluster.
+          Each of these elements is an object with the following attributes:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>lastOnlineTime</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  last time the server successfully registered itself with the
+                  cluster. The time is specified as the number of milliseconds
+                  since January 1st, 1970, 00:00:00 UTC.
+                </entry>
+              </row>
+              <row>
+                <entry>online</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  flag indicating whether the server is considered online. The
+                  server is considered online when it has recently renewed its
+                  registration.
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  ID of the server.
+                </entry>
+              </row>
+              <row>
+                <entry>serverName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the server. Typically, this is the
+                  hostname of the server.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+        <para>
+          If the cluster status is currently not available, HTTP error code 503
+          (service unavailable) is returned and the response body is invalid.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /cluster-status/
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "servers": [
+    {
+      "lastOnlineTime": "1490634430220",
+      "online": true,
+      "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd",
+      "serverName": "myserver"
+    },
+    {
+      "lastOnlineTime": "1490634432760",
+      "online": true,
+      "serverId": "6fc4efe0-ea4a-438e-9b0a-b5e5654cbed9",
+      "serverName": "otherserver"
+    },
+    {
+      "lastOnlineTime": "1490631012050",
+      "online": false,
+      "serverId": "8c6959e2-0388-4854-8ebf-88a752375962",
+      "serverName": "thirdserver"
+    }
+  ]
+}
+]]></programlisting>
+      </simplesect>
+    </section>
+
+    <section xml:id="admin_api.server_status">
+      <title>Get the server status</title>
+      <simplesect>
+        <title>Request</title>
+        <para>
+          This function provides status information about the targeted server.
+          In contrast to most other functions, it actually matters which server
+          is used when running this command because the result will actually
+          depend on the targeted server.
+          The request URL  has the following form:
+        </para>
+<programlisting>
+/server-status/this-server/
+</programlisting>
+        <para>
+          The request must use the <literal>GET</literal> method.
+        </para>
+      </simplesect>
+
+      <simplesect>
+        <title>Response</title>
+        <para>
+          The response is a JSON object with the following attributes:
+        </para>
+        <informaltable>
+          <tgroup align="left" cols="4">
+            <colspec colwidth="1*" />
+            <colspec colwidth="1*" />
+            <colspec colwidth="2*" />
+            <colspec colwidth="4*" />
+            <thead>
+              <row>
+                <entry>Field name</entry>
+                <entry>Internal data type</entry>
+                <entry>JSON data type</entry>
+                <entry>Description</entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>cassandraClusterName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the Cassandra cluster to which this
+                  server is connected. May be <literal>null</literal> if the
+                  server has not connected to the Cassandra cluster yet. In this
+                  case, <literal>cassandraError</literal> is not
+                  <literal>null</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>cassandraError</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  error message indicating a problem that occurred while trying
+                  to connect to the Cassandra cluster. This is
+                  <literal>null</literal> if the connection to the Cassandra
+                  cluster has been established after starting the server (even
+                  if the connection is currently disrupted).
+                </entry>
+              </row>
+              <row>
+                <entry>cassandraKeyspaceName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  name of the Cassandra keyspace which is used by the Cassandra
+                  PV Archiver. May be <literal>null</literal> if the server has
+                  not connected to the Cassandra cluster yet. In this case,
+                  <literal>cassandraError</literal> is not
+                  <literal>null</literal>.
+                </entry>
+              </row>
+              <row>
+                <entry>channelsDisconnected</entry>
+                <entry>int</entry>
+                <entry>string</entry>
+                <entry>
+                  number of channels that are in the disconnected state.
+                </entry>
+              </row>
+              <row>
+                <entry>channelsError</entry>
+                <entry>int</entry>
+                <entry>string</entry>
+                <entry>
+                  number of channels that are in the error state.
+                </entry>
+              </row>
+              <row>
+                <entry>channelsTotal</entry>
+                <entry>int</entry>
+                <entry>string</entry>
+                <entry>
+                  total number of channels on this server. If the server has not
+                  been initialized yet (e.g. because it cannot connect to the
+                  database), this number is zero, even if there are channels
+                  that belong to the server.
+                </entry>
+              </row>
+              <row>
+                <entry>serverId</entry>
+                <entry>UUID</entry>
+                <entry>string</entry>
+                <entry>
+                  ID of the server.
+                </entry>
+              </row>
+              <row>
+                <entry>serverLastOnlineTime</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  last time this server successfully registered itself with the
+                  cluster. The time is specified as the number of milliseconds
+                  since January 1st, 1970, 00:00:00 UTC. This number might be
+                  zero if the server has not successfully registered itself with
+                  the cluster since it was started.
+                </entry>
+              </row>
+              <row>
+                <entry>serverName</entry>
+                <entry>string</entry>
+                <entry>string</entry>
+                <entry>
+                  human-readable name of the server. Typically, this is the
+                  hostname of the server.
+                </entry>
+              </row>
+              <row>
+                <entry>serverOnline</entry>
+                <entry>boolean</entry>
+                <entry>boolean</entry>
+                <entry>
+                  flag indicating whether the server considers itself to be
+                  online. The server considers itself online when a sufficient
+                  amount of time has passed since successfully registering with
+                  the cluster and the renewal of the registration has not failed
+                  since.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesDropped</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  total number of samples that have been dropped (discarded) by
+                  this server because they arrived to quickly and could not be
+                  written in time. This counter is reset when the server is
+                  restarted.
+                </entry>
+              </row>
+              <row>
+                <entry>totalSamplesWritten</entry>
+                <entry>long</entry>
+                <entry>string</entry>
+                <entry>
+                  total number of samples that have been written (persisted) by
+                  this server. This counter is reset when the server is
+                  restarted.
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </informaltable>
+      </simplesect>
+
+      <simplesect>
+        <title>Example</title>
+        <para>Request:</para>
+<programlisting><![CDATA[
+GET /admin/api/1.0/server-status/this-server/
+]]></programlisting>
+        <para>Response:</para>
+<programlisting><![CDATA[
+{
+  "cassandraClusterName": "My Cassandra cluster",
+  "cassandraError": null,
+  "cassandraKeyspaceName": "pv_archive",
+  "channelsDisconnected": "1",
+  "channelsError": "0",
+  "channelsTotal": "2",
+  "serverId": "7cf8f393-cd00-46ae-9343-53e9cb5793fd",
+  "serverLastOnlineTime": "1490634430220",
+  "serverName": "myserver",
+  "serverOnline": "true",
+  "totalSamplesDropped": "3",
+  "totalSamplesWritten": "4242"
+}
 ]]></programlisting>
       </simplesect>
     </section>

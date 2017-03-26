@@ -15,4 +15,4 @@ SET JAR_FILE=%BASE_DIR%\lib\${project.groupId}.${project.parent.artifactId}-serv
 
 REM The paths to "java.exe" and to the JAR file might contain spaces, so we have
 REM to use quotes around them.
-"%JAVA%" %JAVA_OPTS% -Dcom.aquenos.cassandra.pvarchiver.server.spring.ArchiveServerApplication.defaultConfigurationFileLocation=%BASE_DIR%\conf\cassandra-pv-archiver.yaml -jar "%JAR_FILE%" %*
+"%JAVA%" %JAVA_OPTS% -Dcom.aquenos.cassandra.pvarchiver.server.spring.ArchiveServerApplication.defaultConfigurationFileLocation="%BASE_DIR%\conf\cassandra-pv-archiver.yaml" -jar "%JAR_FILE%" %*
