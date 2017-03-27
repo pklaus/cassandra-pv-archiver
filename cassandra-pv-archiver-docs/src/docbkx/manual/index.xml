@@ -674,6 +674,21 @@
           </simpara>
         </listitem>
       </itemizedlist>
+      <section xml:id="news.version_3.1.1">
+        <title>Cassandra PV Archiver 3.1.1</title>
+        <para>
+          Version 3.1.1 is a bugfix release that fixes an issue with displaying
+          the channel state in the channel list.
+        </para>
+        <para>
+          Unfortunately, a regression was introduced shortly before the release
+          of version 3.0.0.
+          This regression caused the state of a channel not to be visible in the
+          list view (but it would show on the details page for a channel).
+          This problem is fixed in version 3.0.1 so that the state now is also
+          visible in the list view (like it was in older versions).
+        </para>
+      </section>
     </section>
   </chapter>
 

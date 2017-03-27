@@ -187,17 +187,17 @@
                   switch (type) {
                   case "filter":
                     switch (data) {
-                    case "DESTROYED":
+                    case "destroyed":
                       return i18nColumnStateDestroyed;
-                    case "DISABLED":
+                    case "disabled":
                       return i18nColumnStateDisabled;
-                    case "DISCONNECTED":
+                    case "disconnected":
                       return i18nColumnStateDisconnected;
-                    case "ERROR":
+                    case "error":
                       return i18nColumnStateError;
-                    case "INITIALIZING":
+                    case "initializing":
                       return i18nColumnStateInitializing;
-                    case "OK":
+                    case "ok":
                       return i18nColumnStateOk;
                     default:
                       return "";
@@ -205,17 +205,17 @@
                   case "sort":
                   case "type":
                     switch (data) {
-                    case "DESTROYED":
+                    case "destroyed":
                       return "5";
-                    case "DISABLED":
+                    case "disabled":
                       return "2";
-                    case "DISCONNECTED":
+                    case "disconnected":
                       return "3";
-                    case "ERROR":
+                    case "error":
                       return "4";
-                    case "INITIALIZING":
+                    case "initializing":
                       return "0";
-                    case "OK":
+                    case "ok":
                       return "1";
                     default:
                       return "";
@@ -224,27 +224,27 @@
                     var cssClass;
                     var label;
                     switch (data) {
-                    case "DESTROYED":
+                    case "destroyed":
                       cssClass = "fa fa-times-circle-o text-danger";
                       label = i18nColumnStateDestroyed;
                       break;
-                    case "DISABLED":
+                    case "disabled":
                       cssClass = "fa fa-times-circle-o";
                       label = i18nColumnStateDisabled;
                       break;
-                    case "DISCONNECTED":
+                    case "disconnected":
                       cssClass = "fa fa-times-circle-o text-warning";
                       label = i18nColumnStateDisconnected;
                       break;
-                    case "ERROR":
+                    case "error":
                       cssClass = "fa fa-times-circle-o text-danger";
                       label = i18nColumnStateError;
                       break;
-                    case "INITIALIZING":
+                    case "initializing":
                       cssClass = "fa fa-clock-o text-info";
                       label = i18nColumnStateInitializing;
                       break;
-                    case "OK":
+                    case "ok":
                       cssClass = "fa fa-check-circle-o text-success";
                       label = i18nColumnStateOk;
                       break;
