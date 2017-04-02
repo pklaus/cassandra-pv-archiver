@@ -85,7 +85,7 @@ public final class UpdateChannelOperation {
             operation.operationId = UUID.randomUUID();
             operation.pendingOperationCreatedTime = System.currentTimeMillis();
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(operation.serverId,
+                    .createPendingChannelOperationRelaxed(operation.serverId,
                             operation.channelName, operation.operationId,
                             PendingChannelOperationConstants.OPERATION_UPDATE,
                             "",
@@ -150,7 +150,7 @@ public final class UpdateChannelOperation {
                     .equals(operation.serverId)
                     || !operation.clusterManagementService.isOnline())) {
                 future = operation.channelMetaDataDAO
-                        .updatePendingChannelOperation(operation.serverId,
+                        .updatePendingChannelOperationRelaxed(operation.serverId,
                                 operation.channelName, operation.operationId,
                                 UUID.randomUUID(),
                                 PendingChannelOperationConstants.OPERATION_PROTECTIVE,

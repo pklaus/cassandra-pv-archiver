@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -87,7 +87,7 @@ public final class AddChannelOperation {
                 final AddChannelOperation operation) throws Exception {
             operation.pendingOperationCreatedTime = System.currentTimeMillis();
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             PendingChannelOperationConstants.UNASSIGNED_SERVER_ID,
                             operation.channelName,
                             operation.operationId,
@@ -115,7 +115,7 @@ public final class AddChannelOperation {
         public ListenableFuture<AddChannelOperation> apply(
                 final AddChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             operation.serverId,
                             operation.channelName,
                             operation.operationId,
@@ -192,7 +192,7 @@ public final class AddChannelOperation {
                     && (!operation.thisServerId.equals(operation.serverId) || !operation.clusterManagementService
                             .isOnline())) {
                 future = operation.channelMetaDataDAO
-                        .updatePendingChannelOperation(
+                        .updatePendingChannelOperationRelaxed(
                                 operation.serverId,
                                 operation.channelName,
                                 operation.operationId,

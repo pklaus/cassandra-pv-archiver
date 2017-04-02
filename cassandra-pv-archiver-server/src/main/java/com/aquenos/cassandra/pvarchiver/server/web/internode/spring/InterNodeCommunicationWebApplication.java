@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -33,6 +33,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.web.filter.CharacterEncodingFilter;
 import org.springframework.web.servlet.DispatcherServlet;
+import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
 import org.springframework.web.servlet.config.annotation.ContentNegotiationConfigurer;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
@@ -120,6 +121,16 @@ public class InterNodeCommunicationWebApplication {
      */
     @Configuration
     public static class WebMvcConfiguration extends WebMvcConfigurerAdapter {
+
+        @Override
+        public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
+            // We cannot set the timeout on a per request basis because we
+            // return ListenableFutures instead of DeferredResults.
+            // TODO Make the timeout configurable. This should probably be the
+            // same timeout as the one used for the
+            // AsyncClientHttpRequestFactory.
+            configurer.setDefaultTimeout(900000L);
+        }
 
         @Override
         public void configureContentNegotiation(

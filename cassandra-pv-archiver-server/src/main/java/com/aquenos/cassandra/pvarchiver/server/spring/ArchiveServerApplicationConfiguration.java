@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -144,7 +144,21 @@ public class ArchiveServerApplicationConfiguration {
      */
     @Bean
     public AsyncClientHttpRequestFactory asyncClientHttpRequestFactory() {
-        return new OkHttp3ClientHttpRequestFactory();
+        OkHttp3ClientHttpRequestFactory factory = new OkHttp3ClientHttpRequestFactory();
+        // We leave the connection and write timeouts at their default settings,
+        // but set a long read timeout. The reason for this is that a server
+        // should quickly accept a connection and read the request body, but
+        // depending on the operations requested, the response might only be
+        // received after quite a long amount of time (for example when changing
+        // the configuration for thousands of channels).
+        // It would be preferable to set this timeout on a per-request basis, so
+        // that a shorter timeout is used for requests which should be answered
+        // quickly and a longer one for requests that might take a lot of time.
+        // However, connections might get reused for different requests and we
+        // can only set the timeout on the socket / connection level.
+        // TODO Make the timeout configurable.
+        factory.setReadTimeout(900000);
+        return factory;
     }
 
     /**

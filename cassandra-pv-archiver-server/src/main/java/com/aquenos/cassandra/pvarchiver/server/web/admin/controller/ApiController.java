@@ -516,6 +516,9 @@ public class ApiController {
      * Imports the channel configuration for an archive server from a
      * configuration file.
      * 
+     * @param serverId
+     *            ID of the server for which the configuration shall be
+     *            imported.
      * @param importRequest
      *            request object specifying the configuration file an other
      *            options that shall be used for the import operation.
@@ -748,6 +751,9 @@ public class ApiController {
     /**
      * Runs archive configuration commands.
      * 
+     * @param request
+     *            request object wrapping the list of archive configuration
+     *            commands that shall be run.
      * @param response
      *            HTTP servlet response. The response is used to send the
      *            appropriate status code in case there is an error.

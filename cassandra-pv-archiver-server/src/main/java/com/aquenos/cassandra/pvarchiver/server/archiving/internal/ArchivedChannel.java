@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -310,7 +310,7 @@ class ArchivedChannel<SampleType extends Sample> {
         operationDataBuilder.append(newBucketStartTime);
         operationDataBuilder.append("\" }, ");
         ListenableFuture<Pair<Boolean, UUID>> createPendingOperationFuture = channelMetaDataDAO
-                .createPendingChannelOperation(
+                .createPendingChannelOperationRelaxed(
                         thisServerId,
                         channelName,
                         operationId,

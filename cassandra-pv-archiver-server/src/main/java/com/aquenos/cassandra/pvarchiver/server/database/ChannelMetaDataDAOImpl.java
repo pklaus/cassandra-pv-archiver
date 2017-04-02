@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -21,24 +23,29 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 
 import com.aquenos.cassandra.pvarchiver.common.AbstractObjectResultSet;
 import com.aquenos.cassandra.pvarchiver.common.ObjectResultSet;
+import com.aquenos.cassandra.pvarchiver.server.util.AsyncFunctionUtils;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ColumnDefinitions;
+import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.exceptions.WriteTimeoutException;
 import com.datastax.driver.core.schemabuilder.SchemaBuilder;
 import com.datastax.driver.mapping.MappingManager;
 import com.datastax.driver.mapping.annotations.Accessor;
@@ -56,6 +63,9 @@ import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.google.common.util.concurrent.SettableFuture;
+
+import io.netty.util.internal.ThreadLocalRandom;
 
 /**
  * Implementation of the data-access object for accessing the channel meta-data.
@@ -66,8 +76,8 @@ import com.google.common.util.concurrent.ListenableFutureTask;
  * 
  * @author Sebastian Marsching
  */
-public class ChannelMetaDataDAOImpl
-        implements ChannelMetaDataDAO, SmartInitializingSingleton {
+public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
+        InitializingBean, SmartInitializingSingleton {
 
     /**
      * Interfaces used for queries to the <code>channels</code> table using the
@@ -328,7 +338,7 @@ public class ChannelMetaDataDAOImpl
                 + " WHERE " + COLUMN_SERVER_ID + " = ? AND "
                 + COLUMN_CHANNEL_NAME + " = ?;")
         @QueryParameters(fetchSize = Integer.MAX_VALUE)
-        ResultSetFuture getOperation(UUID serverId, String channelName);
+        Statement getOperation(UUID serverId, String channelName);
 
         @Query("SELECT * FROM " + TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER
                 + " WHERE " + COLUMN_SERVER_ID + " = ?;")
@@ -466,13 +476,40 @@ public class ChannelMetaDataDAOImpl
     private ChannelsAccessor channelsAccessor;
     private ChannelsByServerAccessor channelsByServerAccessor;
     private AtomicBoolean initializationInProgress = new AtomicBoolean();
+    private long pendingChannelOperationMaxSleepMilliseconds = 2200L;
+    private int pendingChannelOperationMaxTries = 3;
+    private long pendingChannelOperationMinSleepMilliseconds = 800L;
     private PendingChannelOperationsByServerAccessor pendingChannelOperationsByServerAccessor;
     private ThreadPoolExecutor renameChannelExecutor = new ThreadPoolExecutor(0,
             1, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+    private ConsistencyLevel serialConsistencyLevel;
     // The session field is volatile so that we can do the initialization
     // without having to synchronize on a mutex in order to check whether the
     // initialization has completed.
     private volatile Session session;
+    private Timer timer;
+
+    private static ListenableFuture<ObjectResultSet<SampleBucketInformation>> resultSetFutureToSampleBucketInformationSetFuture(
+            ResultSetFuture resultSetFuture) {
+        return Futures.transform(resultSetFuture,
+                FUNCTION_CQL_RESULT_SET_TO_SAMPLE_BUCKET_INFORMATION_SET);
+    }
+
+    private static void rethrow(Throwable t) {
+        if (t instanceof RuntimeException) {
+            throw (RuntimeException) t;
+        } else if (t instanceof Error) {
+            throw (Error) t;
+        } else {
+            throw new RuntimeException(t);
+        }
+    }
+
+    private static void rethrowIfNotWriteTimeoutException(Throwable t) {
+        if (!(t instanceof WriteTimeoutException)) {
+            rethrow(t);
+        }
+    }
 
     /**
      * Handles {@link CassandraProviderInitializedEvent}s. This event is used
@@ -520,6 +557,122 @@ public class ChannelMetaDataDAOImpl
         this.cassandraProvider = cassandraProvider;
     }
 
+    /**
+     * <p>
+     * Sets the maximum time to wait before retrying a failed write operation
+     * (light-weight transaction) for a pending channel operation. The time is
+     * specified in milliseconds and should be greater than or equal to the time
+     * set through
+     * {@link #setPendingChannelOperationMinSleepMilliseconds(long)}.
+     * </p>
+     * <p>
+     * This setting only has an effect if the number of tries (set through
+     * {@link #setPendingChannelOperationMaxTries(int)}) is greater than one.
+     * </p>
+     * <p>
+     * If not configured explicitly, the upper limit for the delay is 2200 ms.
+     * </p>
+     * 
+     * @param pendingChannelOperationMaxSleepMilliseconds
+     *            max. time to wait between two write attempts (in
+     *            milliseconds). Must be greater than or equal to zero.
+     * @throws IllegalArgumentException
+     *             if <code>pendingChannelOperationMinSleepMilliseconds</code>
+     *             is negative.
+     * @see #setPendingChannelOperationMinSleepMilliseconds(long)
+     * @see #setPendingChannelOperationMaxTries(int)
+     */
+    public void setPendingChannelOperationMaxSleepMilliseconds(
+            long pendingChannelOperationMaxSleepMilliseconds) {
+        Preconditions.checkArgument(
+                pendingChannelOperationMaxSleepMilliseconds >= 0L,
+                "The sleep time must be greater than or equal to zero.");
+        this.pendingChannelOperationMaxSleepMilliseconds = pendingChannelOperationMaxSleepMilliseconds;
+    }
+
+    /**
+     * <p>
+     * Set the maximum number of attempts that are made when creating, updating,
+     * or deleting a pending channel operation.
+     * </p>
+     * <p>
+     * All modifications regarding pending channel operations are implemented as
+     * light-weight transactions (LWTs). These kind of operations have are more
+     * likely to timeout than other write operations. For this reason, this
+     * parameter allows to define the number of attempts that are made in case
+     * of a timeout. In case of a different error, no attempts to retry an
+     * operation are made and the operation fails immediately, even if the
+     * number of tries has not been reached yet.
+     * </p>
+     * <p>
+     * An artificial delay is introduced between two attempts in order to give
+     * an overloaded database cluster a chance to recover. This delay is chosen
+     * randomly, but always within the range set through the
+     * {@link #setPendingChannelOperationMinSleepMilliseconds(long)} and
+     * {@link #setPendingChannelOperationMaxSleepMilliseconds(long)} methods.
+     * </p>
+     * <p>
+     * If not configured explicitly, up to three attempts are made by default.
+     * </p>
+     * 
+     * @param pendingChannelOperationMaxTries
+     *            max. number of attempts when creating, updating, or deleting a
+     *            pending channel operation. Must be equal to or greater than
+     *            one.
+     * @throws IllegalArgumentException
+     *             if <code>pendingChannelOperationMaxTries</code> is less than
+     *             one.
+     * @see #setPendingChannelOperationMaxSleepMilliseconds(long)
+     * @see #setPendingChannelOperationMinSleepMilliseconds(long)
+     */
+    public void setPendingChannelOperationMaxTries(
+            int pendingChannelOperationMaxTries) {
+        Preconditions.checkArgument(pendingChannelOperationMaxTries >= 1,
+                "The max. number of tries must at least be one.");
+        this.pendingChannelOperationMaxTries = pendingChannelOperationMaxTries;
+    }
+
+    /**
+     * <p>
+     * Sets the minimum time to wait before retrying a failed write operation
+     * (light-weight transaction) for a pending channel operation. The time is
+     * specified in milliseconds and should be less than or equal to the time
+     * set through
+     * {@link #setPendingChannelOperationMaxSleepMilliseconds(long)}.
+     * </p>
+     * <p>
+     * This setting only has an effect if the number of tries (set through
+     * {@link #setPendingChannelOperationMaxTries(int)}) is greater than one.
+     * </p>
+     * <p>
+     * If not configured explicitly, the upper limit for the delay is 800 ms.
+     * </p>
+     * 
+     * @param pendingChannelOperationMinSleepMilliseconds
+     *            min. time to wait between two write attempts (in
+     *            milliseconds). Must be greater than or equal to zero.
+     * @throws IllegalArgumentException
+     *             if <code>pendingChannelOperationMinSleepMilliseconds</code>
+     *             is negative.
+     * @see #setPendingChannelOperationMaxSleepMilliseconds(long)
+     * @see #setPendingChannelOperationMaxTries(int)
+     */
+    public void setPendingChannelOperationMinSleepMilliseconds(
+            long pendingChannelOperationMinSleepMilliseconds) {
+        Preconditions.checkArgument(
+                pendingChannelOperationMinSleepMilliseconds >= 0L,
+                "The sleep time must be greater than or equal to zero.");
+        this.pendingChannelOperationMinSleepMilliseconds = pendingChannelOperationMinSleepMilliseconds;
+    }
+
+    @Override
+    public void afterPropertiesSet() throws Exception {
+        if (pendingChannelOperationMaxSleepMilliseconds < pendingChannelOperationMinSleepMilliseconds) {
+            pendingChannelOperationMaxSleepMilliseconds = pendingChannelOperationMinSleepMilliseconds;
+        }
+        timer = new Timer("Timer-ChannelMetaDataDAOImpl", true);
+    }
+
     @Override
     public void afterSingletonsInstantiated() {
         // We do this check here and not in the setCassandraProvider method
@@ -527,123 +680,6 @@ public class ChannelMetaDataDAOImpl
         // not miss any events.
         if (this.cassandraProvider.isInitialized()) {
             initialize();
-        }
-    }
-
-    private void checkInitialized() {
-        if (session == null) {
-            throw new IllegalStateException(
-                    "The ChannelMetaDataDAO has not been completely initialized yet.");
-        }
-    }
-
-    private void createAccessors() {
-        // The accessors should only be created once. We only check whether
-        // there is a session, because we assign the session after creating the
-        // accessors. Only the session field is volatile but this is okay
-        // because it is read first and written last.
-        if (session != null) {
-            return;
-        }
-        Session session = cassandraProvider.getSession();
-        MappingManager mappingManager = new MappingManager(session);
-        // The session field is volatile. The accessor fields are not, but this
-        // works because we only proceed if the session field is not null and
-        // the Java memory model guarantees that reading a volatile field makes
-        // all changes visible that have been written before writing the
-        // respective value to this field.
-        channelsAccessor = mappingManager
-                .createAccessor(ChannelsAccessor.class);
-        channelsByServerAccessor = mappingManager
-                .createAccessor(ChannelsByServerAccessor.class);
-        pendingChannelOperationsByServerAccessor = mappingManager
-                .createAccessor(PendingChannelOperationsByServerAccessor.class);
-        this.session = session;
-    }
-
-    private void createTables() {
-        Session session = cassandraProvider.getSession();
-        // The channels table stores the IDs of all sample buckets for a
-        // channel, ordered by their start time. Separate decimation levels use
-        // separate buckets. We make the decimation level a clustering column
-        // (and not part of the partition key), because the information stored
-        // in the static columns applies to all decimation levels. We store the
-        // control-system type and the available decimation levels because we
-        // need this information when reading samples. We could find the
-        // available decimation levels by iterating over all rows for a channel,
-        // but this would be very inefficient. We also store the server ID, so
-        // that we can find the server responsible for a channel, when needed.
-        session.execute(SchemaBuilder.createTable(TABLE_CHANNELS)
-                .addPartitionKey(COLUMN_CHANNEL_NAME, DataType.text())
-                .addClusteringColumn(COLUMN_DECIMATION_LEVEL, DataType.cint())
-                .addClusteringColumn(COLUMN_BUCKET_START_TIME,
-                        DataType.bigint())
-                .addStaticColumn(COLUMN_CHANNEL_DATA_ID, DataType.uuid())
-                .addStaticColumn(COLUMN_CONTROL_SYSTEM_TYPE, DataType.text())
-                .addStaticColumn(COLUMN_DECIMATION_LEVELS,
-                        DataType.set(DataType.cint()))
-                .addStaticColumn(COLUMN_SERVER_ID, DataType.uuid())
-                .addColumn(COLUMN_BUCKET_END_TIME, DataType.bigint())
-                .ifNotExists());
-        // Most information about a channel (except the sample buckets) is
-        // stored in the channels_by_server table, because typically this
-        // information is only needed when a server starts and in this case we
-        // need the data for all channels it owns. We store the ID of the
-        // current (most recent) raw-sample bucket, so that a lookup for the
-        // most recent sample is cheaper (it is just one additional query
-        // because we do not have to find the bucket ID first).
-        session.execute(SchemaBuilder.createTable(TABLE_CHANNELS_BY_SERVER)
-                .addPartitionKey(COLUMN_SERVER_ID, DataType.uuid())
-                .addClusteringColumn(COLUMN_CHANNEL_NAME, DataType.text())
-                .addColumn(COLUMN_CHANNEL_DATA_ID, DataType.uuid())
-                .addColumn(COLUMN_CONTROL_SYSTEM_TYPE, DataType.text())
-                .addColumn(COLUMN_DECIMATION_LEVEL_TO_CURRENT_BUCKET_START_TIME,
-                        DataType.map(DataType.cint(), DataType.bigint()))
-                .addColumn(COLUMN_DECIMATION_LEVEL_TO_RETENTION_PERIOD,
-                        DataType.map(DataType.cint(), DataType.cint()))
-                .addColumn(COLUMN_ENABLED, DataType.cboolean())
-                .addColumn(COLUMN_OPTIONS,
-                        DataType.map(DataType.text(), DataType.text()))
-                .ifNotExists());
-        // We use a separate table for storing information about pending
-        // operations affecting channels. Typically, we need this information
-        // together with the channel configuration, so it might seem logical to
-        // store it in the same table. However, we need to be able to create
-        // information about a pending operation atomically, which we cannot do
-        // easily if it is stored in the same table: Depending on whether other
-        // data for the same key exists or not, we would have to use an UPDATE
-        // or INSERT operation. In addition to that, DELETEs would be
-        // complicated because in general we would not be able to delete all
-        // data for a channel (because we cannot know whether there might still
-        // be data of the other type that we should not delete) and thus we
-        // would end up with stale entries for channels that do not exist any
-        // longer.
-        session.execute(SchemaBuilder
-                .createTable(TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER)
-                .addPartitionKey(COLUMN_SERVER_ID, DataType.uuid())
-                .addClusteringColumn(COLUMN_CHANNEL_NAME, DataType.text())
-                .addColumn(COLUMN_OPERATION_DATA, DataType.text())
-                .addColumn(COLUMN_OPERATION_ID, DataType.uuid())
-                .addColumn(COLUMN_OPERATION_TYPE, DataType.text())
-                .ifNotExists());
-    }
-
-    private void initialize() {
-        // We want to avoid running to initializations threads in parallel
-        // because this would generate warnings about preparing the same queries
-        // again.
-        if (!initializationInProgress.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            createTables();
-            createAccessors();
-        } catch (Throwable t) {
-            log.error(
-                    "The initialization of the ChannelMetaDataDAO failed. Most likely, this is caused by the database being temporarily unavailable. The next initialization attempt is going to be made the next time the connection to the database is reestablished.",
-                    t);
-        } finally {
-            initializationInProgress.set(false);
         }
     }
 
@@ -850,14 +886,11 @@ public class ChannelMetaDataDAOImpl
                                         public ListenableFuture<Pair<Boolean, UUID>> apply(
                                                 Pair<Boolean, UUID> input)
                                                 throws Exception {
-                                            // If the operation
-                                            // succeeded, we can
-                                            // simply return its
-                                            // result. Otherwise,
-                                            // depending on the
-                                            // failure reason, we
-                                            // might have to try
-                                            // again.
+                                            // If the operation succeeded, we
+                                            // can simply return its result.
+                                            // Otherwise, depending on the
+                                            // failure reason, we might have to
+                                            // try again.
                                             if (input.getLeft()) {
                                                 return Futures
                                                         .immediateFuture(input);
@@ -866,10 +899,9 @@ public class ChannelMetaDataDAOImpl
                                                 return Futures
                                                         .immediateFuture(input);
                                             }
-                                            // The update failed because
-                                            // there was no row that
-                                            // could be updated, so we
-                                            // try the CREATE again.
+                                            // The update failed because there
+                                            // was no row that could be updated,
+                                            // so we try the CREATE again.
                                             return createPendingChannelOperation(
                                                     serverId, channelName,
                                                     operationId, operationType,
@@ -884,6 +916,15 @@ public class ChannelMetaDataDAOImpl
             // a future would fail again.
             return Futures.immediateFailedFuture(e);
         }
+    }
+
+    @Override
+    public ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperationRelaxed(
+            UUID serverId, String channelName, UUID operationId,
+            String operationType, String operationData, int ttl) {
+        return createPendingChannelOperationRelaxed(serverId, channelName,
+                operationId, operationType, operationData, ttl,
+                pendingChannelOperationMaxTries - 1);
     }
 
     @Override
@@ -1013,58 +1054,8 @@ public class ChannelMetaDataDAOImpl
     @Override
     public ListenableFuture<Pair<Boolean, UUID>> deletePendingChannelOperation(
             UUID serverId, String channelName, UUID operationId) {
-        // We wrap the whole method body in a try-catch block, because we want
-        // to avoid this method throwing an exception directly. Instead, we
-        // return a future that throws the exception. This way, the calling code
-        // can deal with exceptions in a unified way instead of having to deal
-        // with exceptions from both this method and the returned future.
-        try {
-            if (log.isDebugEnabled()) {
-                log.debug("deletePendingChannelOperation(serverId=" + serverId
-                        + ", channelName=\""
-                        + StringEscapeUtils.escapeJava(channelName)
-                        + "\", operationId=" + operationId + ")");
-            }
-            checkInitialized();
-            return Futures.transform(
-                    pendingChannelOperationsByServerAccessor
-                            .deleteOperationIfIdMatches(serverId, channelName,
-                                    operationId),
-                    new Function<ResultSet, Pair<Boolean, UUID>>() {
-                        @Override
-                        public Pair<Boolean, UUID> apply(ResultSet input) {
-                            Row row = input.one();
-                            boolean applied = input.wasApplied();
-                            // If the operation has already been deleted (or
-                            // disappeared because of its TTL), applied is false
-                            // even though the row does not exist any longer. We
-                            // can detect this situation by checking whether the
-                            // row contains additional information. If the
-                            // operation has been declined because the operation
-                            // ID did not match, there must be a different
-                            // operation ID.
-                            if (applied || !row.getColumnDefinitions()
-                                    .contains(COLUMN_OPERATION_ID)) {
-                                return Pair.of(true, null);
-                            }
-                            // If we got an operation ID, the delete failed
-                            // because it did not match and we want to return
-                            // the ID stored in the database. However, due to
-                            // stale rows, we might get a null ID. For all
-                            // practical purposes, we treat such a rows as a
-                            // non-existing one, so we still return true.
-                            UUID storedOperationId = row
-                                    .getUUID(COLUMN_OPERATION_ID);
-                            return Pair.of(storedOperationId == null,
-                                    storedOperationId);
-                        }
-                    });
-        } catch (Exception e) {
-            // We do not catch errors, because they typically indicate a very
-            // severe exception and it is possible that trying to wrap them in
-            // a future would fail again.
-            return Futures.immediateFailedFuture(e);
-        }
+        return deletePendingChannelOperation(serverId, channelName, operationId,
+                pendingChannelOperationMaxTries);
     }
 
     @Override
@@ -1329,50 +1320,7 @@ public class ChannelMetaDataDAOImpl
     @Override
     public ListenableFuture<ChannelOperation> getPendingChannelOperation(
             UUID serverId, String channelName) {
-        // We wrap the whole method body in a try-catch block, because we want
-        // to avoid this method throwing an exception directly. Instead, we
-        // return a future that throws the exception. This way, the calling code
-        // can deal with exceptions in a unified way instead of having to deal
-        // with exceptions from both this method and the returned future.
-        try {
-            checkInitialized();
-            return Futures.transform(
-                    pendingChannelOperationsByServerAccessor
-                            .getOperation(serverId, channelName),
-                    new Function<ResultSet, ChannelOperation>() {
-                        @Override
-                        public ChannelOperation apply(ResultSet input) {
-                            Row row = input.one();
-                            if (row == null) {
-                                return null;
-                            }
-                            UUID operationId = row.getUUID(COLUMN_OPERATION_ID);
-                            // We might find an operation with a null ID because
-                            // the operation was updated with a shorter TTL than
-                            // the one that was used when inserting it. This
-                            // way, the primary key is still present in the
-                            // database (and generates a row), but there is no
-                            // actual record. We simply want to ignore such
-                            // records and treat them as non-existing.
-                            // Eventually, the TTL of the primary key will
-                            // expire and the row will vanish.
-                            if (operationId == null) {
-                                return null;
-                            }
-                            return new ChannelOperation(
-                                    row.getString(COLUMN_CHANNEL_NAME),
-                                    row.getString(COLUMN_OPERATION_DATA),
-                                    row.getUUID(COLUMN_OPERATION_ID),
-                                    row.getString(COLUMN_OPERATION_TYPE),
-                                    row.getUUID(COLUMN_SERVER_ID));
-                        }
-                    });
-        } catch (Exception e) {
-            // We do not catch errors, because they typically indicate a very
-            // severe exception and it is possible that trying to wrap them in
-            // a future would fail again.
-            return Futures.immediateFailedFuture(e);
-        }
+        return getPendingChannelOperation(serverId, channelName, false);
     }
 
     @Override
@@ -1442,12 +1390,6 @@ public class ChannelMetaDataDAOImpl
             // a future would fail again.
             return Futures.immediateFailedFuture(e);
         }
-    }
-
-    private static ListenableFuture<ObjectResultSet<SampleBucketInformation>> resultSetFutureToSampleBucketInformationSetFuture(
-            ResultSetFuture resultSetFuture) {
-        return Futures.transform(resultSetFuture,
-                FUNCTION_CQL_RESULT_SET_TO_SAMPLE_BUCKET_INFORMATION_SET);
     }
 
     @Override
@@ -1890,6 +1832,568 @@ public class ChannelMetaDataDAOImpl
             // a future would fail again.
             return Futures.immediateFailedFuture(e);
         }
+    }
+
+    @Override
+    public ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperationRelaxed(
+            UUID serverId, String channelName, UUID oldOperationId,
+            UUID newOperationId, String newOperationType,
+            String newOperationData, int ttl) {
+        return updatePendingChannelOperationRelaxed(serverId, channelName,
+                oldOperationId, newOperationId, newOperationType,
+                newOperationData, ttl, pendingChannelOperationMaxTries);
+    }
+
+    private void checkInitialized() {
+        if (session == null) {
+            throw new IllegalStateException(
+                    "The ChannelMetaDataDAO has not been completely initialized yet.");
+        }
+    }
+
+    private void createAccessors(Session session) {
+        // The accessors should only be created once. We only check whether
+        // there is a session, because we assign the session after creating the
+        // accessors. Only the session field is volatile but this is okay
+        // because it is read first and written last.
+        if (this.session != null) {
+            return;
+        }
+        MappingManager mappingManager = new MappingManager(session);
+        // The session field is volatile. The accessor fields are not, but this
+        // works because we only proceed if the session field is not null and
+        // the Java memory model guarantees that reading a volatile field makes
+        // all changes visible that have been written before writing the
+        // respective value to this field.
+        channelsAccessor = mappingManager
+                .createAccessor(ChannelsAccessor.class);
+        channelsByServerAccessor = mappingManager
+                .createAccessor(ChannelsByServerAccessor.class);
+        pendingChannelOperationsByServerAccessor = mappingManager
+                .createAccessor(PendingChannelOperationsByServerAccessor.class);
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperationRelaxed(
+            final UUID serverId, final String channelName,
+            final UUID operationId, final String operationType,
+            final String operationData, final int ttl,
+            final int remainingTries) {
+        return FutureUtils.transform(
+                createPendingChannelOperation(serverId, channelName,
+                        operationId, operationType, operationData, ttl),
+                AsyncFunctionUtils.<Pair<Boolean, UUID>> identity(),
+                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                            Throwable input) throws Exception {
+                        // For LWTs, write timeouts are likely, even if the
+                        // operation actually succeeded (CASSANDRA-9328).
+                        // For this reason, we do a SELECT with the serial
+                        // consistency level to check whether there actually
+                        // still is a record.
+                        rethrowIfNotWriteTimeoutException(input);
+                        final Throwable originalException = input;
+                        return FutureUtils.transform(
+                                getPendingChannelOperation(serverId,
+                                        channelName, true),
+                                new AsyncFunction<ChannelOperation, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            ChannelOperation input) {
+                                        if (input == null) {
+                                            // If there is no record, the INSERT
+                                            // has actually failed and we
+                                            // rethrow the original exception if
+                                            // we have no more tries left.
+                                            if (remainingTries > 0) {
+                                                return retryCreatePendingChannelOperation(
+                                                        serverId, channelName,
+                                                        operationId,
+                                                        operationType,
+                                                        operationData, ttl,
+                                                        remainingTries - 1);
+                                            } else {
+                                                rethrow(originalException);
+                                                // This code is never reached.
+                                                return null;
+                                            }
+                                        }
+                                        if (new EqualsBuilder()
+                                                .append(operationId,
+                                                        input.getOperationId())
+                                                .append(operationType,
+                                                        input.getOperationType())
+                                                .append(operationData,
+                                                        input.getOperationData())
+                                                .isEquals()) {
+                                            return Futures.immediateFuture(
+                                                    Pair.<Boolean, UUID> of(
+                                                            true, null));
+                                        } else {
+                                            return Futures.immediateFuture(
+                                                    Pair.of(false, input
+                                                            .getOperationId()));
+                                        }
+                                    }
+                                },
+                                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            Throwable input) {
+                                        if (remainingTries > 0) {
+                                            return retryCreatePendingChannelOperation(
+                                                    serverId, channelName,
+                                                    operationId, operationType,
+                                                    operationData, ttl,
+                                                    remainingTries - 1);
+                                        } else {
+                                            // If the read operation fails as
+                                            // well, we rather throw the
+                                            // original exception.
+                                            rethrow(originalException);
+                                            // This code is never reached.
+                                            return null;
+                                        }
+                                    }
+                                });
+                    }
+                });
+    }
+
+    private void createTables(Session session) {
+        // The channels table stores the IDs of all sample buckets for a
+        // channel, ordered by their start time. Separate decimation levels use
+        // separate buckets. We make the decimation level a clustering column
+        // (and not part of the partition key), because the information stored
+        // in the static columns applies to all decimation levels. We store the
+        // control-system type and the available decimation levels because we
+        // need this information when reading samples. We could find the
+        // available decimation levels by iterating over all rows for a channel,
+        // but this would be very inefficient. We also store the server ID, so
+        // that we can find the server responsible for a channel, when needed.
+        session.execute(SchemaBuilder.createTable(TABLE_CHANNELS)
+                .addPartitionKey(COLUMN_CHANNEL_NAME, DataType.text())
+                .addClusteringColumn(COLUMN_DECIMATION_LEVEL, DataType.cint())
+                .addClusteringColumn(COLUMN_BUCKET_START_TIME,
+                        DataType.bigint())
+                .addStaticColumn(COLUMN_CHANNEL_DATA_ID, DataType.uuid())
+                .addStaticColumn(COLUMN_CONTROL_SYSTEM_TYPE, DataType.text())
+                .addStaticColumn(COLUMN_DECIMATION_LEVELS,
+                        DataType.set(DataType.cint()))
+                .addStaticColumn(COLUMN_SERVER_ID, DataType.uuid())
+                .addColumn(COLUMN_BUCKET_END_TIME, DataType.bigint())
+                .ifNotExists());
+        // Most information about a channel (except the sample buckets) is
+        // stored in the channels_by_server table, because typically this
+        // information is only needed when a server starts and in this case we
+        // need the data for all channels it owns. We store the ID of the
+        // current (most recent) raw-sample bucket, so that a lookup for the
+        // most recent sample is cheaper (it is just one additional query
+        // because we do not have to find the bucket ID first).
+        session.execute(SchemaBuilder.createTable(TABLE_CHANNELS_BY_SERVER)
+                .addPartitionKey(COLUMN_SERVER_ID, DataType.uuid())
+                .addClusteringColumn(COLUMN_CHANNEL_NAME, DataType.text())
+                .addColumn(COLUMN_CHANNEL_DATA_ID, DataType.uuid())
+                .addColumn(COLUMN_CONTROL_SYSTEM_TYPE, DataType.text())
+                .addColumn(COLUMN_DECIMATION_LEVEL_TO_CURRENT_BUCKET_START_TIME,
+                        DataType.map(DataType.cint(), DataType.bigint()))
+                .addColumn(COLUMN_DECIMATION_LEVEL_TO_RETENTION_PERIOD,
+                        DataType.map(DataType.cint(), DataType.cint()))
+                .addColumn(COLUMN_ENABLED, DataType.cboolean())
+                .addColumn(COLUMN_OPTIONS,
+                        DataType.map(DataType.text(), DataType.text()))
+                .ifNotExists());
+        // We use a separate table for storing information about pending
+        // operations affecting channels. Typically, we need this information
+        // together with the channel configuration, so it might seem logical to
+        // store it in the same table. However, we need to be able to create
+        // information about a pending operation atomically, which we cannot do
+        // easily if it is stored in the same table: Depending on whether other
+        // data for the same key exists or not, we would have to use an UPDATE
+        // or INSERT operation. In addition to that, DELETEs would be
+        // complicated because in general we would not be able to delete all
+        // data for a channel (because we cannot know whether there might still
+        // be data of the other type that we should not delete) and thus we
+        // would end up with stale entries for channels that do not exist any
+        // longer.
+        session.execute(SchemaBuilder
+                .createTable(TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER)
+                .addPartitionKey(COLUMN_SERVER_ID, DataType.uuid())
+                .addClusteringColumn(COLUMN_CHANNEL_NAME, DataType.text())
+                .addColumn(COLUMN_OPERATION_DATA, DataType.text())
+                .addColumn(COLUMN_OPERATION_ID, DataType.uuid())
+                .addColumn(COLUMN_OPERATION_TYPE, DataType.text())
+                .ifNotExists());
+    }
+
+    private <V> ListenableFuture<V> delayedFuture(
+            final Callable<ListenableFuture<V>> callable,
+            long delayMilliseconds) {
+        final SettableFuture<V> future = SettableFuture.create();
+        TimerTask timerTask = new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    FutureUtils.forward(callable.call(), future);
+                } catch (Throwable t) {
+                    future.setException(t);
+                }
+            }
+        };
+        timer.schedule(timerTask, delayMilliseconds);
+        return future;
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> deletePendingChannelOperation(
+            final UUID serverId, final String channelName,
+            final UUID operationId, final int remainingTries) {
+        // We wrap the whole method body in a try-catch block, because we want
+        // to avoid this method throwing an exception directly. Instead, we
+        // return a future that throws the exception. This way, the calling code
+        // can deal with exceptions in a unified way instead of having to deal
+        // with exceptions from both this method and the returned future.
+        try {
+            if (log.isDebugEnabled()) {
+                log.debug("deletePendingChannelOperation(serverId=" + serverId
+                        + ", channelName=\""
+                        + StringEscapeUtils.escapeJava(channelName)
+                        + "\", operationId=" + operationId + ")");
+            }
+            checkInitialized();
+            return FutureUtils.transform(
+                    pendingChannelOperationsByServerAccessor
+                            .deleteOperationIfIdMatches(serverId, channelName,
+                                    operationId),
+                    new AsyncFunction<ResultSet, Pair<Boolean, UUID>>() {
+                        @Override
+                        public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                ResultSet input) {
+                            Row row = input.one();
+                            boolean applied = input.wasApplied();
+                            // If the operation has already been deleted (or
+                            // disappeared because of its TTL), applied is false
+                            // even though the row does not exist any longer. We
+                            // can detect this situation by checking whether the
+                            // row contains additional information. If the
+                            // operation has been declined because the operation
+                            // ID did not match, there must be a different
+                            // operation ID.
+                            if (applied || !row.getColumnDefinitions()
+                                    .contains(COLUMN_OPERATION_ID)) {
+                                return Futures.immediateFuture(
+                                        Pair.<Boolean, UUID> of(true, null));
+                            }
+                            // If we got an operation ID, the delete failed
+                            // because it did not match and we want to return
+                            // the ID stored in the database. However, due to
+                            // stale rows, we might get a null ID. For all
+                            // practical purposes, we treat such a rows as a
+                            // non-existing one, so we still return true.
+                            UUID storedOperationId = row
+                                    .getUUID(COLUMN_OPERATION_ID);
+                            return Futures.immediateFuture(
+                                    Pair.of(storedOperationId == null,
+                                            storedOperationId));
+                        }
+                    }, new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                        @Override
+                        public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                Throwable input) {
+                            // For LWTs, write timeouts are likely, even if the
+                            // operation actually succeeded (CASSANDRA-9328).
+                            // For this reason, we do a SELECT with the serial
+                            // consistency level to check whether there actually
+                            // still is a record.
+                            rethrowIfNotWriteTimeoutException(input);
+                            final Throwable originalException = input;
+                            return FutureUtils.transform(
+                                    getPendingChannelOperation(serverId,
+                                            channelName, true),
+                                    new AsyncFunction<ChannelOperation, Pair<Boolean, UUID>>() {
+                                        @Override
+                                        public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                                ChannelOperation input) {
+                                            if (input == null) {
+                                                return Futures.immediateFuture(
+                                                        Pair.<Boolean, UUID> of(
+                                                                true, null));
+                                            } else {
+                                                if (input.getOperationId()
+                                                        .equals(operationId)) {
+                                                    if (remainingTries > 0) {
+                                                        return retryDeletePendingChannelOperation(
+                                                                serverId,
+                                                                channelName,
+                                                                operationId,
+                                                                remainingTries
+                                                                        - 1);
+                                                    } else {
+                                                        rethrow(originalException);
+                                                        // Never reached.
+                                                        return null;
+                                                    }
+                                                } else {
+                                                    return Futures
+                                                            .immediateFuture(
+                                                                    Pair.of(false,
+                                                                            input.getOperationId()));
+                                                }
+                                            }
+                                        }
+                                    },
+                                    new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                                        @Override
+                                        public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                                Throwable input)
+                                                throws Exception {
+                                            // If the read operation fails as
+                                            // well, we only retry if we have
+                                            // not reached the max. number of
+                                            // attempts.
+                                            if (remainingTries > 0) {
+                                                return retryDeletePendingChannelOperation(
+                                                        serverId, channelName,
+                                                        operationId,
+                                                        remainingTries - 1);
+                                            } else {
+                                                rethrow(originalException);
+                                                // Never reached.
+                                                return null;
+                                            }
+                                        }
+                                    });
+                        }
+
+                    });
+        } catch (Exception e) {
+            // We do not catch errors, because they typically indicate a very
+            // severe exception and it is possible that trying to wrap them in
+            // a future would fail again.
+            return Futures.immediateFailedFuture(e);
+        }
+    }
+
+    private ListenableFuture<ChannelOperation> getPendingChannelOperation(
+            UUID serverId, String channelName,
+            boolean useSerialConsistencyLevel) {
+        // We wrap the whole method body in a try-catch block, because we want
+        // to avoid this method throwing an exception directly. Instead, we
+        // return a future that throws the exception. This way, the calling code
+        // can deal with exceptions in a unified way instead of having to deal
+        // with exceptions from both this method and the returned future.
+        try {
+            checkInitialized();
+            Statement selectStatement = pendingChannelOperationsByServerAccessor
+                    .getOperation(serverId, channelName);
+            if (useSerialConsistencyLevel) {
+                selectStatement.setConsistencyLevel(serialConsistencyLevel);
+            }
+            return Futures.transform(session.executeAsync(selectStatement),
+                    new Function<ResultSet, ChannelOperation>() {
+                        @Override
+                        public ChannelOperation apply(ResultSet input) {
+                            Row row = input.one();
+                            if (row == null) {
+                                return null;
+                            }
+                            UUID operationId = row.getUUID(COLUMN_OPERATION_ID);
+                            // We might find an operation with a null ID because
+                            // the operation was updated with a shorter TTL than
+                            // the one that was used when inserting it. This
+                            // way, the primary key is still present in the
+                            // database (and generates a row), but there is no
+                            // actual record. We simply want to ignore such
+                            // records and treat them as non-existing.
+                            // Eventually, the TTL of the primary key will
+                            // expire and the row will vanish.
+                            if (operationId == null) {
+                                return null;
+                            }
+                            return new ChannelOperation(
+                                    row.getString(COLUMN_CHANNEL_NAME),
+                                    row.getString(COLUMN_OPERATION_DATA),
+                                    row.getUUID(COLUMN_OPERATION_ID),
+                                    row.getString(COLUMN_OPERATION_TYPE),
+                                    row.getUUID(COLUMN_SERVER_ID));
+                        }
+                    });
+        } catch (Exception e) {
+            // We do not catch errors, because they typically indicate a very
+            // severe exception and it is possible that trying to wrap them in
+            // a future would fail again.
+            return Futures.immediateFailedFuture(e);
+        }
+    }
+
+    private void initialize() {
+        // We want to avoid running to initializations threads in parallel
+        // because this would generate warnings about preparing the same queries
+        // again.
+        if (!initializationInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            Session session = cassandraProvider.getSession();
+            this.serialConsistencyLevel = session.getCluster()
+                    .getConfiguration().getQueryOptions()
+                    .getSerialConsistencyLevel();
+            createTables(session);
+            createAccessors(session);
+            this.session = session;
+        } catch (Throwable t) {
+            log.error(
+                    "The initialization of the ChannelMetaDataDAO failed. Most likely, this is caused by the database being temporarily unavailable. The next initialization attempt is going to be made the next time the connection to the database is reestablished.",
+                    t);
+        } finally {
+            initializationInProgress.set(false);
+        }
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> retryCreatePendingChannelOperation(
+            final UUID serverId, final String channelName,
+            final UUID operationId, final String operationType,
+            final String operationData, final int ttl,
+            final int remainingTries) {
+        return delayedFuture(
+                new Callable<ListenableFuture<Pair<Boolean, UUID>>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> call()
+                            throws Exception {
+                        return createPendingChannelOperationRelaxed(serverId,
+                                channelName, operationId, operationType,
+                                operationData, ttl, remainingTries);
+                    }
+                },
+                ThreadLocalRandom.current().nextLong(
+                        pendingChannelOperationMinSleepMilliseconds,
+                        pendingChannelOperationMaxSleepMilliseconds));
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> retryDeletePendingChannelOperation(
+            final UUID serverId, final String channelName,
+            final UUID operationId, final int remainingTries) {
+        return delayedFuture(
+                new Callable<ListenableFuture<Pair<Boolean, UUID>>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> call()
+                            throws Exception {
+                        return deletePendingChannelOperation(serverId,
+                                channelName, operationId, remainingTries);
+                    }
+                },
+                ThreadLocalRandom.current().nextLong(
+                        pendingChannelOperationMinSleepMilliseconds,
+                        pendingChannelOperationMaxSleepMilliseconds));
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> retryUpdatePendingChannelOperationRelaxed(
+            final UUID serverId, final String channelName,
+            final UUID oldOperationId, final UUID newOperationId,
+            final String newOperationType, final String newOperationData,
+            final int ttl, final int remainingTries) {
+        return delayedFuture(
+                new Callable<ListenableFuture<Pair<Boolean, UUID>>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> call()
+                            throws Exception {
+                        return updatePendingChannelOperationRelaxed(serverId,
+                                channelName, oldOperationId, newOperationId,
+                                newOperationType, newOperationData, ttl,
+                                remainingTries);
+                    }
+                },
+                ThreadLocalRandom.current().nextLong(
+                        pendingChannelOperationMinSleepMilliseconds,
+                        pendingChannelOperationMaxSleepMilliseconds));
+    }
+
+    private ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperationRelaxed(
+            final UUID serverId, final String channelName,
+            final UUID oldOperationId, final UUID newOperationId,
+            final String newOperationType, final String newOperationData,
+            final int ttl, final int remainingTries) {
+        return FutureUtils.transform(
+                updatePendingChannelOperation(serverId, channelName,
+                        oldOperationId, newOperationId, newOperationType,
+                        newOperationData, ttl),
+                AsyncFunctionUtils.<Pair<Boolean, UUID>> identity(),
+                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                            Throwable input) throws Exception {
+                        // For LWTs, write timeouts are likely, even if the
+                        // operation actually succeeded (CASSANDRA-9328).
+                        // For this reason, we do a SELECT with the serial
+                        // consistency level to check whether there actually
+                        // still is a record.
+                        rethrowIfNotWriteTimeoutException(input);
+                        final Throwable originalException = input;
+                        return FutureUtils.transform(
+                                getPendingChannelOperation(serverId,
+                                        channelName, true),
+                                new AsyncFunction<ChannelOperation, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            ChannelOperation input) {
+                                        if (input == null) {
+                                            // If there is no record, the UPDATE
+                                            // would have failed anyway.
+                                            return Futures.immediateFuture(
+                                                    Pair.<Boolean, UUID> of(
+                                                            false, null));
+                                        }
+                                        if (new EqualsBuilder()
+                                                .append(newOperationId,
+                                                        input.getOperationId())
+                                                .append(newOperationType,
+                                                        input.getOperationType())
+                                                .append(newOperationData,
+                                                        input.getOperationData())
+                                                .isEquals()) {
+                                            return Futures.immediateFuture(
+                                                    Pair.<Boolean, UUID> of(
+                                                            true, null));
+                                        } else if (input.getOperationId()
+                                                .equals(oldOperationId)
+                                                && remainingTries > 0) {
+                                            return retryUpdatePendingChannelOperationRelaxed(
+                                                    serverId, channelName,
+                                                    oldOperationId,
+                                                    newOperationId,
+                                                    newOperationType,
+                                                    newOperationData, ttl,
+                                                    remainingTries - 1);
+                                        } else {
+                                            return Futures.immediateFuture(
+                                                    Pair.of(false, input
+                                                            .getOperationId()));
+                                        }
+                                    }
+                                },
+                                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            Throwable input) {
+                                        // If the read operation fails as well,
+                                        // we can only try again after some
+                                        // delay.
+                                        if (remainingTries > 0) {
+                                            return retryUpdatePendingChannelOperationRelaxed(
+                                                    serverId, channelName,
+                                                    oldOperationId,
+                                                    newOperationId,
+                                                    newOperationType,
+                                                    newOperationData, ttl,
+                                                    remainingTries - 1);
+                                        } else {
+                                            rethrow(originalException);
+                                            // This code is never reached.
+                                            return null;
+                                        }
+                                    }
+                                });
+                    }
+                });
     }
 
 }
