@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -37,8 +37,8 @@ import com.google.common.util.concurrent.ListenableFuture;
  * 
  * @author Sebastian Marsching
  */
-public class ChannelMetaDataDAOSampleBucketStubImpl implements
-        ChannelMetaDataDAO {
+public class ChannelMetaDataDAOSampleBucketStubImpl
+        implements ChannelMetaDataDAO {
 
     private ObjectResultSet<SampleBucketInformation> emptySampleBucketInformationResultSet() {
         return SimpleObjectResultSet.fromIterator(null);
@@ -72,31 +72,26 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
             Map<Integer, ? extends NavigableMap<Long, Long>> sampleBuckets) {
         this.channelDataId = channelDataId;
         this.channelName = channelName;
-        this.sampleBuckets = Maps
-                .transformEntries(
-                        sampleBuckets,
-                        new EntryTransformer<Integer, NavigableMap<Long, Long>, NavigableMap<Long, SampleBucketInformation>>() {
-                            @Override
-                            public NavigableMap<Long, SampleBucketInformation> transformEntry(
-                                    Integer key, NavigableMap<Long, Long> value) {
-                                final int decimationLevel = key;
-                                return Maps
-                                        .transformEntries(
-                                                value,
-                                                new EntryTransformer<Long, Long, SampleBucketInformation>() {
-                                                    @Override
-                                                    public SampleBucketInformation transformEntry(
-                                                            Long key, Long value) {
-                                                        return new SampleBucketInformation(
-                                                                value,
-                                                                key,
-                                                                ChannelMetaDataDAOSampleBucketStubImpl.this.channelDataId,
-                                                                ChannelMetaDataDAOSampleBucketStubImpl.this.channelName,
-                                                                decimationLevel);
-                                                    }
-                                                });
-                            }
-                        });
+        this.sampleBuckets = Maps.transformEntries(sampleBuckets,
+                new EntryTransformer<Integer, NavigableMap<Long, Long>, NavigableMap<Long, SampleBucketInformation>>() {
+                    @Override
+                    public NavigableMap<Long, SampleBucketInformation> transformEntry(
+                            Integer key, NavigableMap<Long, Long> value) {
+                        final int decimationLevel = key;
+                        return Maps.transformEntries(value,
+                                new EntryTransformer<Long, Long, SampleBucketInformation>() {
+                                    @Override
+                                    public SampleBucketInformation transformEntry(
+                                            Long key, Long value) {
+                                        return new SampleBucketInformation(
+                                                value, key,
+                                                ChannelMetaDataDAOSampleBucketStubImpl.this.channelDataId,
+                                                ChannelMetaDataDAOSampleBucketStubImpl.this.channelName,
+                                                decimationLevel);
+                                    }
+                                });
+                    }
+                });
     }
 
     @Override
@@ -117,6 +112,13 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
 
     @Override
     public ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperation(
+            UUID serverId, String channelName, UUID operationId,
+            String operationType, String operationData, int ttl) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperationRelaxed(
             UUID serverId, String channelName, UUID operationId,
             String operationType, String operationData, int ttl) {
         throw new UnsupportedOperationException();
@@ -196,17 +198,17 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
             return Futures
                     .immediateFuture(emptySampleBucketInformationResultSet());
         }
-        return Futures
-                .immediateFuture(singleIteratorSampleBucketInformationResultSet(Iterables
-                        .concat(Iterables.transform(
-                                sampleBuckets.values(),
+        return Futures.immediateFuture(
+                singleIteratorSampleBucketInformationResultSet(Iterables
+                        .concat(Iterables.transform(sampleBuckets.values(),
                                 new Function<NavigableMap<Long, SampleBucketInformation>, Iterable<SampleBucketInformation>>() {
                                     @Override
                                     public Iterable<SampleBucketInformation> apply(
                                             NavigableMap<Long, SampleBucketInformation> input) {
                                         return input.values();
                                     }
-                                })).iterator()));
+                                }))
+                        .iterator()));
     }
 
     @Override
@@ -220,15 +222,16 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
             return Futures
                     .immediateFuture(emptySampleBucketInformationResultSet());
         }
-        return Futures
-                .immediateFuture(singleIteratorSampleBucketInformationResultSet(sampleBuckets
+        return Futures.immediateFuture(
+                singleIteratorSampleBucketInformationResultSet(sampleBuckets
                         .get(decimationLevel).values().iterator()));
     }
 
     @Override
     public ListenableFuture<ObjectResultSet<SampleBucketInformation>> getSampleBucketsInInterval(
             final String channelName, final int decimationLevel,
-            long startTimeGreaterThanOrEqualTo, long startTimeLessThanOrEqualTo) {
+            long startTimeGreaterThanOrEqualTo,
+            long startTimeLessThanOrEqualTo) {
         if (!this.channelName.equals(channelName)) {
             return Futures
                     .immediateFuture(emptySampleBucketInformationResultSet());
@@ -243,8 +246,9 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
                 .subMap(startTimeGreaterThanOrEqualTo, true,
                         startTimeLessThanOrEqualTo, true);
         return Futures
-                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(singleIteratorSampleBucketInformationResultSet(selectedBuckets
-                        .values().iterator()));
+                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(
+                        singleIteratorSampleBucketInformationResultSet(
+                                selectedBuckets.values().iterator()));
     }
 
     @Override
@@ -259,9 +263,11 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
                     .immediateFuture(emptySampleBucketInformationResultSet());
         }
         return Futures
-                .immediateFuture(singleIteratorSampleBucketInformationResultSet(Iterators
-                        .limit(sampleBuckets.get(decimationLevel)
-                                .descendingMap().values().iterator(), limit)));
+                .immediateFuture(singleIteratorSampleBucketInformationResultSet(
+                        Iterators.limit(
+                                sampleBuckets.get(decimationLevel)
+                                        .descendingMap().values().iterator(),
+                                limit)));
     }
 
     @Override
@@ -277,8 +283,10 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
         NavigableMap<Long, SampleBucketInformation> selectedBuckets = allBuckets
                 .tailMap(startTimeGreaterThanOrEqualTo, true);
         return Futures
-                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(singleIteratorSampleBucketInformationResultSet(Iterators
-                        .limit(selectedBuckets.values().iterator(), limit)));
+                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(
+                        singleIteratorSampleBucketInformationResultSet(Iterators
+                                .limit(selectedBuckets.values().iterator(),
+                                        limit)));
     }
 
     @Override
@@ -294,8 +302,10 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
         NavigableMap<Long, SampleBucketInformation> selectedBuckets = allBuckets
                 .headMap(startTimeLessThanOrEqualTo, true).descendingMap();
         return Futures
-                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(singleIteratorSampleBucketInformationResultSet(Iterators
-                        .limit(selectedBuckets.values().iterator(), limit)));
+                .<ObjectResultSet<SampleBucketInformation>> immediateFuture(
+                        singleIteratorSampleBucketInformationResultSet(Iterators
+                                .limit(selectedBuckets.values().iterator(),
+                                        limit)));
     }
 
     @Override
@@ -311,8 +321,8 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
     }
 
     @Override
-    public ListenableFuture<Void> updateChannelConfiguration(
-            String channelName, UUID serverId,
+    public ListenableFuture<Void> updateChannelConfiguration(String channelName,
+            UUID serverId,
             Map<Integer, Integer> decimationLevelToRetentionPeriod,
             boolean enabled, Map<String, String> options) {
         throw new UnsupportedOperationException();
@@ -320,6 +330,14 @@ public class ChannelMetaDataDAOSampleBucketStubImpl implements
 
     @Override
     public ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperation(
+            UUID serverId, String channelName, UUID oldOperationId,
+            UUID newOperationId, String newOperationType,
+            String newOperationData, int ttl) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperationRelaxed(
             UUID serverId, String channelName, UUID oldOperationId,
             UUID newOperationId, String newOperationType,
             String newOperationData, int ttl) {

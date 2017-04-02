@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -935,6 +935,7 @@ public interface ChannelMetaDataDAO {
             Map<Integer, Integer> decimationLevelToRetentionPeriod);
 
     /**
+     * <p>
      * Creates a pending channel operation. The information is stored for the
      * specified server and channel and is automatically deleted after the
      * <code>ttl</code> has passed. If another pending operation for the same
@@ -944,6 +945,14 @@ public interface ChannelMetaDataDAO {
      * servers. The operation is performed in an asynchronous way so that it
      * will not block for network communication. The result of the operation can
      * be checked through the returned future.
+     * </p>
+     * 
+     * <p>
+     * Please refer to
+     * {@link #createPendingChannelOperationRelaxed(UUID, String, UUID, String, String, int)}
+     * for a version of this method that is more resilient in case of a write
+     * timeout.
+     * </p>
      * 
      * @param serverId
      *            ID of the server that is affected by the operation. This most
@@ -984,6 +993,77 @@ public interface ChannelMetaDataDAO {
      *         the future's <code>get()</code> method will throw an exception.
      */
     ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperation(
+            UUID serverId, String channelName, UUID operationId,
+            String operationType, String operationData, int ttl);
+
+    /**
+     * <p>
+     * Creates a pending channel operation in a more relaxed way. The
+     * information is stored for the specified server and channel and is
+     * automatically deleted after the <code>ttl</code> has passed. If another
+     * pending operation for the same server and channel already exists, the
+     * existing data is not touched. Instead, this method returns the operation
+     * ID of the existing record. This check is guaranteed to be implemented in
+     * an atomic way, even across servers. The operation is performed in an
+     * asynchronous way so that it will not block for network communication. The
+     * result of the operation can be checked through the returned future.
+     * </p>
+     * 
+     * <p>
+     * In contrast to the
+     * {@link #createPendingChannelOperation(UUID, String, UUID, String, String, int)}
+     * method, this method does not fail directly in case of a write timeout.
+     * Instead, it checks whether a pending operation with specified data is
+     * present in the database and succeeds if it is. However, this has the
+     * effect that it is not strictly guaranteed that the record in the database
+     * has actually been created by the caller. The method will also report
+     * success if another caller (possibly in a different server process) has
+     * created the record specifying exactly the same data. When using a newly
+     * generated UUID, such an event is very unlikely.
+     * </p>
+     * 
+     * @param serverId
+     *            ID of the server that is affected by the operation. This most
+     *            often is (but does not have to be) the server responsible for
+     *            the affected channel.
+     * @param channelName
+     *            name of the channel affected by the operation.
+     * @param operationId
+     *            unique ID identifying the operation. This ID is used when
+     *            deleting the operation using the
+     *            {@link #deletePendingChannelOperation(UUID, String, UUID)} or
+     *            updating it using the
+     *            {@link #updatePendingChannelOperation(UUID, String, UUID, UUID, String, String, int)}
+     *            .
+     * @param operationType
+     *            type of the operation. The type also defines the expected
+     *            format of the data passed as <code>operationData</code> (if
+     *            any). However, the interpretation of both the type and the
+     *            data is left to the code using this DAO.
+     * @param operationData
+     *            data associated with the operation. The format of the data
+     *            typically depends on the <code>operationType</code>. May be
+     *            <code>null</code>.
+     * @param ttl
+     *            time-to-live of the record (in seconds). The record is
+     *            automatically deleted after the specified amount of seconds.
+     *            This means that after this period of time, calls to
+     *            {@link #getPendingChannelOperation(UUID, String)} and
+     *            {@link #getPendingChannelOperations(UUID)} will not return the
+     *            channel operation any longer.
+     * @return pair of a boolean and a channel operation ID exposed through a
+     *         future. The boolean is <code>true</code> if the channel operation
+     *         was successfully stored for the specified server and channel. If
+     *         another operation was already stored and thus the specified
+     *         operation was not stored, the boolean is <code>false</code> and
+     *         the ID of the already stored channel operation is returned as
+     *         part of the pair. The boolean might also be <code>true</code> if
+     *         a channel operation specifying exactly the same data (operation
+     *         ID, type, and data) has been created before and is thus already
+     *         present in the database. In case of failure, the future's
+     *         <code>get()</code> method will throw an exception.
+     */
+    ListenableFuture<Pair<Boolean, UUID>> createPendingChannelOperationRelaxed(
             UUID serverId, String channelName, UUID operationId,
             String operationType, String operationData, int ttl);
 
@@ -1623,6 +1703,7 @@ public interface ChannelMetaDataDAO {
             boolean enabled, Map<String, String> options);
 
     /**
+     * <p>
      * Updates an existing pending channel operation, replacing it with the
      * specified information. If there is no pending channel operation matching
      * the specified server, channel, and operation ID, no data is modified.
@@ -1632,6 +1713,14 @@ public interface ChannelMetaDataDAO {
      * performed in an asynchronous way so that it will not block for network
      * communication. The result of the operation can be checked through the
      * returned future.
+     * </p>
+     * 
+     * <p>
+     * Please refer to
+     * {@link #updatePendingChannelOperationRelaxed(UUID, String, UUID, UUID, String, String, int)}
+     * for a version of this method that is more resilient in case of a write
+     * timeout.
+     * </p>
      * 
      * @param serverId
      *            ID of the server that is affected by the operation. This most
@@ -1675,6 +1764,81 @@ public interface ChannelMetaDataDAO {
      *         pair (the corresponding field is <code>null</code>).
      */
     ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperation(
+            UUID serverId, String channelName, UUID oldOperationId,
+            UUID newOperationId, String newOperationType,
+            String newOperationData, int ttl);
+
+    /**
+     * <p>
+     * Updates an existing pending channel operation in a more relaxed way. If
+     * there is no pending channel operation matching the specified server,
+     * channel, and operation ID, no data is modified. Instead, this method
+     * returns the ID of the channel operation stored for the specified server
+     * and channel (if any). This check is guaranteed to be implemented in an
+     * atomic way, even across servers. The operation is performed in an
+     * asynchronous way so that it will not block for network communication. The
+     * result of the operation can be checked through the returned future.
+     * </p>
+     * 
+     * <p>
+     * In contrast to the
+     * {@link #updatePendingChannelOperation(UUID, String, UUID, UUID, String, String, int)}
+     * method, this method does not fail directly in case of a write timeout.
+     * Instead, it checks whether a pending operation with specified updated
+     * data is present in the database and succeeds if it is. However, this has
+     * the effect that it is not strictly guaranteed that the record in the
+     * database has actually been updated by the caller. The method will also
+     * report success if another caller (possibly in a different server process)
+     * has created or update the record specifying exactly the same data. When
+     * using a newly generated UUID as the <code>newOperationId</code> or a UUID
+     * that is only used by the calling thread, such an event is very unlikely.
+     * </p>
+     * 
+     * @param serverId
+     *            ID of the server that is affected by the operation. This most
+     *            often is (but does not have to be) the server responsible for
+     *            the affected channel.
+     * @param channelName
+     *            name of the channel affected by the operation.
+     * @param oldOperationId
+     *            ID of the operation that shall be replaced with the specified
+     *            new information. The replacement is only made if the ID of the
+     *            stored operation matched the specified ID.
+     * @param newOperationId
+     *            ID of the operation that shall replace the stored operation.
+     *            This may (but does not have to) be the same ID as the one of
+     *            the old (previously stored) operation.
+     * @param newOperationType
+     *            type of the new operation. The type also defines the expected
+     *            format of the data passed as <code>newOperationData</code> (if
+     *            any). However, the interpretation of both the type and the
+     *            data is left to the code using this DAO.
+     * @param newOperationData
+     *            data associated with the new operation. The format of the data
+     *            typically depends on the <code>newOperationType</code>. May be
+     *            <code>null</code>.
+     * @param ttl
+     *            time-to-live of the record (in seconds). The record is
+     *            automatically deleted after the specified amount of seconds.
+     *            This means that after this period of time, calls to
+     *            {@link #getPendingChannelOperation(UUID, String)} and
+     *            {@link #getPendingChannelOperations(UUID)} will not return the
+     *            channel operation any longer.
+     * @return pair of a boolean and a channel operation ID exposed through a
+     *         future. The boolean is <code>true</code> if the channel operation
+     *         was successfully updated with the specified information. The
+     *         boolean might also be <code>true</code> if a channel operation
+     *         specifying exactly the same data (new operation ID, type, and
+     *         data) has been created before and is thus already present in the
+     *         database. If the ID of the operation stored for the server and
+     *         channel was different from the specified ID, the boolean is
+     *         <code>false</code> and the ID of the already stored operation is
+     *         returned as part of the pair. If there was no operation stored
+     *         for the specified server and channel, the boolean is
+     *         <code>false</code>, but there is no channel operation ID in the
+     *         pair (the corresponding field is <code>null</code>).
+     */
+    ListenableFuture<Pair<Boolean, UUID>> updatePendingChannelOperationRelaxed(
             UUID serverId, String channelName, UUID oldOperationId,
             UUID newOperationId, String newOperationType,
             String newOperationData, int ttl);

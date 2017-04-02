@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -64,7 +64,7 @@ public final class RemoveChannelOperation {
         public ListenableFuture<RemoveChannelOperation> apply(
                 final RemoveChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             PendingChannelOperationConstants.UNASSIGNED_SERVER_ID,
                             operation.channelName,
                             operation.operationId,
@@ -92,7 +92,7 @@ public final class RemoveChannelOperation {
         public ListenableFuture<RemoveChannelOperation> apply(
                 final RemoveChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             operation.serverId,
                             operation.channelName,
                             operation.operationId,

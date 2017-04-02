@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -1265,6 +1265,10 @@ public class ArchiveConfigurationService implements DisposableBean,
                                                             if (result == null
                                                                     || result
                                                                             .size() <= commandIndex) {
+                                                                log.error(
+                                                                        "Remote call for archive configuration command ("
+                                                                                + command
+                                                                                + ") failed: Invalid reply from remote server.");
                                                                 future.set(Pair
                                                                         .<ArchiveConfigurationCommandResult, Throwable> of(
                                                                                 ArchiveConfigurationCommandResult
@@ -1290,6 +1294,12 @@ public class ArchiveConfigurationService implements DisposableBean,
                                                         @Override
                                                         public void onFailure(
                                                                 Throwable t) {
+                                                            log.error(
+                                                                    "Remote call for archive configuration command ("
+                                                                            + command
+                                                                            + ") failed: "
+                                                                            + t.getMessage(),
+                                                                    t);
                                                             future.set(Pair
                                                                     .<ArchiveConfigurationCommandResult, Throwable> of(
                                                                             ArchiveConfigurationCommandResult
@@ -1543,6 +1553,17 @@ public class ArchiveConfigurationService implements DisposableBean,
                                                 .add(((RenameChannelCommand) command)
                                                         .getNewChannelName());
                                     }
+                                }
+                                if (input instanceof ChannelAlreadyExistsException
+                                        || input instanceof NoSuchChannelException
+                                        || input instanceof PendingChannelOperationException) {
+                                    log.info("Archive configuration command ("
+                                            + command + ") failed: " + message,
+                                            input);
+                                } else {
+                                    log.error("Archive configuration command ("
+                                            + command + ") failed: " + message,
+                                            input);
                                 }
                                 return Pair.of(
                                         ArchiveConfigurationCommandResult

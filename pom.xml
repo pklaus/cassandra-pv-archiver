@@ -6,7 +6,7 @@
 
   <groupId>com.aquenos.cassandra.pvarchiver</groupId>
   <artifactId>cassandra-pv-archiver</artifactId>
-  <version>3.1.1</version>
+  <version>3.1.2</version>
 
   <packaging>pom</packaging>
 
@@ -51,7 +51,7 @@
     <datastax.cassandra.driver.version>3.1.4</datastax.cassandra.driver.version>
     <font.awesome.version>4.7.0</font.awesome.version>
     <guava.version>16.0.1</guava.version>
-    <jackie.version>1.0.1</jackie.version>
+    <jackie.version>1.0.2</jackie.version>
     <jackson.javadoc.version>2.8</jackson.javadoc.version>
     <jackson.version>2.8.7</jackson.version>
     <java.ee.javadoc.version>7</java.ee.javadoc.version>
@@ -356,6 +356,9 @@
                 <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                 <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
               </manifest>
+              <manifestEntries>
+                <Built-By></Built-By>
+              </manifestEntries>
             </archive>
           </configuration>
         </plugin>

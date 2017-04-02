@@ -689,6 +689,66 @@
           visible in the list view (like it was in older versions).
         </para>
       </section>
+      <section xml:id="news.version_3.1.2">
+        <title>Cassandra PV Archiver 3.1.2</title>
+        <para>
+          Version 3.1.2 is a bugfix release that includes an updated version of
+          the EPICS Jackie library and brings a few minor improvements:
+        </para>
+        <itemizedlist>
+          <listitem>
+            <simpara>
+              EPICS Jackie has been updated to version 1.0.2.
+              This version includes a fix for a bug that could cause
+              connectivity issues for channels that are hosted by servers based
+              on older EPICS versions.
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              When an archive configuration command fails, the corresponding
+              exception is now logged in the logfile.
+              Expected exceptions (e.g. trying to add a channel that already
+              exists) are logged with the level INFO, while unexpected
+              exceptions (e.g. database errors) are logged with level ERROR.
+              Such errors were already reported to the user through the user
+              interface, but the logged exception (including the stack trace)
+              might give additional insights into the actual cause of the error.
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              Write timeouts when creating, updating, or deleting a “pending
+              channel operation” are now handled more gracefully.
+              These timeouts caused configuration commands to fail with a
+              message like “Cassandra timeout during write query at consistency
+              SERIAL…”.
+              While the
+              <link linkend="server.configuration.throttling">throttling options</link>
+              should still be used to avoid overloading the server, the new
+              logic can help in handling short spikes by retrying an operation
+              that timed out after a short delay.
+              Configuring the throttling at a reasonable value is still needed
+              because this mechanism will not work in a situation where the
+              database is overloaded for a longer period of time (the operation
+              will simply fail after reaching the maximum number of retries).
+            </simpara>
+          </listitem>
+          <listitem>
+            <simpara>
+              The timeout for inter-node communication has been increased.
+              When running a large number (typically thousands) of configuration
+              commands that affected a remote server, the commands would fail
+              with a timeout error due to the HTTP communication timing out.
+              While this timeout would be reported to the user, the commands
+              would still continue running in the background.
+              The timeout for the HTTP communication has now been increased to
+              15 minutes, so that the HTTP connection should not time out, even
+              when a large number of commands is processed. 
+            </simpara>
+          </listitem>
+        </itemizedlist>
+      </section>
     </section>
   </chapter>
 

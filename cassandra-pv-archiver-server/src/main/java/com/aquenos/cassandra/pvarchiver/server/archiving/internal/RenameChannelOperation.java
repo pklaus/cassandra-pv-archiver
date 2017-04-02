@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -57,7 +57,7 @@ public final class RenameChannelOperation {
         public ListenableFuture<RenameChannelOperation> apply(
                 final RenameChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             PendingChannelOperationConstants.UNASSIGNED_SERVER_ID,
                             operation.newChannelName,
                             operation.operationId,
@@ -85,7 +85,7 @@ public final class RenameChannelOperation {
         public ListenableFuture<RenameChannelOperation> apply(
                 final RenameChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             operation.serverId,
                             operation.newChannelName,
                             operation.operationId,
@@ -113,7 +113,7 @@ public final class RenameChannelOperation {
         public ListenableFuture<RenameChannelOperation> apply(
                 final RenameChannelOperation operation) throws Exception {
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             PendingChannelOperationConstants.UNASSIGNED_SERVER_ID,
                             operation.oldChannelName,
                             operation.operationId,
@@ -142,7 +142,7 @@ public final class RenameChannelOperation {
                 final RenameChannelOperation operation) throws Exception {
             operation.pendingOperationCreatedTime = System.currentTimeMillis();
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .createPendingChannelOperation(
+                    .createPendingChannelOperationRelaxed(
                             operation.serverId,
                             operation.oldChannelName,
                             operation.operationId,
@@ -233,7 +233,7 @@ public final class RenameChannelOperation {
                     && (!operation.thisServerId.equals(operation.serverId) || !operation.clusterManagementService
                             .isOnline())) {
                 future = operation.channelMetaDataDAO
-                        .updatePendingChannelOperation(
+                        .updatePendingChannelOperationRelaxed(
                                 operation.serverId,
                                 operation.newChannelName,
                                 operation.operationId,
@@ -267,7 +267,7 @@ public final class RenameChannelOperation {
             // operation that will prevent the channel from being created again
             // for a few seconds.
             ListenableFuture<Pair<Boolean, UUID>> future = operation.channelMetaDataDAO
-                    .updatePendingChannelOperation(
+                    .updatePendingChannelOperationRelaxed(
                             PendingChannelOperationConstants.UNASSIGNED_SERVER_ID,
                             operation.oldChannelName,
                             operation.operationId,

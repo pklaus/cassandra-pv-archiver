@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -101,8 +101,8 @@ public class ChannelMetaDataDAOImplTest {
         channelConfig1 = new ChannelConfiguration(
                 channelInfo1.getChannelDataId(), channelInfo1.getChannelName(),
                 channelInfo1.getControlSystemType(),
-                decimationLevelSetToCurrentBucketStartTimeMap(channelInfo1
-                        .getDecimationLevels()),
+                decimationLevelSetToCurrentBucketStartTimeMap(
+                        channelInfo1.getDecimationLevels()),
                 decimationLevelToRetentionPeriods_0_5_30, true, options1,
                 channelInfo1.getServerId());
         channelInfo2 = new ChannelInformation(UUID.randomUUID(), "test2",
@@ -110,8 +110,8 @@ public class ChannelMetaDataDAOImplTest {
         channelConfig2 = new ChannelConfiguration(
                 channelInfo2.getChannelDataId(), channelInfo2.getChannelName(),
                 channelInfo2.getControlSystemType(),
-                decimationLevelSetToCurrentBucketStartTimeMap(channelInfo2
-                        .getDecimationLevels()),
+                decimationLevelSetToCurrentBucketStartTimeMap(
+                        channelInfo2.getDecimationLevels()),
                 decimationLevelToRetentionPeriods_0, false, options1,
                 channelInfo2.getServerId());
         channelInfo3 = new ChannelInformation(UUID.randomUUID(), "test3",
@@ -119,8 +119,8 @@ public class ChannelMetaDataDAOImplTest {
         channelConfig3 = new ChannelConfiguration(
                 channelInfo3.getChannelDataId(), channelInfo3.getChannelName(),
                 channelInfo3.getControlSystemType(),
-                decimationLevelSetToCurrentBucketStartTimeMap(channelInfo3
-                        .getDecimationLevels()),
+                decimationLevelSetToCurrentBucketStartTimeMap(
+                        channelInfo3.getDecimationLevels()),
                 decimationLevelToRetentionPeriods_0_5_30, true, options2,
                 channelInfo3.getServerId());
         channelInfo4 = new ChannelInformation(UUID.randomUUID(), "test4",
@@ -128,17 +128,17 @@ public class ChannelMetaDataDAOImplTest {
         channelConfig4 = new ChannelConfiguration(
                 channelInfo4.getChannelDataId(), channelInfo4.getChannelName(),
                 channelInfo4.getControlSystemType(),
-                decimationLevelSetToCurrentBucketStartTimeMap(channelInfo4
-                        .getDecimationLevels()),
+                decimationLevelSetToCurrentBucketStartTimeMap(
+                        channelInfo4.getDecimationLevels()),
                 decimationLevelToRetentionPeriods_0, true, options3,
                 channelInfo4.getServerId());
     }
 
     private void createChannel(ChannelConfiguration channelConfig) {
         Futures.getUnchecked(dao.createChannel(channelConfig.getChannelName(),
-                channelConfig.getChannelDataId(), channelConfig
-                        .getControlSystemType(), channelConfig
-                        .getDecimationLevelToRetentionPeriod().keySet(),
+                channelConfig.getChannelDataId(),
+                channelConfig.getControlSystemType(),
+                channelConfig.getDecimationLevelToRetentionPeriod().keySet(),
                 channelConfig.getDecimationLevelToRetentionPeriod(),
                 channelConfig.isEnabled(), channelConfig.getOptions(),
                 channelConfig.getServerId()));
@@ -164,79 +164,84 @@ public class ChannelMetaDataDAOImplTest {
      */
     @Test
     public void testCreateAndDeleteChannels() {
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
         createChannel(channelConfig1);
-        assertEquals(channelInfo1, Futures.getUnchecked(dao
-                .getChannel(channelInfo1.getChannelName())));
-        assertEquals(
-                channelConfig1,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig1.getServerId(),
-                        channelConfig1.getChannelName())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
+        assertEquals(channelInfo1, Futures
+                .getUnchecked(dao.getChannel(channelInfo1.getChannelName())));
+        assertEquals(channelConfig1,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig1.getServerId(),
+                                channelConfig1.getChannelName())));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
         createChannel(channelConfig2);
-        assertEquals(channelInfo2, Futures.getUnchecked(dao
-                .getChannel(channelInfo2.getChannelName())));
-        assertEquals(
-                channelConfig2,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig2.getServerId(),
-                        channelConfig2.getChannelName())));
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId3))));
+        assertEquals(channelInfo2, Futures
+                .getUnchecked(dao.getChannel(channelInfo2.getChannelName())));
+        assertEquals(channelConfig2,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig2.getServerId(),
+                                channelConfig2.getChannelName())));
+        assertEquals(2,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId3))));
         createChannel(channelConfig3);
-        assertEquals(channelInfo3, Futures.getUnchecked(dao
-                .getChannel(channelInfo3.getChannelName())));
-        assertEquals(
-                channelConfig3,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig3.getServerId(),
-                        channelConfig3.getChannelName())));
-        assertEquals(3, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId3))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(channelInfo3, Futures
+                .getUnchecked(dao.getChannel(channelInfo3.getChannelName())));
+        assertEquals(channelConfig3,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig3.getServerId(),
+                                channelConfig3.getChannelName())));
+        assertEquals(3,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId3))));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
         createChannel(channelConfig4);
-        assertEquals(channelInfo4, Futures.getUnchecked(dao
-                .getChannel(channelInfo4.getChannelName())));
-        assertEquals(
-                channelConfig4,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig4.getServerId(),
-                        channelConfig4.getChannelName())));
-        assertEquals(4, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(channelInfo4, Futures
+                .getUnchecked(dao.getChannel(channelInfo4.getChannelName())));
+        assertEquals(channelConfig4,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig4.getServerId(),
+                                channelConfig4.getChannelName())));
+        assertEquals(4,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(2, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
         Futures.getUnchecked(dao.deleteChannel(channelConfig2.getChannelName(),
                 channelConfig2.getServerId()));
-        assertEquals(3, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
+        assertEquals(3,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
         Futures.getUnchecked(dao.deleteChannel(channelConfig1.getChannelName(),
                 channelConfig1.getServerId()));
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(2,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
         Futures.getUnchecked(dao.deleteChannel(channelConfig3.getChannelName(),
                 channelConfig3.getServerId()));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId3))));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId3))));
         Futures.getUnchecked(dao.deleteChannel(channelConfig4.getChannelName(),
                 channelConfig4.getServerId()));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
     }
 
     /**
@@ -246,11 +251,11 @@ public class ChannelMetaDataDAOImplTest {
     public void testCreateAndDeleteDecimationLevels() {
         createChannel(channelConfig1);
         Set<Integer> moreDecimationLevels = Sets.newHashSet(0, 5, 30, 300, 900);
-        Map<Integer, Long> moreDecimationLevelsBucketStartTimeMap = Maps.asMap(
-                moreDecimationLevels, Functions.constant(-1L));
+        Map<Integer, Long> moreDecimationLevelsBucketStartTimeMap = Maps
+                .asMap(moreDecimationLevels, Functions.constant(-1L));
         Map<Integer, Integer> moreDecimationLevelsRetentionPeriods = new HashMap<Integer, Integer>();
-        moreDecimationLevelsRetentionPeriods.putAll(channelConfig1
-                .getDecimationLevelToRetentionPeriod());
+        moreDecimationLevelsRetentionPeriods
+                .putAll(channelConfig1.getDecimationLevelToRetentionPeriod());
         moreDecimationLevelsRetentionPeriods.put(300, 0);
         moreDecimationLevelsRetentionPeriods.put(900, 0);
         ChannelConfiguration channelConfig1MoreDecimationLevels = new ChannelConfiguration(
@@ -269,15 +274,16 @@ public class ChannelMetaDataDAOImplTest {
                 channelConfig1.getChannelName(), channelConfig1.getServerId(),
                 Sets.newHashSet(300, 900),
                 Collections.<Integer, Integer> emptyMap()));
-        assertEquals(channelInfo1MoreDecimationLevels, Futures.getUnchecked(dao
-                .getChannel(channelInfo1MoreDecimationLevels.getChannelName())));
+        assertEquals(channelInfo1MoreDecimationLevels,
+                Futures.getUnchecked(dao.getChannel(
+                        channelInfo1MoreDecimationLevels.getChannelName())));
         assertEquals(channelConfig1MoreDecimationLevels,
                 Futures.getUnchecked(dao.getChannelByServer(
                         channelConfig1MoreDecimationLevels.getServerId(),
                         channelConfig1MoreDecimationLevels.getChannelName())));
         Set<Integer> lessDecimationLevels = Sets.newHashSet(0, 30, 300);
-        Map<Integer, Long> lessDecimationLevelsBucketStartTimeMap = Maps.asMap(
-                lessDecimationLevels, Functions.constant(-1L));
+        Map<Integer, Long> lessDecimationLevelsBucketStartTimeMap = Maps
+                .asMap(lessDecimationLevels, Functions.constant(-1L));
         Map<Integer, Integer> lessDecimationLevelsRetentionPeriods = new HashMap<Integer, Integer>(
                 moreDecimationLevelsRetentionPeriods);
         lessDecimationLevelsRetentionPeriods.remove(5);
@@ -297,8 +303,9 @@ public class ChannelMetaDataDAOImplTest {
         Futures.getUnchecked(dao.deleteChannelDecimationLevels(
                 channelConfig1.getChannelName(), channelConfig1.getServerId(),
                 Sets.newHashSet(5, 900)));
-        assertEquals(channelInfo1LessDecimationLevels, Futures.getUnchecked(dao
-                .getChannel(channelInfo1LessDecimationLevels.getChannelName())));
+        assertEquals(channelInfo1LessDecimationLevels,
+                Futures.getUnchecked(dao.getChannel(
+                        channelInfo1LessDecimationLevels.getChannelName())));
         assertEquals(channelConfig1LessDecimationLevels,
                 Futures.getUnchecked(dao.getChannelByServer(
                         channelConfig1LessDecimationLevels.getServerId(),
@@ -316,88 +323,88 @@ public class ChannelMetaDataDAOImplTest {
                 UUID.randomUUID(), "someType", UUID.randomUUID());
         ChannelOperation operation2 = new ChannelOperation("test2", null,
                 UUID.randomUUID(), "otherType", operation1.getServerId());
-        ChannelOperation operation3 = new ChannelOperation("test1",
-                "otherData", UUID.randomUUID(), "someType", UUID.randomUUID());
+        ChannelOperation operation3 = new ChannelOperation("test1", "otherData",
+                UUID.randomUUID(), "someType", UUID.randomUUID());
         ChannelOperation operation4 = new ChannelOperation("test1", "someData",
                 UUID.randomUUID(), "otherTypeType", operation3.getServerId());
         // A TTL of 600 seconds is long enough so that no entry should vanish
         // while running the test.
         int ttl = 600;
         Pair<Boolean, UUID> result;
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation1.getServerId(), operation1.getChannelName(),
                 operation1.getOperationId(), operation1.getOperationType(),
                 operation1.getOperationData(), ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
-        assertEquals(
-                operation1,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation1.getServerId(), operation1.getChannelName())));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(operation1,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation1.getServerId(),
+                                operation1.getChannelName())));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation2.getServerId(), operation2.getChannelName())));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName())));
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation2.getServerId(), operation2.getChannelName(),
                 operation2.getOperationId(), operation2.getOperationType(),
                 operation2.getOperationData(), ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
-        assertEquals(
-                operation1,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation1.getServerId(), operation1.getChannelName())));
-        assertEquals(
-                operation2,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation2.getServerId(), operation2.getChannelName())));
+        assertEquals(2, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(operation1,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation1.getServerId(),
+                                operation1.getChannelName())));
+        assertEquals(operation2,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation2.getServerId(),
+                                operation2.getChannelName())));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName())));
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation3.getOperationId(), operation3.getOperationType(),
                 operation3.getOperationData(), ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
-        assertEquals(
-                operation1,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation1.getServerId(), operation1.getChannelName())));
-        assertEquals(
-                operation2,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation2.getServerId(), operation2.getChannelName())));
-        assertEquals(
-                operation3,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation3.getServerId(), operation3.getChannelName())));
+        assertEquals(2, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(operation1,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation1.getServerId(),
+                                operation1.getChannelName())));
+        assertEquals(operation2,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation2.getServerId(),
+                                operation2.getChannelName())));
+        assertEquals(operation3,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation3.getServerId(),
+                                operation3.getChannelName())));
         // We should not be able to create an operation if there is already an
         // operation for the same server and channel. This should hold, even if
         // we try to create exactly the same operation.
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation3.getOperationId(), operation3.getOperationType(),
                 operation3.getOperationData(), ttl));
         assertFalse(result.getLeft());
         assertEquals(operation3.getOperationId(), result.getRight());
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation4.getServerId(), operation4.getChannelName(),
                 operation4.getOperationId(), operation4.getOperationType(),
                 operation4.getOperationData(), ttl));
@@ -410,19 +417,19 @@ public class ChannelMetaDataDAOImplTest {
                 operation2.getOperationId()));
         assertFalse(result.getLeft());
         assertEquals(operation1.getOperationId(), result.getRight());
-        assertEquals(2, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(2, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
                 operation1.getServerId(), operation1.getChannelName(),
                 operation1.getOperationId()));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
         // Trying to delete a non-existing operation should succeed if there is
         // no other operation for the server and channel.
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
@@ -430,28 +437,28 @@ public class ChannelMetaDataDAOImplTest {
                 operation1.getOperationId()));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
                 operation2.getServerId(), operation2.getChannelName(),
                 operation2.getOperationId()));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation3.getOperationId()));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation1.getServerId()))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation3.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation1.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation3.getServerId()))));
     }
 
     /**
@@ -463,43 +470,42 @@ public class ChannelMetaDataDAOImplTest {
         ArrayList<SampleBucketInformation> referenceBuckets0 = new ArrayList<SampleBucketInformation>(
                 7);
         referenceBuckets0.add(new SampleBucketInformation(136L, 14L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(247L, 137L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(256L, 248L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(257L, 257L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(15999L, 258L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(21999L, 16000L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         referenceBuckets0.add(new SampleBucketInformation(Long.MAX_VALUE,
-                22000L, channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 0));
+                22000L, channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 0));
         ArrayList<SampleBucketInformation> referenceBuckets5 = new ArrayList<SampleBucketInformation>(
                 2);
         referenceBuckets5.add(new SampleBucketInformation(136L, 14L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 5));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 5));
         referenceBuckets5.add(new SampleBucketInformation(Long.MAX_VALUE, 137L,
-                channelConfig1.getChannelDataId(), channelConfig1
-                        .getChannelName(), 5));
+                channelConfig1.getChannelDataId(),
+                channelConfig1.getChannelName(), 5));
         Long precedingBucketStartTime = null;
         for (SampleBucketInformation bucket : referenceBuckets0) {
             // We create each bucket with an end time of Long.MAX_VALUE (this is
             // the same that we do in the real application). The end time is
             // updated when we insert the following bucket.
-            Futures.getUnchecked(dao.createSampleBucket(
-                    bucket.getChannelName(), bucket.getDecimationLevel(),
-                    bucket.getBucketStartTime(), Long.MAX_VALUE,
-                    precedingBucketStartTime, true,
+            Futures.getUnchecked(dao.createSampleBucket(bucket.getChannelName(),
+                    bucket.getDecimationLevel(), bucket.getBucketStartTime(),
+                    Long.MAX_VALUE, precedingBucketStartTime, true,
                     channelConfig1.getServerId()));
             precedingBucketStartTime = bucket.getBucketStartTime();
         }
@@ -508,44 +514,39 @@ public class ChannelMetaDataDAOImplTest {
             // We create each bucket with an end time of Long.MAX_VALUE (this is
             // the same that we do in the real application). The end time is
             // updated when we insert the following bucket.
-            Futures.getUnchecked(dao.createSampleBucket(
-                    bucket.getChannelName(), bucket.getDecimationLevel(),
-                    bucket.getBucketStartTime(), Long.MAX_VALUE,
-                    precedingBucketStartTime, true,
+            Futures.getUnchecked(dao.createSampleBucket(bucket.getChannelName(),
+                    bucket.getDecimationLevel(), bucket.getBucketStartTime(),
+                    Long.MAX_VALUE, precedingBucketStartTime, true,
                     channelConfig1.getServerId()));
             precedingBucketStartTime = bucket.getBucketStartTime();
         }
         // Check that the current bucket start time has been updated correctly.
         assertEquals(
-                referenceBuckets0.get(6).getBucketStartTime(),
+                referenceBuckets0.get(6)
+                        .getBucketStartTime(),
                 (long) Futures
-                        .getUnchecked(
-                                dao.getChannelByServer(
-                                        channelConfig1.getServerId(),
-                                        channelConfig1.getChannelName()))
+                        .getUnchecked(dao.getChannelByServer(
+                                channelConfig1.getServerId(),
+                                channelConfig1.getChannelName()))
                         .getDecimationLevelToCurrentBucketStartTime().get(0));
         assertEquals(
-                referenceBuckets5.get(1).getBucketStartTime(),
+                referenceBuckets5.get(1)
+                        .getBucketStartTime(),
                 (long) Futures
-                        .getUnchecked(
-                                dao.getChannelByServer(
-                                        channelConfig1.getServerId(),
-                                        channelConfig1.getChannelName()))
+                        .getUnchecked(dao.getChannelByServer(
+                                channelConfig1.getServerId(),
+                                channelConfig1.getChannelName()))
                         .getDecimationLevelToCurrentBucketStartTime().get(5));
         // Check the various ways to get sample buckets.
-        assertEquals(
-                referenceBuckets0,
-                listForSampleBuckets(dao.getSampleBuckets(
-                        channelConfig1.getChannelName(), 0)));
-        assertEquals(
-                referenceBuckets5,
-                listForSampleBuckets(dao.getSampleBuckets(
-                        channelConfig1.getChannelName(), 5)));
+        assertEquals(referenceBuckets0, listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0)));
+        assertEquals(referenceBuckets5, listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 5)));
         assertEquals(referenceBuckets0.subList(1, 6),
                 listForSampleBuckets(dao.getSampleBucketsInInterval(
                         channelConfig1.getChannelName(), 0, 15, 21999)));
-        assertEquals(referenceBuckets0, Lists.newArrayList(Futures
-                .getUnchecked(dao.getSampleBucketsInInterval(
+        assertEquals(referenceBuckets0, Lists.newArrayList(
+                Futures.getUnchecked(dao.getSampleBucketsInInterval(
                         channelConfig1.getChannelName(), 0, 14, 22000))));
         assertEquals(referenceBuckets0.subList(0, 6),
                 listForSampleBuckets(dao.getSampleBucketsInInterval(
@@ -558,7 +559,8 @@ public class ChannelMetaDataDAOImplTest {
                         channelConfig1.getChannelName(), 0, 2)));
         assertEquals(Lists.reverse(referenceBuckets0),
                 listForSampleBuckets(dao.getSampleBucketsInReverseOrder(
-                        channelConfig1.getChannelName(), 0, Integer.MAX_VALUE)));
+                        channelConfig1.getChannelName(), 0,
+                        Integer.MAX_VALUE)));
         assertEquals(referenceBuckets0.subList(2, 7),
                 listForSampleBuckets(dao.getSampleBucketsNewerThan(
                         channelConfig1.getChannelName(), 0, 138,
@@ -568,60 +570,51 @@ public class ChannelMetaDataDAOImplTest {
                         channelConfig1.getChannelName(), 0, 137,
                         Integer.MAX_VALUE)));
         assertEquals(Lists.reverse(referenceBuckets0.subList(1, 4)),
-                listForSampleBuckets(dao
-                        .getSampleBucketsOlderThanInReverseOrder(
+                listForSampleBuckets(
+                        dao.getSampleBucketsOlderThanInReverseOrder(
                                 channelConfig1.getChannelName(), 0, 257, 3)));
         assertEquals(Lists.reverse(referenceBuckets0.subList(0, 5)),
-                listForSampleBuckets(dao
-                        .getSampleBucketsOlderThanInReverseOrder(
+                listForSampleBuckets(
+                        dao.getSampleBucketsOlderThanInReverseOrder(
                                 channelConfig1.getChannelName(), 0, 258,
                                 Integer.MAX_VALUE)));
         // Delete an individual sample bucket.
-        Futures.getUnchecked(dao.deleteSampleBucket(channelConfig1
-                .getChannelName(), 0, referenceBuckets0.get(6)
-                .getBucketStartTime(), true, channelConfig1.getServerId()));
+        Futures.getUnchecked(
+                dao.deleteSampleBucket(channelConfig1.getChannelName(), 0,
+                        referenceBuckets0.get(6).getBucketStartTime(), true,
+                        channelConfig1.getServerId()));
         referenceBuckets0.remove(6);
-        assertEquals(
-                -1L,
-                (long) Futures
-                        .getUnchecked(
-                                dao.getChannelByServer(
-                                        channelConfig1.getServerId(),
-                                        channelConfig1.getChannelName()))
-                        .getDecimationLevelToCurrentBucketStartTime().get(0));
-        assertEquals(
-                referenceBuckets0,
-                listForSampleBuckets(dao.getSampleBuckets(
-                        channelConfig1.getChannelName(), 0)));
-        Futures.getUnchecked(dao.deleteSampleBucket(channelConfig1
-                .getChannelName(), 0, referenceBuckets0.get(3)
-                .getBucketStartTime(), true, channelConfig1.getServerId()));
+        assertEquals(-1L, (long) Futures
+                .getUnchecked(
+                        dao.getChannelByServer(channelConfig1.getServerId(),
+                                channelConfig1.getChannelName()))
+                .getDecimationLevelToCurrentBucketStartTime().get(0));
+        assertEquals(referenceBuckets0, listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0)));
+        Futures.getUnchecked(
+                dao.deleteSampleBucket(channelConfig1.getChannelName(), 0,
+                        referenceBuckets0.get(3).getBucketStartTime(), true,
+                        channelConfig1.getServerId()));
         referenceBuckets0.remove(3);
-        assertEquals(
-                referenceBuckets0,
-                listForSampleBuckets(dao.getSampleBuckets(
-                        channelConfig1.getChannelName(), 0)));
+        assertEquals(referenceBuckets0, listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0)));
         // Delete a decimation level - this includes all sample buckets.
         Futures.getUnchecked(dao.deleteChannelDecimationLevels(
                 channelConfig1.getChannelName(), channelConfig1.getServerId(),
                 Collections.singleton(5)));
-        assertEquals(
-                referenceBuckets0,
-                listForSampleBuckets(dao.getSampleBuckets(
-                        channelConfig1.getChannelName(), 0)));
-        assertEquals(
-                0,
-                listForSampleBuckets(
-                        dao.getSampleBuckets(channelConfig1.getChannelName(), 5))
-                        .size());
+        assertEquals(referenceBuckets0, listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0)));
+        assertEquals(0,
+                listForSampleBuckets(dao
+                        .getSampleBuckets(channelConfig1.getChannelName(), 5))
+                                .size());
         // Delete the channel.
         Futures.getUnchecked(dao.deleteChannel(channelConfig1.getChannelName(),
                 channelConfig1.getServerId()));
-        assertEquals(
-                0,
-                listForSampleBuckets(
-                        dao.getSampleBuckets(channelConfig1.getChannelName(), 0))
-                        .size());
+        assertEquals(0,
+                listForSampleBuckets(dao
+                        .getSampleBuckets(channelConfig1.getChannelName(), 0))
+                                .size());
     }
 
     /**
@@ -629,20 +622,21 @@ public class ChannelMetaDataDAOImplTest {
      */
     @Test
     public void testMoveChannel() {
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
         createChannel(channelConfig2);
-        assertEquals(channelInfo2, Futures.getUnchecked(dao
-                .getChannel(channelInfo2.getChannelName())));
-        assertEquals(
-                channelConfig2,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig2.getServerId(),
-                        channelConfig2.getChannelName())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
+        assertEquals(channelInfo2, Futures
+                .getUnchecked(dao.getChannel(channelInfo2.getChannelName())));
+        assertEquals(channelConfig2,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig2.getServerId(),
+                                channelConfig2.getChannelName())));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
         ChannelConfiguration channelConfig2Moved = new ChannelConfiguration(
                 channelConfig2.getChannelDataId(),
                 channelConfig2.getChannelName(),
@@ -656,36 +650,39 @@ public class ChannelMetaDataDAOImplTest {
                 channelInfo2.getControlSystemType(),
                 channelInfo2.getDecimationLevels(),
                 channelConfig2Moved.getServerId());
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig2Moved.getServerId(),
-                channelConfig2Moved.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig2Moved.getServerId(),
+                        channelConfig2Moved.getChannelName())));
         Futures.getUnchecked(dao.moveChannel(channelConfig2.getChannelName(),
-                channelConfig2.getServerId(), channelConfig2Moved.getServerId()));
-        assertEquals(channelInfo2Moved, Futures.getUnchecked(dao
-                .getChannel(channelInfo2Moved.getChannelName())));
-        assertEquals(
-                channelConfig2Moved,
+                channelConfig2.getServerId(),
+                channelConfig2Moved.getServerId()));
+        assertEquals(channelInfo2Moved, Futures.getUnchecked(
+                dao.getChannel(channelInfo2Moved.getChannelName())));
+        assertEquals(channelConfig2Moved,
                 Futures.getUnchecked(dao.getChannelByServer(
                         channelConfig2Moved.getServerId(),
                         channelConfig2Moved.getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig2.getServerId(), channelConfig2.getChannelName())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId2))));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId3))));
-        Futures.getUnchecked(dao.deleteChannel(
-                channelConfig2Moved.getChannelName(),
-                channelConfig2Moved.getServerId()));
-        assertNull(Futures.getUnchecked(dao.getChannel(channelInfo2Moved
-                .getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig2Moved.getServerId(),
-                channelConfig2Moved.getChannelName())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId3))));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig2.getServerId(),
+                        channelConfig2.getChannelName())));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId2))));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId3))));
+        Futures.getUnchecked(
+                dao.deleteChannel(channelConfig2Moved.getChannelName(),
+                        channelConfig2Moved.getServerId()));
+        assertNull(Futures.getUnchecked(
+                dao.getChannel(channelInfo2Moved.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig2Moved.getServerId(),
+                        channelConfig2Moved.getChannelName())));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId3))));
     }
 
     /**
@@ -697,13 +694,13 @@ public class ChannelMetaDataDAOImplTest {
         ChannelOperation operation = new ChannelOperation("test1", "someData",
                 UUID.randomUUID(), "someType", UUID.randomUUID());
         Pair<Boolean, UUID> result;
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation.getServerId(), operation.getChannelName())));
         // We create the operation with a TTL of only two seconds. This way, we
         // do not have to wait long until it disappears.
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation.getServerId(), operation.getChannelName(),
                 operation.getOperationId(), operation.getOperationType(),
                 operation.getOperationData(), 2));
@@ -711,12 +708,12 @@ public class ChannelMetaDataDAOImplTest {
         assertNull(result.getRight());
         sleepTtl(2);
         // The record that we just created should have vanished now.
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation.getServerId(), operation.getChannelName())));
         // We create the record again with a longer TTL.
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation.getServerId(), operation.getChannelName(),
                 operation.getOperationId(), operation.getOperationType(),
                 operation.getOperationData(), 60));
@@ -724,15 +721,14 @@ public class ChannelMetaDataDAOImplTest {
         assertNull(result.getRight());
         sleepTtl(2);
         // The record that we just created should still exist.
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
-        assertEquals(
-                operation,
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(operation,
                 Futures.getUnchecked(dao.getPendingChannelOperation(
                         operation.getServerId(), operation.getChannelName())));
         // We update the record with the same data, but a short TTL. It should
         // then vanish quickly.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation.getServerId(), operation.getChannelName(),
                 operation.getOperationId(), operation.getOperationId(),
                 operation.getOperationType(), operation.getOperationData(), 2));
@@ -740,33 +736,31 @@ public class ChannelMetaDataDAOImplTest {
         assertNull(result.getRight());
         sleepTtl(2);
         // The record that we just updated should have vanished now.
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation.getServerId(), operation.getChannelName())));
         // Finally, we test the other way round: Creating a record with a short
         // TTL and then updating it with a long one. We use a slightly longer
         // "short" TTL, so that we can be sure to make the update in time.
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation.getServerId(), operation.getChannelName(),
                 operation.getOperationId(), operation.getOperationType(),
                 operation.getOperationData(), 3));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        result = Futures
-                .getUnchecked(dao.updatePendingChannelOperation(
-                        operation.getServerId(), operation.getChannelName(),
-                        operation.getOperationId(), operation.getOperationId(),
-                        operation.getOperationType(),
-                        operation.getOperationData(), 60));
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
+                operation.getServerId(), operation.getChannelName(),
+                operation.getOperationId(), operation.getOperationId(),
+                operation.getOperationType(), operation.getOperationData(),
+                60));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
         sleepTtl(3);
         // The record that we just updated should still exist.
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
-        assertEquals(
-                operation,
+        assertEquals(1, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(operation,
                 Futures.getUnchecked(dao.getPendingChannelOperation(
                         operation.getServerId(), operation.getChannelName())));
         // We delete the record to leave a clean table.
@@ -775,8 +769,8 @@ public class ChannelMetaDataDAOImplTest {
                 operation.getOperationId()));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getPendingChannelOperations(operation.getServerId()))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getPendingChannelOperations(operation.getServerId()))));
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation.getServerId(), operation.getChannelName())));
     }
@@ -786,9 +780,10 @@ public class ChannelMetaDataDAOImplTest {
      */
     @Test
     public void testRenameChannel() {
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
         createChannel(channelConfig1);
         // Add a few sample buckets in order to test that they are moved with
         // the channel configuration.
@@ -800,38 +795,38 @@ public class ChannelMetaDataDAOImplTest {
                 channelConfig1.getChannelName(), 5, bucketStartTime3,
                 Long.MAX_VALUE, null, false, channelConfig1.getServerId()));
         Futures.getUnchecked(dao.createSampleBucket(
-                channelConfig1.getChannelName(), 5, bucketStartTime2, 42L,
-                null, false, channelConfig1.getServerId()));
+                channelConfig1.getChannelName(), 5, bucketStartTime2, 42L, null,
+                false, channelConfig1.getServerId()));
         Futures.getUnchecked(dao.createSampleBucket(
                 channelConfig1.getChannelName(), 5, bucketStartTime4,
                 Long.MAX_VALUE, 43L, false, channelConfig1.getServerId()));
         Futures.getUnchecked(dao.createSampleBucket(
                 channelConfig1.getChannelName(), 0, bucketStartTime1,
                 Long.MAX_VALUE, null, false, channelConfig1.getServerId()));
-        assertEquals(channelInfo1, Futures.getUnchecked(dao
-                .getChannel(channelInfo1.getChannelName())));
-        assertEquals(
-                channelConfig1,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig1.getServerId(),
-                        channelConfig1.getChannelName())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
-        List<SampleBucketInformation> sampleBuckets0 = listForSampleBuckets(dao
-                .getSampleBuckets(channelConfig1.getChannelName(), 0));
-        List<SampleBucketInformation> sampleBuckets5 = listForSampleBuckets(dao
-                .getSampleBuckets(channelConfig1.getChannelName(), 5));
+        assertEquals(channelInfo1, Futures
+                .getUnchecked(dao.getChannel(channelInfo1.getChannelName())));
+        assertEquals(channelConfig1,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig1.getServerId(),
+                                channelConfig1.getChannelName())));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
+        List<SampleBucketInformation> sampleBuckets0 = listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0));
+        List<SampleBucketInformation> sampleBuckets5 = listForSampleBuckets(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 5));
         assertEquals(1, sampleBuckets0.size());
-        assertEquals(bucketStartTime1, sampleBuckets0.get(0)
-                .getBucketStartTime());
+        assertEquals(bucketStartTime1,
+                sampleBuckets0.get(0).getBucketStartTime());
         assertEquals(3, sampleBuckets5.size());
-        assertEquals(bucketStartTime2, sampleBuckets5.get(0)
-                .getBucketStartTime());
-        assertEquals(bucketStartTime3, sampleBuckets5.get(1)
-                .getBucketStartTime());
-        assertEquals(bucketStartTime4, sampleBuckets5.get(2)
-                .getBucketStartTime());
+        assertEquals(bucketStartTime2,
+                sampleBuckets5.get(0).getBucketStartTime());
+        assertEquals(bucketStartTime3,
+                sampleBuckets5.get(1).getBucketStartTime());
+        assertEquals(bucketStartTime4,
+                sampleBuckets5.get(2).getBucketStartTime());
         ChannelConfiguration channelConfig1Renamed = new ChannelConfiguration(
                 channelConfig1.getChannelDataId(), "renamed_test1",
                 channelConfig1.getControlSystemType(),
@@ -844,55 +839,59 @@ public class ChannelMetaDataDAOImplTest {
                 channelConfig1Renamed.getChannelName(),
                 channelInfo1.getControlSystemType(),
                 channelInfo1.getDecimationLevels(), channelInfo1.getServerId());
-        assertNull(Futures.getUnchecked(dao.getChannel(channelInfo1Renamed
-                .getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig1Renamed.getServerId(),
-                channelConfig1Renamed.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannel(channelInfo1Renamed.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig1Renamed.getServerId(),
+                        channelConfig1Renamed.getChannelName())));
         Futures.getUnchecked(dao.renameChannel(channelConfig1.getChannelName(),
                 channelConfig1Renamed.getChannelName(),
                 channelConfig1.getServerId()));
-        assertEquals(channelInfo1Renamed, Futures.getUnchecked(dao
-                .getChannel(channelInfo1Renamed.getChannelName())));
-        assertEquals(channelConfig1Renamed, Futures.getUnchecked(dao
-                .getChannelByServer(channelConfig1Renamed.getServerId(),
+        assertEquals(channelInfo1Renamed, Futures.getUnchecked(
+                dao.getChannel(channelInfo1Renamed.getChannelName())));
+        assertEquals(channelConfig1Renamed,
+                Futures.getUnchecked(dao.getChannelByServer(
+                        channelConfig1Renamed.getServerId(),
                         channelConfig1Renamed.getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannel(channelInfo1
-                .getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig1.getServerId(), channelConfig1.getChannelName())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(1, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getSampleBuckets(channelConfig1.getChannelName(), 0))));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getSampleBuckets(channelConfig1.getChannelName(), 5))));
+        assertNull(Futures
+                .getUnchecked(dao.getChannel(channelInfo1.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig1.getServerId(),
+                        channelConfig1.getChannelName())));
+        assertEquals(1,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(1, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0))));
+        assertEquals(0, Iterables.size(Futures.getUnchecked(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 5))));
         sampleBuckets0 = Lists.newArrayList(Futures.getUnchecked(dao
                 .getSampleBuckets(channelConfig1Renamed.getChannelName(), 0)));
         sampleBuckets5 = Lists.newArrayList(Futures.getUnchecked(dao
                 .getSampleBuckets(channelConfig1Renamed.getChannelName(), 5)));
         assertEquals(1, sampleBuckets0.size());
-        assertEquals(bucketStartTime1, sampleBuckets0.get(0)
-                .getBucketStartTime());
+        assertEquals(bucketStartTime1,
+                sampleBuckets0.get(0).getBucketStartTime());
         assertEquals(3, sampleBuckets5.size());
-        assertEquals(bucketStartTime2, sampleBuckets5.get(0)
-                .getBucketStartTime());
-        assertEquals(bucketStartTime3, sampleBuckets5.get(1)
-                .getBucketStartTime());
-        assertEquals(bucketStartTime4, sampleBuckets5.get(2)
-                .getBucketStartTime());
-        Futures.getUnchecked(dao.deleteChannel(
-                channelConfig1Renamed.getChannelName(),
-                channelConfig1Renamed.getServerId()));
-        assertNull(Futures.getUnchecked(dao.getChannel(channelInfo1Renamed
-                .getChannelName())));
-        assertNull(Futures.getUnchecked(dao.getChannelByServer(
-                channelConfig1Renamed.getServerId(),
-                channelConfig1Renamed.getChannelName())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao.getChannels())));
-        assertEquals(0, Iterables.size(Futures.getUnchecked(dao
-                .getChannelsByServer(serverId1))));
+        assertEquals(bucketStartTime2,
+                sampleBuckets5.get(0).getBucketStartTime());
+        assertEquals(bucketStartTime3,
+                sampleBuckets5.get(1).getBucketStartTime());
+        assertEquals(bucketStartTime4,
+                sampleBuckets5.get(2).getBucketStartTime());
+        Futures.getUnchecked(
+                dao.deleteChannel(channelConfig1Renamed.getChannelName(),
+                        channelConfig1Renamed.getServerId()));
+        assertNull(Futures.getUnchecked(
+                dao.getChannel(channelInfo1Renamed.getChannelName())));
+        assertNull(Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig1Renamed.getServerId(),
+                        channelConfig1Renamed.getChannelName())));
+        assertEquals(0,
+                Iterables.size(Futures.getUnchecked(dao.getChannels())));
+        assertEquals(0, Iterables.size(
+                Futures.getUnchecked(dao.getChannelsByServer(serverId1))));
     }
 
     /**
@@ -922,11 +921,10 @@ public class ChannelMetaDataDAOImplTest {
                 Collections.singletonMap(0, 172800),
                 modifiedChannelConfig1.isEnabled(),
                 modifiedChannelConfig1.getOptions()));
-        assertEquals(
-                modifiedChannelConfig1,
-                Futures.getUnchecked(dao.getChannelByServer(
-                        channelConfig1.getServerId(),
-                        channelConfig1.getChannelName())));
+        assertEquals(modifiedChannelConfig1,
+                Futures.getUnchecked(
+                        dao.getChannelByServer(channelConfig1.getServerId(),
+                                channelConfig1.getChannelName())));
         Futures.getUnchecked(dao.deleteChannel(channelConfig1.getChannelName(),
                 channelConfig1.getServerId()));
     }
@@ -935,15 +933,14 @@ public class ChannelMetaDataDAOImplTest {
      * Tests updating a pending channel operation.
      */
     @Test
-    public void testUpdatePendingChannelOperations() {
+    public void testupdatePendingChannelOperationRelaxeds() {
         ChannelOperation operation1 = new ChannelOperation("test1", "someData",
                 UUID.randomUUID(), "someType", UUID.randomUUID());
         ChannelOperation operation2 = new ChannelOperation("test1", null,
                 operation1.getOperationId(), "otherType",
                 operation1.getServerId());
-        ChannelOperation operation3 = new ChannelOperation("test1",
-                "otherData", UUID.randomUUID(), "someType",
-                operation1.getServerId());
+        ChannelOperation operation3 = new ChannelOperation("test1", "otherData",
+                UUID.randomUUID(), "someType", operation1.getServerId());
         // A TTL of 600 seconds is long enough so that no entry should vanish
         // while running the test.
         int ttl = 600;
@@ -951,7 +948,7 @@ public class ChannelMetaDataDAOImplTest {
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation1.getServerId(), operation1.getChannelName())));
         // Updating an operation that does not exist should fail.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation1.getServerId(), operation1.getChannelName(),
                 operation1.getOperationId(), operation1.getOperationId(),
                 operation1.getOperationType(), operation1.getOperationData(),
@@ -961,67 +958,67 @@ public class ChannelMetaDataDAOImplTest {
         assertNull(Futures.getUnchecked(dao.getPendingChannelOperation(
                 operation1.getServerId(), operation1.getChannelName())));
         // Now we create the operation.
-        result = Futures.getUnchecked(dao.createPendingChannelOperation(
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
                 operation1.getServerId(), operation1.getChannelName(),
                 operation1.getOperationId(), operation1.getOperationType(),
                 operation1.getOperationData(), ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(
-                operation1,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation1.getServerId(), operation1.getChannelName())));
+        assertEquals(operation1,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation1.getServerId(),
+                                operation1.getChannelName())));
         // Updating the operation with the same ID and data should work.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation1.getServerId(), operation1.getChannelName(),
                 operation1.getOperationId(), operation1.getOperationId(),
                 operation1.getOperationType(), operation1.getOperationData(),
                 ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(
-                operation1,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation1.getServerId(), operation1.getChannelName())));
+        assertEquals(operation1,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation1.getServerId(),
+                                operation1.getChannelName())));
         // Updating the operation with the same ID but different data should
         // work.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation2.getServerId(), operation2.getChannelName(),
                 operation1.getOperationId(), operation2.getOperationId(),
                 operation2.getOperationType(), operation2.getOperationData(),
                 ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(
-                operation2,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation2.getServerId(), operation2.getChannelName())));
+        assertEquals(operation2,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation2.getServerId(),
+                                operation2.getChannelName())));
         // Updating the operation with a different ID and data should work as
         // well.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation2.getOperationId(), operation3.getOperationId(),
                 operation3.getOperationType(), operation3.getOperationData(),
                 ttl));
         assertTrue(result.getLeft());
         assertNull(result.getRight());
-        assertEquals(
-                operation3,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation3.getServerId(), operation3.getChannelName())));
+        assertEquals(operation3,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation3.getServerId(),
+                                operation3.getChannelName())));
         // Updating the operation should fail if the wrong ID is specified for
         // the existing operation.
-        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
                 operation2.getServerId(), operation2.getChannelName(),
                 operation1.getOperationId(), operation2.getOperationId(),
                 operation2.getOperationType(), operation2.getOperationData(),
                 ttl));
         assertFalse(result.getLeft());
         assertEquals(operation3.getOperationId(), result.getRight());
-        assertEquals(
-                operation3,
-                Futures.getUnchecked(dao.getPendingChannelOperation(
-                        operation3.getServerId(), operation3.getChannelName())));
+        assertEquals(operation3,
+                Futures.getUnchecked(
+                        dao.getPendingChannelOperation(operation3.getServerId(),
+                                operation3.getChannelName())));
         // Finally, we delete the operation in order to keep table clean.
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName(),
@@ -1043,31 +1040,30 @@ public class ChannelMetaDataDAOImplTest {
     public void testZeroSampleBuckets() {
         createChannel(channelConfig1);
         // Check that the current bucket ID is null.
-        ChannelConfiguration channelConfig1FromDb = Futures.getUnchecked(dao
-                .getChannelByServer(channelConfig1.getServerId(),
+        ChannelConfiguration channelConfig1FromDb = Futures.getUnchecked(
+                dao.getChannelByServer(channelConfig1.getServerId(),
                         channelConfig1.getChannelName()));
         assertEquals(-1L, (long) channelConfig1FromDb
                 .getDecimationLevelToCurrentBucketStartTime().get(0));
         // Check that the various versions of the getSampleBuckets(...) methods
         // return an empty iterator.
-        assertTrue(Iterables.isEmpty(Futures.getUnchecked(dao
-                .getSampleBuckets(channelConfig1.getChannelName()))));
-        assertTrue(Iterables.isEmpty(Futures.getUnchecked(dao.getSampleBuckets(
-                channelConfig1.getChannelName(), 0))));
-        assertTrue(Iterables.isEmpty(Futures.getUnchecked(dao
-                .getSampleBucketsInInterval(channelConfig1.getChannelName(), 0,
-                        Long.MIN_VALUE, Long.MAX_VALUE))));
-        assertTrue(Iterables.isEmpty(Futures.getUnchecked(dao
-                .getSampleBucketsInReverseOrder(
+        assertTrue(Iterables.isEmpty(Futures.getUnchecked(
+                dao.getSampleBuckets(channelConfig1.getChannelName()))));
+        assertTrue(Iterables.isEmpty(Futures.getUnchecked(
+                dao.getSampleBuckets(channelConfig1.getChannelName(), 0))));
+        assertTrue(Iterables.isEmpty(Futures.getUnchecked(
+                dao.getSampleBucketsInInterval(channelConfig1.getChannelName(),
+                        0, Long.MIN_VALUE, Long.MAX_VALUE))));
+        assertTrue(Iterables.isEmpty(
+                Futures.getUnchecked(dao.getSampleBucketsInReverseOrder(
                         channelConfig1.getChannelName(), 0, 1))));
-        assertTrue(Iterables.isEmpty(Futures.getUnchecked(dao
-                .getSampleBucketsNewerThan(channelConfig1.getChannelName(), 0,
-                        Long.MIN_VALUE, 1))));
-        assertTrue(Iterables
-                .isEmpty(Futures.getUnchecked(dao
-                        .getSampleBucketsOlderThanInReverseOrder(
-                                channelConfig1.getChannelName(), 0,
-                                Long.MAX_VALUE, 1))));
+        assertTrue(Iterables.isEmpty(Futures.getUnchecked(
+                dao.getSampleBucketsNewerThan(channelConfig1.getChannelName(),
+                        0, Long.MIN_VALUE, 1))));
+        assertTrue(Iterables.isEmpty(Futures
+                .getUnchecked(dao.getSampleBucketsOlderThanInReverseOrder(
+                        channelConfig1.getChannelName(), 0, Long.MAX_VALUE,
+                        1))));
         Futures.getUnchecked(dao.deleteChannel(channelConfig1.getChannelName(),
                 channelConfig1.getServerId()));
     }
