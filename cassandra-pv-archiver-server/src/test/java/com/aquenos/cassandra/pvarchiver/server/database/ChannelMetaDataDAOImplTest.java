@@ -398,16 +398,44 @@ public class ChannelMetaDataDAOImplTest {
         // We should not be able to create an operation if there is already an
         // operation for the same server and channel. This should hold, even if
         // we try to create exactly the same operation.
-        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+        result = Futures.getUnchecked(dao.createPendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation3.getOperationId(), operation3.getOperationType(),
                 operation3.getOperationData(), ttl));
         assertFalse(result.getLeft());
         assertEquals(operation3.getOperationId(), result.getRight());
-        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+        result = Futures.getUnchecked(dao.createPendingChannelOperation(
                 operation4.getServerId(), operation4.getChannelName(),
                 operation4.getOperationId(), operation4.getOperationType(),
                 operation4.getOperationData(), ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        // However, creating an operation that exactly matches an existing one
+        // should succeed if running in relaxed mode.
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                operation3.getOperationId(), operation3.getOperationType(),
+                operation3.getOperationData(), ttl));
+        assertTrue(result.getLeft());
+        assertNull(result.getRight());
+        // Creating an operation that does differ from the existing one in any
+        // point (ID, type, data), should still fail.
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                UUID.randomUUID(), operation3.getOperationType(),
+                operation3.getOperationData(), ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                operation3.getOperationId(), operation3.getOperationType(),
+                "someOtherData", ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        result = Futures.getUnchecked(dao.createPendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                operation3.getOperationId(), "someOtherType",
+                operation3.getOperationData(), ttl));
         assertFalse(result.getLeft());
         assertEquals(operation3.getOperationId(), result.getRight());
         // Trying to delete using the wrong operation ID should fail and no
@@ -933,7 +961,7 @@ public class ChannelMetaDataDAOImplTest {
      * Tests updating a pending channel operation.
      */
     @Test
-    public void testupdatePendingChannelOperationRelaxeds() {
+    public void testUpdatePendingChannelOperations() {
         ChannelOperation operation1 = new ChannelOperation("test1", "someData",
                 UUID.randomUUID(), "someType", UUID.randomUUID());
         ChannelOperation operation2 = new ChannelOperation("test1", null,
@@ -1019,7 +1047,44 @@ public class ChannelMetaDataDAOImplTest {
                 Futures.getUnchecked(
                         dao.getPendingChannelOperation(operation3.getServerId(),
                                 operation3.getChannelName())));
-        // Finally, we delete the operation in order to keep table clean.
+        // In strict mode, an update that specifies the existing data as the
+        // new data should fail, if the old ID does not match the existing ID.
+        result = Futures.getUnchecked(dao.updatePendingChannelOperation(
+                operation3.getServerId(), operation3.getChannelName(),
+                operation2.getOperationId(), operation3.getOperationId(),
+                operation3.getOperationType(), operation3.getOperationData(),
+                ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        // In relaxed mode, the update should succeed if the new data matches
+        // the existing data, but it should fail if any item is different.
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                UUID.randomUUID(), operation3.getOperationId(),
+                operation3.getOperationType(), operation3.getOperationData(),
+                ttl));
+        assertTrue(result.getLeft());
+        assertNull(result.getRight());
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                UUID.randomUUID(), UUID.randomUUID(),
+                operation3.getOperationType(), operation3.getOperationData(),
+                ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                UUID.randomUUID(), operation3.getOperationId(), "someOtherType",
+                operation3.getOperationData(), ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        result = Futures.getUnchecked(dao.updatePendingChannelOperationRelaxed(
+                operation3.getServerId(), operation3.getChannelName(),
+                UUID.randomUUID(), operation3.getOperationId(),
+                operation3.getOperationType(), "someOtherData", ttl));
+        assertFalse(result.getLeft());
+        assertEquals(operation3.getOperationId(), result.getRight());
+        // Finally, we delete the operation in order to keep the table clean.
         result = Futures.getUnchecked(dao.deletePendingChannelOperation(
                 operation3.getServerId(), operation3.getChannelName(),
                 operation3.getOperationId()));

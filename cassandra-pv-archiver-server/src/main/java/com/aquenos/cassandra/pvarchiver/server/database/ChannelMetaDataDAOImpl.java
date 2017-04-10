@@ -34,7 +34,6 @@ import org.springframework.core.annotation.Order;
 
 import com.aquenos.cassandra.pvarchiver.common.AbstractObjectResultSet;
 import com.aquenos.cassandra.pvarchiver.common.ObjectResultSet;
-import com.aquenos.cassandra.pvarchiver.server.util.AsyncFunctionUtils;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ColumnDefinitions;
@@ -1881,8 +1880,79 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
         return FutureUtils.transform(
                 createPendingChannelOperation(serverId, channelName,
                         operationId, operationType, operationData, ttl),
-                AsyncFunctionUtils.<Pair<Boolean, UUID>> identity(),
-                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                new AsyncFunction<Pair<Boolean, UUID>, Pair<Boolean, UUID>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                            Pair<Boolean, UUID> input) throws Exception {
+                        // If the operation succeeded or it failed because there
+                        // already is a pending operation with a different ID,
+                        // we are done. If the result is false, but the existing
+                        // pending operation has the same ID, a previous write
+                        // operation that timed out might actually have been
+                        // successful.
+                        if (input.getLeft()
+                                || !operationId.equals(input.getRight())) {
+                            return Futures.immediateFuture(input);
+                        }
+                        // We read the complete record in order to verify
+                        // whether the data in the existing record matches the
+                        // data that we are trying to write. We do not have to
+                        // do this with the serial consistency level because our
+                        // previous write attempt already revealed the data.
+                        final Pair<Boolean, UUID> originalResult = input;
+                        return FutureUtils.transform(
+                                getPendingChannelOperation(serverId,
+                                        channelName, false),
+                                new AsyncFunction<ChannelOperation, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            ChannelOperation input)
+                                            throws Exception {
+                                        if (input == null) {
+                                            // If there is no record any longer,
+                                            // it could be that the last record
+                                            // just expired. However, such a
+                                            // scenario is unlikely and in order
+                                            // to not make the logic more
+                                            // complex than we already is, we
+                                            // we still fail the operation.
+                                            return Futures.immediateFuture(
+                                                    originalResult);
+                                        }
+                                        if (new EqualsBuilder()
+                                                .append(operationId,
+                                                        input.getOperationId())
+                                                .append(operationType,
+                                                        input.getOperationType())
+                                                .append(operationData,
+                                                        input.getOperationData())
+                                                .isEquals()) {
+                                            return Futures.immediateFuture(
+                                                    Pair.<Boolean, UUID> of(
+                                                            true, null));
+                                        } else {
+                                            return Futures.immediateFuture(
+                                                    originalResult);
+                                        }
+                                    }
+                                },
+                                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            Throwable input) throws Exception {
+                                        // If the read operation fails, we
+                                        // simply return the original result.
+                                        // We could try the read again if it
+                                        // timed out, but we would need to keep
+                                        // track of the number of attempts and
+                                        // this would make the logic even more
+                                        // complex.
+                                        return Futures.immediateFuture(
+                                                originalResult);
+                                    }
+                                });
+                    }
+                }, new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
                     @Override
                     public ListenableFuture<Pair<Boolean, UUID>> apply(
                             Throwable input) throws Exception {
@@ -2316,8 +2386,79 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 updatePendingChannelOperation(serverId, channelName,
                         oldOperationId, newOperationId, newOperationType,
                         newOperationData, ttl),
-                AsyncFunctionUtils.<Pair<Boolean, UUID>> identity(),
-                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                new AsyncFunction<Pair<Boolean, UUID>, Pair<Boolean, UUID>>() {
+                    @Override
+                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                            Pair<Boolean, UUID> input) throws Exception {
+                        // If the operation succeeded or it failed because there
+                        // is a pending operation that neither matched the old
+                        // nor the new ID, we are done. If the result is false,
+                        // but the existing pending operation has the new ID, a
+                        // previous write operation that timed out might
+                        // actually have been successful.
+                        if (input.getLeft()
+                                || !newOperationId.equals(input.getRight())) {
+                            return Futures.immediateFuture(input);
+                        }
+                        // We read the complete record in order to verify
+                        // whether the data in the existing record matches the
+                        // data that we are trying to write. We do not have to
+                        // do this with the serial consistency level because our
+                        // previous write attempt already revealed the data.
+                        final Pair<Boolean, UUID> originalResult = input;
+                        return FutureUtils.transform(
+                                getPendingChannelOperation(serverId,
+                                        channelName, false),
+                                new AsyncFunction<ChannelOperation, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            ChannelOperation input)
+                                            throws Exception {
+                                        if (input == null) {
+                                            // If there is no record any longer,
+                                            // it could be that the last record
+                                            // just expired. However, such a
+                                            // scenario is unlikely and in order
+                                            // to not make the logic more
+                                            // complex than we already is, we
+                                            // we still fail the operation.
+                                            return Futures.immediateFuture(
+                                                    originalResult);
+                                        }
+                                        if (new EqualsBuilder()
+                                                .append(newOperationId,
+                                                        input.getOperationId())
+                                                .append(newOperationType,
+                                                        input.getOperationType())
+                                                .append(newOperationData,
+                                                        input.getOperationData())
+                                                .isEquals()) {
+                                            return Futures.immediateFuture(
+                                                    Pair.<Boolean, UUID> of(
+                                                            true, null));
+                                        } else {
+                                            return Futures.immediateFuture(
+                                                    originalResult);
+                                        }
+                                    }
+                                },
+                                new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
+                                    @Override
+                                    public ListenableFuture<Pair<Boolean, UUID>> apply(
+                                            Throwable input) throws Exception {
+                                        // If the read operation fails, we
+                                        // simply return the original result.
+                                        // We could try the read again if it
+                                        // timed out, but we would need to keep
+                                        // track of the number of attempts and
+                                        // this would make the logic even more
+                                        // complex.
+                                        return Futures.immediateFuture(
+                                                originalResult);
+                                    }
+                                });
+                    }
+                }, new AsyncFunction<Throwable, Pair<Boolean, UUID>>() {
                     @Override
                     public ListenableFuture<Pair<Boolean, UUID>> apply(
                             Throwable input) throws Exception {
