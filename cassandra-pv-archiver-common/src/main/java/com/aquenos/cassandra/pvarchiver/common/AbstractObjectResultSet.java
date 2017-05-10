@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -9,6 +9,8 @@
 
 package com.aquenos.cassandra.pvarchiver.common;
 
+import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -40,6 +42,51 @@ import com.google.common.util.concurrent.ListenableFuture;
  */
 public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
 
+    /**
+     * Sized iterator that iterates over a collection and removes its elements.
+     * This iterator only works if the iterator provided by the collection
+     * implements the <code>remove()</code> method.
+     * 
+     * @author Sebastian Marsching
+     *
+     * @param <E>
+     *            the type of elements returned by this iterator.
+     */
+    private static class ConsumingSizedCollectionIterator<E>
+            implements SizedIterator<E> {
+
+        private final Collection<E> collection;
+        private final Iterator<E> iterator;
+
+        public ConsumingSizedCollectionIterator(Collection<E> collection) {
+            this.collection = collection;
+            this.iterator = this.collection.iterator();
+        }
+
+        @Override
+        public boolean hasNext() {
+            return iterator.hasNext();
+        }
+
+        @Override
+        public E next() {
+            E element = iterator.next();
+            iterator.remove();
+            return element;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int remainingCount() {
+            return collection.size();
+        }
+
+    }
+
     private static final Function<Object, Void> ANY_TO_VOID = new Function<Object, Void>() {
         @Override
         public Void apply(Object input) {
@@ -49,9 +96,10 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
 
     private ListenableFuture<Iterator<V>> activeFetchFuture;
     private ListenableFuture<Void> activeFetchFutureAsVoid;
-    private LinkedList<V> currentPage = new LinkedList<V>();
+    private ArrayDeque<SizedIterator<V>> currentPages = new ArrayDeque<>();
     private Iterator<V> iterator;
     private boolean noMorePages;
+    private Throwable savedThrowable;
 
     @Override
     public List<V> all() {
@@ -76,12 +124,39 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
         // If a fetch operation is in progress, we first want to incorporate the
         // objects returned by this operation if it is done.
         processActiveFetchFutureIfDone();
-        return currentPage.size();
+        // We remove all empty pages from the beginning of the list. This means
+        // that all methods relying on this method can be sure that the first
+        // page contains an element if this method returns a non-zero value.
+        // This also means that we will not keep a reference to an iterator
+        // longer than necessary, which can be useful if the iterator refers to
+        // a non-empty collection (which might occupy a significant amount of
+        // memory).
+        SizedIterator<V> firstPage = currentPages.peek();
+        while (firstPage != null && !firstPage.hasNext()) {
+            currentPages.poll();
+            firstPage = currentPages.peek();
+        }
+        int availableWithoutFetching = 0;
+        for (SizedIterator<V> page : currentPages) {
+            int pageRemainingCount = page.remainingCount();
+            availableWithoutFetching += pageRemainingCount;
+            // If the sum of all available elements is greater than
+            // Integer.MAX_VALUE, the counter might overflow.
+            if (availableWithoutFetching < 0) {
+                if (pageRemainingCount < 0) {
+                    throw new RuntimeException(
+                            "remainingCount() returned a negative number. This is a violation of the contract defined by the SizedIterator interface.");
+                } else {
+                    return Integer.MAX_VALUE;
+                }
+            }
+        }
+        return availableWithoutFetching;
     }
 
     @Override
     public boolean isExhausted() {
-        while (currentPage.isEmpty() && !noMorePages) {
+        while (getAvailableWithoutFetching() == 0 && !noMorePages) {
             // If there is no fetch operation in progress, we start a new one.
             // Otherwise, we first check whether the operation in progress has
             // finished because we would like to use the objects returned by
@@ -107,7 +182,8 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
                     if (cause == null) {
                         throw new RuntimeException(
                                 "Caught an ExecutionException without a cause: "
-                                        + e.getMessage(), e);
+                                        + e.getMessage(),
+                                e);
                     } else if (cause instanceof Error) {
                         throw (Error) cause;
                     } else if (cause instanceof RuntimeException) {
@@ -115,13 +191,14 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
                     } else {
                         throw new RuntimeException(
                                 "Retrieving the next page of objects failed: "
-                                        + cause.getMessage(), cause);
+                                        + cause.getMessage(),
+                                cause);
                     }
                 }
             }
         }
         // If we got here, we either have objects or there are no pages left.
-        return currentPage.isEmpty();
+        return getAvailableWithoutFetching() == 0;
     }
 
     @Override
@@ -145,7 +222,11 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
         if (isExhausted()) {
             return null;
         }
-        return currentPage.poll();
+        // If isExhausted() returns false, the first page in the list must be
+        // non-empty (isExhausted calls getAvailableWithoutFetching() which
+        // removes empty iterators from the start of the list).
+        SizedIterator<V> currentPage = currentPages.peek();
+        return currentPage.next();
     }
 
     /**
@@ -167,6 +248,13 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
      * result.
      * </p>
      * 
+     * <p>
+     * While implementations of this method may return any iterator, they should
+     * return a {@link SizedIterator} whenever possible. Returning a
+     * <code>SizedIterator</code> will result in a better performance because
+     * unnecessary copy operations can be avoided.
+     * </p>
+     * 
      * @return future that completes when fetching the next page of objects has
      *         finished and returns an iterator over these objects or
      *         <code>null</code> if there are no more objects in the result set.
@@ -178,6 +266,11 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
             return;
         }
         if (activeFetchFuture != null && activeFetchFuture.isDone()) {
+            if (savedThrowable != null) {
+                throw new RuntimeException(
+                        "A fetch operation failed. Cannot continue.",
+                        savedThrowable);
+            }
             Iterator<V> iterator;
             try {
                 iterator = activeFetchFuture.get();
@@ -192,7 +285,8 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
                 if (cause == null) {
                     throw new RuntimeException(
                             "Caught an ExecutionException without a cause: "
-                                    + e.getMessage(), e);
+                                    + e.getMessage(),
+                            e);
                 } else if (cause instanceof Error) {
                     throw (Error) cause;
                 } else if (cause instanceof RuntimeException) {
@@ -200,19 +294,48 @@ public abstract class AbstractObjectResultSet<V> implements ObjectResultSet<V> {
                 } else {
                     throw new RuntimeException(
                             "Retrieving the next page of samples failed: "
-                                    + cause.getMessage(), cause);
+                                    + cause.getMessage(),
+                            cause);
                 }
             }
             if (iterator == null) {
                 noMorePages = true;
             } else {
-                while (iterator.hasNext()) {
-                    currentPage.add(iterator.next());
+                if (!iterator.hasNext()) {
+                    // If the iterator is empty, there is no sense in adding it
+                    // to the list because it would not be used anyway.
+                } else if (iterator instanceof SizedIterator<?>) {
+                    currentPages.add((SizedIterator<V>) iterator);
+                } else {
+                    LinkedList<V> iteratorElements = new LinkedList<>();
+                    while (iterator.hasNext()) {
+                        // If the iterator's next() method throws an exception,
+                        // we have to save this exception. If we did not and the
+                        // next() method actually consumed the offending
+                        // element, a future call to this method might succeed.
+                        // This could lead to a situation in which calling one
+                        // of the methods that trigger this method would fail,
+                        // but a subsequent call would succeed. This is a
+                        // problem because this would not only skip the
+                        // offending element, but all elements preceding that
+                        // element. Simply failing completely after a fetch
+                        // operation failed makes much more sense.
+                        V nextElement;
+                        try {
+                            nextElement = iterator.next();
+                        } catch (Error | RuntimeException e) {
+                            savedThrowable = e;
+                            throw e;
+                        }
+                        iteratorElements.add(nextElement);
+                    }
+                    currentPages.add(new ConsumingSizedCollectionIterator<>(
+                            iteratorElements));
                 }
-                activeFetchFuture = null;
-                activeFetchFutureAsVoid = null;
             }
         }
+        activeFetchFuture = null;
+        activeFetchFutureAsVoid = null;
     }
 
 }

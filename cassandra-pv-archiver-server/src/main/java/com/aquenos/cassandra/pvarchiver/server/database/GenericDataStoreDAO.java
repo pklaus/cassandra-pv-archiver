@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -121,12 +121,9 @@ public interface GenericDataStoreDAO {
 
     /**
      * Create a data item for the specified component and key if no such item
-     * exists yet. Typically, this is less efficient than
-     * {@link #createOrUpdateItem(UUID, String, String)}, so code should prefer
-     * the latter method unless it has to ensure that it does not overwrite an
-     * existing value. The operation is performed in an asynchronous way so that
-     * it will not block for network communication. The result of the operation
-     * can be checked through the returned future.
+     * exists yet. The operation is performed in an asynchronous way so that it
+     * will not block for network communication. The result of the operation can
+     * be checked through the returned future.
      * 
      * @param componentId
      *            ID of the component for which the data item should be created.
@@ -147,13 +144,9 @@ public interface GenericDataStoreDAO {
 
     /**
      * Creates a data item or updates it if an item with the specified key
-     * already exists for the specified component. This is the most efficient
-     * way to create or update a data item and should be preferred over
-     * {@link #createItem(UUID, String, String)} and
-     * {@link #updateItem(UUID, String, String, String)}. The operation is
-     * performed in an asynchronous way so that it will not block for network
-     * communication. The result of the operation can be checked through the
-     * returned future.
+     * already exists for the specified component. The operation is performed in
+     * an asynchronous way so that it will not block for network communication.
+     * The result of the operation can be checked through the returned future.
      * 
      * @param componentId
      *            ID of the component for which the data item should be created
@@ -258,12 +251,9 @@ public interface GenericDataStoreDAO {
     /**
      * Updates the data item with the specified key and component. The item is
      * only updated if its current value matches the specified
-     * <code>oldValue</code>. This type of atomic operation incurs an additional
-     * overhead. Code that does not mind overwriting a different value should
-     * prefer the {@link #createOrUpdateItem(UUID, String, String)} method. The
-     * operation is performed in an asynchronous way so that it will not block
-     * for network communication. The result of the operation can be checked
-     * through the returned future.
+     * <code>oldValue</code>. The operation is performed in an asynchronous way
+     * so that it will not block for network communication. The result of the
+     * operation can be checked through the returned future.
      * 
      * @param componentId
      *            ID of the component that owns the data item.

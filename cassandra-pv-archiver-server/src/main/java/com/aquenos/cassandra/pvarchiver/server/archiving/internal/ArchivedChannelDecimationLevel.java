@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -143,6 +143,12 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
      */
     protected final ScheduledExecutorService scheduledExecutor;
 
+    /**
+     * Set of target decimation levels. These are the decimation levels that use
+     * this decimation level as their source for generating decimated samples.
+     */
+    protected Set<ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>> targetDecimationLevels = new HashSet<ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>>();
+
     private final ChannelMetaDataDAO channelMetaDataDAO;
     // We initialize the current bucket size with minus one. This way, we
     // can determine that the control-system support has not been asked for
@@ -158,7 +164,6 @@ abstract class ArchivedChannelDecimationLevel<SampleType extends Sample> {
     private LinkedList<SampleBucketInformation> oldestSampleBuckets = new LinkedList<SampleBucketInformation>();
     private boolean removeOldSampleBucketsScheduled;
     private final long retentionPeriodNanoseconds;
-    private Set<ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>> targetDecimationLevels = new HashSet<ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>>();
     private final UUID thisServerId;
     private boolean waitingForAsynchronousRemoveSampleBucketOperation;
     private boolean waitingForAsynchronousWriteSampleOperation;

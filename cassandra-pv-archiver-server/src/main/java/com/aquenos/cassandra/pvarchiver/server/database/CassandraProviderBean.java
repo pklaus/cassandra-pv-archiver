@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -159,9 +159,14 @@ public class CassandraProviderBean implements ApplicationEventPublisherAware,
             quorumConsistencyLevel = ConsistencyLevel.QUORUM;
             serialConsistencyLevel = ConsistencyLevel.SERIAL;
         }
-        clusterBuilder.withQueryOptions(new QueryOptions().setConsistencyLevel(
-                quorumConsistencyLevel).setSerialConsistencyLevel(
-                serialConsistencyLevel));
+        QueryOptions queryOptions = new QueryOptions()
+                .setConsistencyLevel(quorumConsistencyLevel)
+                .setSerialConsistencyLevel(serialConsistencyLevel);
+        int fetchSize = cassandraProperties.getFetchSize();
+        if (fetchSize != 0) {
+            queryOptions.setFetchSize(fetchSize);
+        }
+        clusterBuilder.withQueryOptions(queryOptions);
         // We use a reconnection policy that is similar to the default policy
         // but limits the maximum delay to 2 minutes instead of 10 minutes. The
         // default policy is fine when a single node goes down, but if we lose

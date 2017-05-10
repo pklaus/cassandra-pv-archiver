@@ -29,6 +29,12 @@ cassandra:
   # username:
   # password:
   
+  # Usually, the fetchSize can be kept at its default value (zero). This will
+  # cause the default fetch size of the Cassandra driver to be used, which
+  # usually has a reasonable value.
+  
+  # fetchSize: 0
+  
   # The useLocalConsistencyLevel option should nearly always be set to false
   # (the default value). Before setting this option to true, carefully review
   # the documentation and make sure that you fully understand the consequences
@@ -59,6 +65,15 @@ server:
   
   # interNodeCommunicationPort: 9813
   
+  # The interNodeCommunicationRequestTimeout specifies how long a request from
+  # one archiving server to a different archiving server may take. Some requests
+  # that make modifications to a lot of channels (e.g. when a new configuration
+  # file is imported) may take a very long time to be processed, so this timeout
+  # should not be set too low. The default value is 900000 milliseconds
+  # (15 minutes).
+  
+  # interNodeCommunicationRequestTimeout: 900000
+  
   # The listenAddress specifies the address of the interface on which this
   # archiving server listens for incoming connections (on the specified ports).
   # In addition to the specified address, the administrative interface and the
@@ -74,7 +89,7 @@ server:
   # cluster. There are three ways of specifying the UUID: On the command line,
   # in this configuration file (using the uuid option) or in a separate file
   # using the uuidFile option. In the last case, if the file does not exist yet,
-  # it is created with a randomly generated UUID. The uuidFile can be specified
+  # it is created with a randomly generated UUID. The uuidFile can be specifiedm
   # as an absolute path or relative to the location of this configuration file.
   # As the UUID must be unique, there are no default values for these two
   # options.
@@ -89,6 +104,8 @@ server:
 # parallel and thus reduce the latency. They should be changed to lower values
 # when timeouts occcur because these timeouts are typically triggered by the
 # database cluster being overloaded with requests.
+# Some of the options in this section also control memory usage, so touching
+# these options is also a good idea when the JVM runs out of memory.
 
 throttling:
 
@@ -104,6 +121,31 @@ throttling:
   # maxConcurrentChannelMetaDataWriteStatements: 16
   # maxConcurrentControlSystemSupportReadStatements: 128
   # maxConcurrentControlSystemSupportWriteStatements: 512
+
+  # The sample decimation process might consume a lot of memory when generating
+  # decimated samples from already existing source samples for a lot of
+  # channels. This memory consumption can be controlled by the options in the
+  # "throttling.sampleDecimation" section.
+
+  sampleDecimation:
+
+    # The amount of samples that may be fetched into memory is directly
+    # connected to memory usage. Each fetched sample occupies about 1 KB of
+    # memory (for scalar Channel Access samples), so one million samples are
+    # roughly equivalent to 1 GB of memory. The default value is 1000000.
+
+    # maxFetchedSamplesInMemory: 1000000
+
+    # The number of samples returned by a fetch operation is only known after
+    # the fetch operation has completed. For this reason, the limit for the
+    # number of samples to be fetched into memory might be exceeded after a
+    # fetch operation has completed. By limiting the number of fetch operations
+    # that may run concurrently, one can limit by how much the limit may be
+    # exceeded. The max. number of running fetch operations multiplied by the
+    # fetch size (configured with "cassandra.fetchSize") is the max. number of
+    # samples by which the limit defined above might be exceeded.
+
+    # maxRunningFetchOperations: 20
 
 # The "logging" section specifies where log messages are written and which kind
 # of messages are logged (log level).

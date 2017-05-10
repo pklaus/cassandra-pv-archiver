@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -17,6 +17,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import com.aquenos.cassandra.pvarchiver.server.database.CassandraProvider;
+import com.google.common.base.Preconditions;
 
 /**
  * <p>
@@ -56,11 +57,12 @@ import com.aquenos.cassandra.pvarchiver.server.database.CassandraProvider;
 @ConfigurationProperties(prefix = "cassandra", ignoreUnknownFields = false)
 public class CassandraProperties implements InitializingBean {
 
+    private int fetchSize = 0;
     private List<String> hosts;
     private String keyspace = "pv_archive";
-    private boolean useLocalConsistencyLevel = false;
     private String password;
     private int port = 9042;
+    private boolean useLocalConsistencyLevel = false;
     private String username;
 
     /**
@@ -71,6 +73,57 @@ public class CassandraProperties implements InitializingBean {
     public CassandraProperties() {
         this.hosts = new ArrayList<String>();
         this.hosts.add("localhost");
+    }
+
+    /**
+     * <p>
+     * Returns the default fetch size. The fetch size specifies how many rows
+     * are read from the database in a single page. Specifying a larger value
+     * typically improves performance when processing a query that returns many
+     * rows, but results in more memory usage in both the database server and
+     * the client because the full page of rows has to be kept in memory.
+     * </p>
+     * 
+     * <p>
+     * The default fetch size is only used for queries that do not explicitly
+     * specify a fetch size. A number of zero indicates that the default fetch
+     * size used by the Cassandra driver should not be touched. As of version
+     * 3.1.4 of the Cassandra driver, the default fetch size is 5000 rows.
+     * </p>
+     * 
+     * @return default fetch size to use for queries that do not specify a fetch
+     *         size.
+     */
+    public int getFetchSize() {
+        return fetchSize;
+    }
+
+    /**
+     * <p>
+     * Sets the default fetch size. The fetch size specifies how many rows are
+     * read from the database in a single page. Specifying a larger value
+     * typically improves performance when processing a query that returns many
+     * rows, but results in more memory usage in both the database server and
+     * the client because the full page of rows has to be kept in memory.
+     * </p>
+     * 
+     * <p>
+     * The default fetch size is only used for queries that do not explicitly
+     * specify a fetch size. The fetch size must be a non-negative number. A
+     * number of zero indicates that the default fetch size used by the
+     * Cassandra driver should not be touched. As of version 3.1.4 of the
+     * Cassandra driver, the default fetch size is 5000 rows.
+     * </p>
+     * 
+     * @param fetchSize
+     *            fetch size to be used for all queries that do not explicitly
+     *            specify a fetch size or zero to use the default fetch size of
+     *            the Cassandra driver.
+     */
+    public void setFetchSize(int fetchSize) {
+        Preconditions.checkArgument(fetchSize >= 0,
+                "The fetch size must be greater than or equal to zero.");
+        this.fetchSize = fetchSize;
     }
 
     /**
@@ -132,42 +185,6 @@ public class CassandraProperties implements InitializingBean {
     }
 
     /**
-     * Tells whether the <code>LOCAL_</code> variants of the consistency levels
-     * shall be used. One might want to use these variants if all archiver nodes
-     * are operating in the same datacenter, but the Cassandra cluster has a
-     * second datacenter that is used for replication (read-only). In this case,
-     * the archiver can continue operation when the connection to the second
-     * datacenter is interrupted. The default is <code>false</code>.
-     * 
-     * @return <code>true</code> if the <code>LOCAL_</code> variants of the
-     *         consistency levels should be used (e.g. <code>LOCAL_QUORUM</code>
-     *         instead of <code>QUORUM</code>), <code>false</code> if the
-     *         regular (global) consistency levels should be used.
-     */
-    public boolean isUseLocalConsistencyLevel() {
-        return useLocalConsistencyLevel;
-    }
-
-    /**
-     * Defines whether the <code>LOCAL_</code> variants of the consistency
-     * levels shall be used. One might want to use these variants if all
-     * archiver nodes are operating in the same datacenter, but the Cassandra
-     * cluster has a second datacenter that is used for replication (read-only).
-     * In this case, the archiver can continue operation when the connection to
-     * the second datacenter is interrupted. The default is <code>false</code>.
-     * 
-     * @param useLocalConsistencyLevel
-     *            <code>true</code> if the <code>LOCAL_</code> variants of the
-     *            consistency levels should be used (e.g.
-     *            <code>LOCAL_QUORUM</code> instead of <code>QUORUM</code>),
-     *            <code>false</code> if the regular (global) consistency levels
-     *            should be used.
-     */
-    public void setUseLocalConsistencyLevel(boolean useLocalConsistencyLevel) {
-        this.useLocalConsistencyLevel = useLocalConsistencyLevel;
-    }
-
-    /**
      * Returns the password that is used in combination with the username in
      * order to authenticate with the Cassandra cluster.
      * 
@@ -219,6 +236,42 @@ public class CassandraProperties implements InitializingBean {
                     + ". Port number must be between 1 and 65535.");
         }
         this.port = port;
+    }
+
+    /**
+     * Tells whether the <code>LOCAL_</code> variants of the consistency levels
+     * shall be used. One might want to use these variants if all archiver nodes
+     * are operating in the same datacenter, but the Cassandra cluster has a
+     * second datacenter that is used for replication (read-only). In this case,
+     * the archiver can continue operation when the connection to the second
+     * datacenter is interrupted. The default is <code>false</code>.
+     * 
+     * @return <code>true</code> if the <code>LOCAL_</code> variants of the
+     *         consistency levels should be used (e.g. <code>LOCAL_QUORUM</code>
+     *         instead of <code>QUORUM</code>), <code>false</code> if the
+     *         regular (global) consistency levels should be used.
+     */
+    public boolean isUseLocalConsistencyLevel() {
+        return useLocalConsistencyLevel;
+    }
+
+    /**
+     * Defines whether the <code>LOCAL_</code> variants of the consistency
+     * levels shall be used. One might want to use these variants if all
+     * archiver nodes are operating in the same datacenter, but the Cassandra
+     * cluster has a second datacenter that is used for replication (read-only).
+     * In this case, the archiver can continue operation when the connection to
+     * the second datacenter is interrupted. The default is <code>false</code>.
+     * 
+     * @param useLocalConsistencyLevel
+     *            <code>true</code> if the <code>LOCAL_</code> variants of the
+     *            consistency levels should be used (e.g.
+     *            <code>LOCAL_QUORUM</code> instead of <code>QUORUM</code>),
+     *            <code>false</code> if the regular (global) consistency levels
+     *            should be used.
+     */
+    public void setUseLocalConsistencyLevel(boolean useLocalConsistencyLevel) {
+        this.useLocalConsistencyLevel = useLocalConsistencyLevel;
     }
 
     /**

@@ -5,6 +5,7 @@ cassandra:
   keyspace: pv_archive
   username:
   password:
+  fetchSize: 0
   useLocalConsistencyLevel: false
 
 developmentMode:
@@ -14,6 +15,7 @@ server:
   adminPort: 4812
   archiveAccessPort: 9812
   interNodeCommunicationPort: 9813
+  interNodeCommunicationRequestTimeout: 900000
   listenAddress:
 
 throttling:
@@ -21,3 +23,6 @@ throttling:
   maxConcurrentChannelMetaDataWriteStatements: 16
   maxConcurrentControlSystemSupportReadStatements: 128
   maxConcurrentControlSystemSupportWriteStatements: 512
+  sampleDecimation:
+    maxFetchedSamplesInMemory: 1000000
+    maxRunningFetchOperations: 20

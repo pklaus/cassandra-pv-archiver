@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -30,6 +30,7 @@ import com.datastax.driver.core.schemabuilder.SchemaBuilder;
 import com.datastax.driver.mapping.MappingManager;
 import com.datastax.driver.mapping.annotations.Accessor;
 import com.datastax.driver.mapping.annotations.Query;
+import com.datastax.driver.mapping.annotations.QueryParameters;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.util.concurrent.Futures;
@@ -252,6 +253,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CHANNEL_DATA_ID + " = ? AND "
                 + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture deleteSampleBucket(UUID channelDataId,
                 int decimationLevel, long bucketStartTime);
 
@@ -261,6 +263,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " = ? ORDER BY "
                 + COLUMN_SAMPLE_TIME + " DESC LIMIT 1;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getCurrentBucketSizeAndLatestSampleTime(
                 UUID channelDataId, int decimationLevel, long bucketStartTime);
 
@@ -282,6 +285,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + " = ? AND " + COLUMN_SAMPLE_TIME
                 + " >= ? AND " + COLUMN_SAMPLE_TIME + " <= ? ORDER BY "
                 + COLUMN_SAMPLE_TIME + " ASC;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSamples(UUID channelDataId, int decimationLevel,
                 long bucketStartTime, long minSampleTime, long maxSampleTime);
 
@@ -303,6 +307,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + " = ? AND " + COLUMN_SAMPLE_TIME
                 + " >= ? AND " + COLUMN_SAMPLE_TIME + " <= ? ORDER BY "
                 + COLUMN_SAMPLE_TIME + " ASC LIMIT ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSamples(UUID channelDataId, int decimationLevel,
                 long bucketStartTime, long minSampleTime, long maxSampleTime,
                 int limit);
@@ -325,6 +330,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + " = ? AND " + COLUMN_SAMPLE_TIME
                 + " >= ? AND " + COLUMN_SAMPLE_TIME + " <= ? ORDER BY "
                 + COLUMN_SAMPLE_TIME + " DESC;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSamplesInReverseOrder(UUID channelDataId,
                 int decimationLevel, long bucketStartTime, long minSampleTime,
                 long maxSampleTime);
@@ -347,6 +353,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + " = ? AND " + COLUMN_SAMPLE_TIME
                 + " >= ? AND " + COLUMN_SAMPLE_TIME + " <= ? ORDER BY "
                 + COLUMN_SAMPLE_TIME + " DESC LIMIT ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSamplesInReverseOrder(UUID channelDataId,
                 int decimationLevel, long bucketStartTime, long minSampleTime,
                 long maxSampleTime, int limit);
@@ -357,6 +364,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CURRENT_BUCKET_SIZE + ", "
                 + COLUMN_AGGREGATED_SCALAR_CHAR
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertAggregatedScalarCharSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -367,6 +375,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CURRENT_BUCKET_SIZE + ", "
                 + COLUMN_AGGREGATED_SCALAR_DOUBLE
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertAggregatedScalarDoubleSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -377,6 +386,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CURRENT_BUCKET_SIZE + ", "
                 + COLUMN_AGGREGATED_SCALAR_FLOAT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertAggregatedScalarFloatSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -387,6 +397,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CURRENT_BUCKET_SIZE + ", "
                 + COLUMN_AGGREGATED_SCALAR_LONG
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertAggregatedScalarLongSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -397,6 +408,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_CURRENT_BUCKET_SIZE + ", "
                 + COLUMN_AGGREGATED_SCALAR_SHORT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertAggregatedScalarShortSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -406,6 +418,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_CHAR
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayCharSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -415,6 +428,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_DOUBLE
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayDoubleSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -424,6 +438,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_ENUM
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayEnumSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -433,6 +448,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_FLOAT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayFloatSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -442,6 +458,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_LONG
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayLongSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -451,6 +468,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_SHORT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayShortSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -460,6 +478,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_ARRAY_STRING
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertArrayStringSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -469,6 +488,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_DISABLED
                 + ") VALUES (?, ?, ?, ?, ?, true);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertDisabledSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize);
@@ -478,6 +498,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_DISCONNECTED
                 + ") VALUES (?, ?, ?, ?, ?, true);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertDisconnectedSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize);
@@ -487,6 +508,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_CHAR
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarCharSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -496,6 +518,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_DOUBLE
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarDoubleSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -505,6 +528,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_ENUM
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarEnumSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -514,6 +538,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_FLOAT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarFloatSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -523,6 +548,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_LONG
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarLongSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -532,6 +558,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_SHORT
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarShortSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -541,6 +568,7 @@ public class ChannelAccessDatabaseAccess {
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_SAMPLE_TIME + ", "
                 + COLUMN_CURRENT_BUCKET_SIZE + ", " + COLUMN_SCALAR_STRING
                 + ") VALUES (?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture insertScalarStringSampleAndCurrentBucketSize(
                 UUID channelDataId, int decimationLevel, long bucketStartTime,
                 long sampleTime, int currentBucketSize, UDTValue sampleValue);
@@ -1119,91 +1147,71 @@ public class ChannelAccessDatabaseAccess {
     }
 
     private void createTable() {
-        session.execute(SchemaBuilder
-                .createTable(TABLE_SAMPLES)
+        session.execute(SchemaBuilder.createTable(TABLE_SAMPLES)
                 .addPartitionKey(COLUMN_CHANNEL_DATA_ID, DataType.uuid())
                 .addPartitionKey(COLUMN_DECIMATION_LEVEL, DataType.cint())
                 .addPartitionKey(COLUMN_BUCKET_START_TIME, DataType.bigint())
                 .addClusteringColumn(COLUMN_SAMPLE_TIME, DataType.bigint())
                 .addStaticColumn(COLUMN_CURRENT_BUCKET_SIZE, DataType.cint())
-                .addColumn(
-                        COLUMN_AGGREGATED_SCALAR_CHAR,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.AGGREGATED_SCALAR_CHAR))
-                .addColumn(
-                        COLUMN_AGGREGATED_SCALAR_DOUBLE,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.AGGREGATED_SCALAR_DOUBLE))
-                .addColumn(
-                        COLUMN_AGGREGATED_SCALAR_FLOAT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.AGGREGATED_SCALAR_FLOAT))
-                .addColumn(
-                        COLUMN_AGGREGATED_SCALAR_LONG,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.AGGREGATED_SCALAR_LONG))
-                .addColumn(
-                        COLUMN_AGGREGATED_SCALAR_SHORT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.AGGREGATED_SCALAR_SHORT))
-                .addColumn(
-                        COLUMN_ARRAY_CHAR,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_CHAR))
-                .addColumn(
-                        COLUMN_ARRAY_DOUBLE,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_DOUBLE))
-                .addColumn(
-                        COLUMN_ARRAY_ENUM,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_ENUM))
-                .addColumn(
-                        COLUMN_ARRAY_FLOAT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_FLOAT))
-                .addColumn(
-                        COLUMN_ARRAY_LONG,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_LONG))
-                .addColumn(
-                        COLUMN_ARRAY_SHORT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_SHORT))
-                .addColumn(
-                        COLUMN_ARRAY_STRING,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.ARRAY_STRING))
+                .addUDTColumn(COLUMN_AGGREGATED_SCALAR_CHAR,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.AGGREGATED_SCALAR_CHAR))
+                .addUDTColumn(COLUMN_AGGREGATED_SCALAR_DOUBLE,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.AGGREGATED_SCALAR_DOUBLE))
+                .addUDTColumn(COLUMN_AGGREGATED_SCALAR_FLOAT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.AGGREGATED_SCALAR_FLOAT))
+                .addUDTColumn(COLUMN_AGGREGATED_SCALAR_LONG,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.AGGREGATED_SCALAR_LONG))
+                .addUDTColumn(COLUMN_AGGREGATED_SCALAR_SHORT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.AGGREGATED_SCALAR_SHORT))
+                .addUDTColumn(COLUMN_ARRAY_CHAR,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_CHAR))
+                .addUDTColumn(COLUMN_ARRAY_DOUBLE,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_DOUBLE))
+                .addUDTColumn(COLUMN_ARRAY_ENUM,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_ENUM))
+                .addUDTColumn(COLUMN_ARRAY_FLOAT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_FLOAT))
+                .addUDTColumn(COLUMN_ARRAY_LONG,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_LONG))
+                .addUDTColumn(COLUMN_ARRAY_SHORT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_SHORT))
+                .addUDTColumn(COLUMN_ARRAY_STRING,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.ARRAY_STRING))
                 .addColumn(COLUMN_DISABLED, DataType.cboolean())
                 .addColumn(COLUMN_DISCONNECTED, DataType.cboolean())
-                .addColumn(
-                        COLUMN_SCALAR_CHAR,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_CHAR))
-                .addColumn(
-                        COLUMN_SCALAR_DOUBLE,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_DOUBLE))
-                .addColumn(
-                        COLUMN_SCALAR_ENUM,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_ENUM))
-                .addColumn(
-                        COLUMN_SCALAR_FLOAT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_FLOAT))
-                .addColumn(
-                        COLUMN_SCALAR_LONG,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_LONG))
-                .addColumn(
-                        COLUMN_SCALAR_SHORT,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_SHORT))
-                .addColumn(
-                        COLUMN_SCALAR_STRING,
-                        sampleValueAccess
-                                .getColumnType(ChannelAccessSampleType.SCALAR_STRING))
+                .addUDTColumn(COLUMN_SCALAR_CHAR,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_CHAR))
+                .addUDTColumn(COLUMN_SCALAR_DOUBLE,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_DOUBLE))
+                .addUDTColumn(COLUMN_SCALAR_ENUM,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_ENUM))
+                .addUDTColumn(COLUMN_SCALAR_FLOAT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_FLOAT))
+                .addUDTColumn(COLUMN_SCALAR_LONG,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_LONG))
+                .addUDTColumn(COLUMN_SCALAR_SHORT,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_SHORT))
+                .addUDTColumn(COLUMN_SCALAR_STRING,
+                        sampleValueAccess.getColumnType(
+                                ChannelAccessSampleType.SCALAR_STRING))
                 .ifNotExists());
     }
 

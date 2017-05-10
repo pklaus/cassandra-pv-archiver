@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,18 +92,25 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_CHANNEL_DATA_ID + ", " + COLUMN_CONTROL_SYSTEM_TYPE
                 + ", " + COLUMN_DECIMATION_LEVELS + ", " + COLUMN_SERVER_ID
                 + " FROM " + TABLE_CHANNELS + ";")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getAllChannels();
 
+        // When specifying Integer.MAX_VALUE as the fetch size, paging is
+        // disabled in the Cassandra driver. This means that once the result set
+        // is returned, all rows can be read without blocking. As this query
+        // will return at most a single row, there is no disadvantage in
+        // disabling paging.
         @Query("SELECT DISTINCT " + COLUMN_CHANNEL_NAME + ", "
                 + COLUMN_CHANNEL_DATA_ID + ", " + COLUMN_CONTROL_SYSTEM_TYPE
                 + ", " + COLUMN_DECIMATION_LEVELS + ", " + COLUMN_SERVER_ID
                 + " FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ?;")
-        @QueryParameters(fetchSize = Integer.MAX_VALUE)
+        @QueryParameters(fetchSize = Integer.MAX_VALUE, idempotent = true)
         ResultSetFuture getChannel(String channelName);
 
         @Query("SELECT * FROM " + TABLE_CHANNELS + " WHERE "
                 + COLUMN_CHANNEL_NAME + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getChannelWithSampleBuckets(String channelName);
 
         @Query("SELECT " + COLUMN_CHANNEL_NAME + ", " + COLUMN_CHANNEL_DATA_ID
@@ -110,6 +118,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_BUCKET_END_TIME
                 + " FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBuckets(String channelName);
 
         // Even though it looks irritating, we have to use the decimation_level
@@ -123,6 +132,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ? ORDER BY "
                 + COLUMN_DECIMATION_LEVEL + " ASC;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBuckets(String channelName,
                 int decimationLevel);
 
@@ -132,6 +142,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ? ORDER BY "
                 + COLUMN_DECIMATION_LEVEL + " DESC LIMIT ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBucketsReversed(String channelName,
                 int decimationLevel, int limit);
 
@@ -142,6 +153,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " <= ? ORDER BY "
                 + COLUMN_DECIMATION_LEVEL + " DESC LIMIT ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBucketsReversedWithStartTimeLessThanOrEqualTo(
                 String channelName, int decimationLevel,
                 long startTimeLessThanOrEqualTo, int limit);
@@ -153,6 +165,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " >= ? ORDER BY "
                 + COLUMN_DECIMATION_LEVEL + " ASC LIMIT ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBucketsWithStartTimeGreaterThanOrEqualTo(
                 String channelName, int decimationLevel,
                 long startTimeGreaterThanOrEqualTo, int limit);
@@ -165,6 +178,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_BUCKET_START_TIME + " >= ? AND "
                 + COLUMN_BUCKET_START_TIME + " <=  ? ORDER BY "
                 + COLUMN_DECIMATION_LEVEL + " ASC;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getSampleBucketsWithStartTimeGreaterThanOrEqualToAndLessThanOrEqualTo(
                 String channelName, int decimationLevel,
                 long startTimeGreaterThanOrEqualTo,
@@ -174,6 +188,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + ", " + COLUMN_CHANNEL_DATA_ID + ", "
                 + COLUMN_CONTROL_SYSTEM_TYPE + ", " + COLUMN_DECIMATION_LEVELS
                 + ", " + COLUMN_SERVER_ID + ") VALUES (?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         Statement prepareCreateChannel(String channelName, UUID channelDataId,
                 String controlSystemType, Set<Integer> decimationLevels,
                 UUID serverId);
@@ -181,6 +196,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
         @Query("UPDATE " + TABLE_CHANNELS + " SET " + COLUMN_DECIMATION_LEVELS
                 + " = " + COLUMN_DECIMATION_LEVELS + " + ? WHERE "
                 + COLUMN_CHANNEL_NAME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareCreateDecimationLevel(Set<Integer> decimationLevels,
                 String channelName);
 
@@ -188,32 +204,38 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + ", " + COLUMN_DECIMATION_LEVEL + ", "
                 + COLUMN_BUCKET_START_TIME + ", " + COLUMN_BUCKET_END_TIME
                 + ") VALUES (?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         Statement prepareCreateSampleBucket(String channelName,
                 int decimationLevel, long bucketStartTime, long bucketEndTime);
 
         @Query("DELETE FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteChannel(String channelName);
 
         @Query("UPDATE " + TABLE_CHANNELS + " SET " + COLUMN_DECIMATION_LEVELS
                 + " = " + COLUMN_DECIMATION_LEVELS + " - ? WHERE "
                 + COLUMN_CHANNEL_NAME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteDecimationLevels(Set<Integer> decimationLevels,
                 String channelName);
 
         @Query("DELETE FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteSampleBucket(String channelName,
                 int decimationLevel, long bucketStartTime);
 
         @Query("DELETE FROM " + TABLE_CHANNELS + " WHERE " + COLUMN_CHANNEL_NAME
                 + " = ? AND " + COLUMN_DECIMATION_LEVEL + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteSampleBuckets(String channelName,
                 int decimationLevel);
 
         @Query("UPDATE " + TABLE_CHANNELS + " SET " + COLUMN_SERVER_ID
                 + " = ? WHERE " + COLUMN_CHANNEL_NAME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareUpdateChannelServerId(UUID newServerId,
                 String channelName);
 
@@ -221,6 +243,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " = ? WHERE " + COLUMN_CHANNEL_NAME + " = ? AND "
                 + COLUMN_DECIMATION_LEVEL + " = ? AND "
                 + COLUMN_BUCKET_START_TIME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareUpdateSampleBucketEndTime(long newBucketEndTime,
                 String channelName, int decimationLevel, long bucketStartTime);
 
@@ -235,14 +258,20 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
     @Accessor
     private interface ChannelsByServerAccessor {
 
+        // When specifying Integer.MAX_VALUE as the fetch size, paging is
+        // disabled in the Cassandra driver. This means that once the result set
+        // is returned, all rows can be read without blocking. As this query
+        // will return at most a single row, there is no disadvantage in
+        // disabling paging.
         @Query("SELECT * FROM " + TABLE_CHANNELS_BY_SERVER + " WHERE "
                 + COLUMN_SERVER_ID + " = ? AND " + COLUMN_CHANNEL_NAME
                 + " = ?;")
-        @QueryParameters(fetchSize = Integer.MAX_VALUE)
+        @QueryParameters(fetchSize = Integer.MAX_VALUE, idempotent = true)
         ResultSetFuture getChannel(UUID serverId, String channelName);
 
         @Query("SELECT * FROM " + TABLE_CHANNELS_BY_SERVER + " WHERE "
                 + COLUMN_SERVER_ID + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getChannels(UUID serverId);
 
         @Query("INSERT INTO " + TABLE_CHANNELS_BY_SERVER + " ("
@@ -252,6 +281,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + ", " + COLUMN_DECIMATION_LEVEL_TO_RETENTION_PERIOD + ", "
                 + COLUMN_ENABLED + ", " + COLUMN_OPTIONS
                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         Statement prepareCreateChannel(UUID serverId, String channelName,
                 UUID channelDataId, String controlSystemType,
                 Map<Integer, Long> decimationLevelToCurrentBucketStartTime,
@@ -265,6 +295,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_DECIMATION_LEVEL_TO_RETENTION_PERIOD + " + ? WHERE "
                 + COLUMN_SERVER_ID + " = ? AND " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareCreateDecimationLevels(
                 Map<Integer, Long> decimationLevelToCurrentBucketStartTime,
                 Map<Integer, Integer> decimationLevelToRetentionPeriod,
@@ -273,6 +304,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
         @Query("DELETE FROM " + TABLE_CHANNELS_BY_SERVER + " WHERE "
                 + COLUMN_SERVER_ID + " = ? AND " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteChannel(UUID serverId, String channelName);
 
         @Query("UPDATE " + TABLE_CHANNELS_BY_SERVER + " SET "
@@ -282,6 +314,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_DECIMATION_LEVEL_TO_RETENTION_PERIOD + " - ? WHERE "
                 + COLUMN_SERVER_ID + " = ? AND " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareDeleteDecimationLevels(Set<Integer> decimationLevels,
                 Set<Integer> decimationLevelsRepeated, UUID serverId,
                 String channelName);
@@ -290,6 +323,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_DECIMATION_LEVEL_TO_CURRENT_BUCKET_START_TIME
                 + "[?] = ? WHERE " + COLUMN_SERVER_ID + " = ? AND "
                 + COLUMN_CHANNEL_NAME + " = ?;")
+        @QueryParameters(idempotent = true)
         Statement prepareUpdateChannelCurrentSampleBucket(int decimationLevel,
                 long newCurrentSampleBucketStartTime, UUID serverId,
                 String channelName);
@@ -300,6 +334,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_ENABLED + "= ?, " + COLUMN_OPTIONS + " = ? WHERE "
                 + COLUMN_SERVER_ID + " = ? AND " + COLUMN_CHANNEL_NAME
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture updateChannel(
                 Map<Integer, Integer> updateDecimationLevelToRetentionPeriod,
                 boolean newEnabled, Map<String, String> newOptions,
@@ -322,6 +357,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + COLUMN_OPERATION_DATA + ", " + COLUMN_OPERATION_ID + ", "
                 + COLUMN_OPERATION_TYPE
                 + ") VALUES (?, ?, ?, ?, ?) IF NOT EXISTS USING TTL ?;")
+        @QueryParameters(idempotent = false)
         ResultSetFuture createOperationIfNotExists(UUID serverId,
                 String channelName, String operationData, UUID operationId,
                 String operationType, int ttl);
@@ -330,17 +366,24 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " WHERE " + COLUMN_SERVER_ID + " = ? AND "
                 + COLUMN_CHANNEL_NAME + " = ? IF " + COLUMN_OPERATION_ID
                 + " = ?;")
+        @QueryParameters(idempotent = false)
         ResultSetFuture deleteOperationIfIdMatches(UUID serverId,
                 String channelName, UUID operationId);
 
+        // When specifying Integer.MAX_VALUE as the fetch size, paging is
+        // disabled in the Cassandra driver. This means that once the result set
+        // is returned, all rows can be read without blocking. As this query
+        // will return at most a single row, there is no disadvantage in
+        // disabling paging.
         @Query("SELECT * FROM " + TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER
                 + " WHERE " + COLUMN_SERVER_ID + " = ? AND "
                 + COLUMN_CHANNEL_NAME + " = ?;")
-        @QueryParameters(fetchSize = Integer.MAX_VALUE)
+        @QueryParameters(fetchSize = Integer.MAX_VALUE, idempotent = true)
         Statement getOperation(UUID serverId, String channelName);
 
         @Query("SELECT * FROM " + TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER
                 + " WHERE " + COLUMN_SERVER_ID + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getOperations(UUID serverId);
 
         @Query("UPDATE " + TABLE_PENDING_CHANNEL_OPERATIONS_BY_SERVER
@@ -349,6 +392,7 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
                 + " = ? WHERE " + COLUMN_SERVER_ID + " = ? AND "
                 + COLUMN_CHANNEL_NAME + " = ? IF " + COLUMN_OPERATION_ID
                 + " = ?;")
+        @QueryParameters(idempotent = false)
         ResultSetFuture updateOperationIfIdMatches(int ttl,
                 String newOperationData, UUID newOperationId,
                 String newOperationType, UUID serverId, String channelName,
@@ -480,7 +524,11 @@ public class ChannelMetaDataDAOImpl implements ChannelMetaDataDAO,
     private long pendingChannelOperationMinSleepMilliseconds = 800L;
     private PendingChannelOperationsByServerAccessor pendingChannelOperationsByServerAccessor;
     private ThreadPoolExecutor renameChannelExecutor = new ThreadPoolExecutor(0,
-            1, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>());
+            1, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
+            new BasicThreadFactory.Builder().daemon(true)
+                    .namingPattern(
+                            "channel-meta-data-dao-rename-channel-thread-%d")
+                    .build());
     private ConsistencyLevel serialConsistencyLevel;
     // The session field is volatile so that we can do the initialization
     // without having to synchronize on a mutex in order to check whether the

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -51,6 +51,7 @@ import com.aquenos.cassandra.pvarchiver.server.database.CassandraProvider;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO.ChannelConfiguration;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO.ChannelOperation;
+import com.aquenos.cassandra.pvarchiver.server.spring.ThrottlingProperties;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.datastax.driver.core.Session;
 import com.google.common.base.Function;
@@ -98,9 +99,9 @@ public class ArchivingServiceInternalImpl {
      */
     protected final Log log = LogFactory.getLog(getClass());
 
-    private ArchiveAccessService archiveAccessService;
     private CassandraProvider cassandraProvider;
     private ChannelMetaDataDAO channelMetaDataDAO;
+    private ThrottledArchiveAccessService throttledArchiveAccessService;
     private LinkedBlockingUniqueQueue<ArchivedChannelDecimationLevel<?>> channelDecimationLevelsWithPendingWriteRequests = new LinkedBlockingUniqueQueue<ArchivedChannelDecimationLevel<?>>();
     private ConcurrentMap<String, SettableFuture<Void>> channelsNeedingRefresh = new ConcurrentHashMap<String, SettableFuture<Void>>();
     private AtomicLong numberOfSamplesDropped = new AtomicLong();
@@ -140,6 +141,10 @@ public class ArchivingServiceInternalImpl {
      *            control-system support registry that is used for retrieving
      *            the control-system supports needed by the channels that are
      *            managed by this service.
+     * @param throttlingProperties
+     *            configuration options that control throttling. This used for
+     *            limiting source sample fetch operations when generating
+     *            decimated samples.
      * @param thisServerId
      *            unique identifier identifying this archive server instance.
      */
@@ -148,21 +153,29 @@ public class ArchivingServiceInternalImpl {
             CassandraProvider cassandraProvider,
             ChannelMetaDataDAO channelMetaDataDAO,
             ControlSystemSupportRegistry controlSystemSupportRegistry,
+            ThrottlingProperties throttlingProperties,
             UUID thisServerId) {
         Preconditions.checkNotNull(archiveAccessService);
         Preconditions.checkNotNull(cassandraProvider);
         Preconditions.checkNotNull(channelMetaDataDAO);
         Preconditions.checkNotNull(controlSystemSupportRegistry);
         Preconditions.checkNotNull(thisServerId);
-        this.archiveAccessService = archiveAccessService;
         this.cassandraProvider = cassandraProvider;
         this.channelMetaDataDAO = channelMetaDataDAO;
         this.controlSystemSupportRegistry = controlSystemSupportRegistry;
         this.thisServerId = thisServerId;
         // We use daemon threads because we do not want any of our threads to
         // stop the JVM from shutdown.
-        ThreadFactory daemonThreadFactory = new BasicThreadFactory.Builder()
-                .daemon(true).build();
+        ThreadFactory poolThreadFactory = new BasicThreadFactory.Builder()
+                .daemon(true).namingPattern("archiving-service-pool-thread-%d")
+                .build();
+        ThreadFactory scheduledExecutorThreadFactory = new BasicThreadFactory.Builder()
+                .daemon(true)
+                .namingPattern("archiving-service-scheduled-executor-thread-%d")
+                .build();
+        ThreadFactory writeThreadFactory = new BasicThreadFactory.Builder()
+                .daemon(true).namingPattern("archiving-service-write-thread-%d")
+                .build();
         // We use the number of available processors as the number of threads.
         // This is somehow inaccurate (for example, we might create too many
         // threads for processors with hyper threading), but this should not
@@ -188,7 +201,7 @@ public class ArchivingServiceInternalImpl {
         // killed anyway).
         poolExecutor = new ThreadPoolExecutor(0, numberOfPoolThreads, 60L,
                 TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
-                daemonThreadFactory, new RejectedExecutionHandler() {
+                poolThreadFactory, new RejectedExecutionHandler() {
                     @Override
                     public void rejectedExecution(Runnable r,
                             ThreadPoolExecutor executor) {
@@ -234,7 +247,7 @@ public class ArchivingServiceInternalImpl {
         // executor (we have the poolExecutor for this). Therefore, a single
         // thread is sufficient.
         scheduledExecutor = new ScheduledThreadPoolExecutor(1,
-                daemonThreadFactory) {
+                scheduledExecutorThreadFactory) {
             @Override
             protected void afterExecute(Runnable r, Throwable t) {
                 super.afterExecute(r, t);
@@ -264,12 +277,18 @@ public class ArchivingServiceInternalImpl {
                 }
             }
         };
+        throttledArchiveAccessService = new ThrottledArchiveAccessService(
+                archiveAccessService, this.poolExecutor,
+                throttlingProperties.getSampleDecimation()
+                        .getMaxRunningFetchOperations(),
+                throttlingProperties.getSampleDecimation()
+                        .getMaxFetchedSamplesInMemory());
         // We use a separate executor service for running the write-sample
         // thread. Unlike the other tasks, this thread will block waiting on new
         // samples until it is interrupted, so it would definitely block one of
         // the pool threads forever.
         writeSampleExecutor = Executors
-                .newSingleThreadExecutor(daemonThreadFactory);
+                .newSingleThreadExecutor(writeThreadFactory);
     }
 
     /**
@@ -396,6 +415,107 @@ public class ArchivingServiceInternalImpl {
      */
     public long getNumberOfSamplesWritten() {
         return numberOfSamplesWritten.get();
+    }
+
+    /**
+     * <p>
+     * Returns the number of sample fetch operations that are running currently.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. In this case, the number of fetch
+     * operations that may run concurrently is limited (to the number returned
+     * by {@link #getSamplesDecimationMaxRunningFetchOperations()}).
+     * </p>
+     * 
+     * @return number of sample fetch operations (to generate decimated samples)
+     *         that are currently running.
+     * @see #getSamplesDecimationCurrentSamplesInMemory()
+     * @see #getSamplesDecimationMaxRunningFetchOperations()
+     */
+    public int getSamplesDecimationCurrentRunningFetchOperations() {
+        return throttledArchiveAccessService.getCurrentRunningFetchOperations();
+    }
+
+    /**
+     * <p>
+     * Returns the number of samples that have been fetched (but not processed
+     * yet). This is the number of samples that is currently kept in memory.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. For performance reasons, samples are
+     * fetched in batches. These samples, that have been fetched, but not
+     * processed yet, consume memory, so that no new fetch operations may be
+     * started if a large number of samples has already been fetched, but not
+     * processed yet. The actual limit is returned by
+     * {@link #getSamplesDecimationMaxSamplesInMemory()}.
+     * </p>
+     * 
+     * @return number of samples that have been fetched (to generate decimated
+     *         samples), but not processed yet.
+     * @see #getSamplesDecimationCurrentRunningFetchOperations()
+     * @see #getSamplesDecimationMaxSamplesInMemory()
+     */
+    public int getSamplesDecimationCurrentSamplesInMemory() {
+        return throttledArchiveAccessService.getCurrentSamplesInMemory();
+    }
+
+    /**
+     * <p>
+     * Returns the max. number of sample fetch operations that may run
+     * concurrently.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. In this case, the number of fetch
+     * operations that may run concurrently is limited to the number returned by
+     * this method.
+     * </p>
+     * 
+     * @return max. number of sample fetch operations (to generate decimated
+     *         samples) that may run concurrently.
+     * @see #getSamplesDecimationCurrentRunningFetchOperations()
+     * @see #getSamplesDecimationMaxSamplesInMemory()
+     */
+    public int getSamplesDecimationMaxRunningFetchOperations() {
+        return throttledArchiveAccessService.getMaxRunningFetchOperations();
+    }
+
+    /**
+     * <p>
+     * Returns the max. number of samples that may concurrently be kept in
+     * memory.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. For performance reasons, samples are
+     * fetched in batches. These samples, that have been fetched, but not
+     * processed yet, consume memory, so that no new fetch operations may be
+     * started if a large number of samples has already been fetched, but not
+     * processed yet. This method returns the number of samples at which this
+     * limit is enforced and no more samples are fetched.
+     * </p>
+     * 
+     * @return max. number of samples that may be fetched (to generate decimated
+     *         samples) into memory concurrently.
+     * @see #getSamplesDecimationCurrentSamplesInMemory()
+     * @see #getSamplesDecimationMaxRunningFetchOperations()
+     */
+    public int getSamplesDecimationMaxSamplesInMemory() {
+        return throttledArchiveAccessService.getMaxSamplesInMemory();
     }
 
     /**
@@ -536,8 +656,8 @@ public class ArchivingServiceInternalImpl {
         // details outside our scope, this could lead to a dead lock if it is
         // executed by a thread that also holds a mutex that we acquire while
         // holding the channel mutex.
-        ListenableFuture<Void> destroyOldChannelFuture = Futures.transform(
-                combinedFuture, destroyOldChannel, poolExecutor);
+        ListenableFuture<Void> destroyOldChannelFuture = Futures
+                .transform(combinedFuture, destroyOldChannel, poolExecutor);
         return Futures.transform(destroyOldChannelFuture,
                 new AsyncFunction<Void, Void>() {
                     @Override
@@ -589,8 +709,8 @@ public class ArchivingServiceInternalImpl {
                                     if (existingFuture != null) {
                                         return existingFuture;
                                     }
-                                    if (channelsNeedingRefresh.remove(
-                                            channelName, future)) {
+                                    if (channelsNeedingRefresh
+                                            .remove(channelName, future)) {
                                         // We have removed the channel and
                                         // future and can try again. However, we
                                         // have to make sure that the future is
@@ -604,7 +724,8 @@ public class ArchivingServiceInternalImpl {
                                         // (the other thread that requested the
                                         // refresh might have updated the
                                         // configuration after we read it).
-                                        ListenableFuture<Void> newFuture = refreshChannel(channelName);
+                                        ListenableFuture<Void> newFuture = refreshChannel(
+                                                channelName);
                                         Futures.addCallback(newFuture,
                                                 new FutureCallback<Void>() {
                                                     @Override
@@ -670,7 +791,7 @@ public class ArchivingServiceInternalImpl {
                                 // support.
                                 newChannel = new ArchivedChannel<Sample>(
                                         channelConfiguration, pendingOperation,
-                                        archiveAccessService,
+                                        throttledArchiveAccessService,
                                         ArchivingServiceInternalImpl.this,
                                         channelMetaDataDAO,
                                         controlSystemSupportRegistry,
@@ -686,9 +807,10 @@ public class ArchivingServiceInternalImpl {
                                 newChannels.remove(channelName);
                             }
                             ArchivingServiceState newState = new ArchivingServiceState(
-                                    oldState.isInitialized(), oldState
-                                            .isOnline(), Collections
-                                            .unmodifiableSortedMap(newChannels));
+                                    oldState.isInitialized(),
+                                    oldState.isOnline(),
+                                    Collections.unmodifiableSortedMap(
+                                            newChannels));
                             // If we could update the state, we are done. If
                             // some other thread modified the state in the
                             // meantime, we have to get the updated state and
@@ -762,8 +884,8 @@ public class ArchivingServiceInternalImpl {
         if (!oldState.isOnline()) {
             return;
         }
-        ArchivingServiceState newState = new ArchivingServiceState(false,
-                false, oldState.getChannels());
+        ArchivingServiceState newState = new ArchivingServiceState(false, false,
+                oldState.getChannels());
         // We set the newState so that concurrent methods see that the state has
         // changed. There will be another state update when the initialization
         // code has run. This later update is only done if we are still in the
@@ -904,11 +1026,12 @@ public class ArchivingServiceInternalImpl {
         // create a new instance for them. They will be refreshed when they
         // finally are destroyed.
         final HashSet<ArchivedChannel<?>> refreshOnDestroy = new HashSet<ArchivedChannel<?>>();
-        for (ArchivedChannel<?> channel : expectedState.getChannels().values()) {
+        for (ArchivedChannel<?> channel : expectedState.getChannels()
+                .values()) {
             synchronized (channel) {
-                if (!channel.getState().equals(ArchivedChannelState.DESTROYED)) {
-                    newChannels.put(
-                            channel.getConfiguration().getChannelName(),
+                if (!channel.getState()
+                        .equals(ArchivedChannelState.DESTROYED)) {
+                    newChannels.put(channel.getConfiguration().getChannelName(),
                             channel);
                     refreshOnDestroy.add(channel);
                 }
@@ -921,9 +1044,9 @@ public class ArchivingServiceInternalImpl {
         final ListenableFuture<? extends Iterable<? extends ChannelConfiguration>> getChannelsFuture = channelMetaDataDAO
                 .getChannelsByServer(thisServerId);
         @SuppressWarnings("unchecked")
-        ListenableFuture<Void> combinedFuture = FutureUtils
-                .transformAnyToVoid(Futures.allAsList(
-                        getPendingOperationsFuture, getChannelsFuture));
+        ListenableFuture<Void> combinedFuture = FutureUtils.transformAnyToVoid(
+                Futures.allAsList(getPendingOperationsFuture,
+                        getChannelsFuture));
         Function<Void, Void> initializeChannels = new Function<Void, Void>() {
             @Override
             public Void apply(Void input) {
@@ -935,8 +1058,8 @@ public class ArchivingServiceInternalImpl {
                 }
                 for (ChannelConfiguration channelConfiguration : FutureUtils
                         .getUnchecked(getChannelsFuture)) {
-                    if (newChannels.containsKey(channelConfiguration
-                            .getChannelName())) {
+                    if (newChannels.containsKey(
+                            channelConfiguration.getChannelName())) {
                         // If there still is an old instance, we do not want to
                         // create a new one.
                         continue;
@@ -959,8 +1082,9 @@ public class ArchivingServiceInternalImpl {
                     // control-system support.
                     final ArchivedChannel<?> channel = new ArchivedChannel<Sample>(
                             channelConfiguration,
-                            pendingOperations.get(channelConfiguration
-                                    .getChannelName()), archiveAccessService,
+                            pendingOperations
+                                    .get(channelConfiguration.getChannelName()),
+                            throttledArchiveAccessService,
                             ArchivingServiceInternalImpl.this,
                             channelMetaDataDAO, controlSystemSupportRegistry,
                             poolExecutor, scheduledExecutor, thisServerId);
@@ -970,8 +1094,8 @@ public class ArchivingServiceInternalImpl {
                 final ArchivingServiceState newState = new ArchivingServiceState(
                         true, true,
                         Collections.unmodifiableSortedMap(newChannels));
-                if (!ArchivingServiceInternalImpl.this.state.compareAndSet(
-                        expectedState, newState)) {
+                if (!ArchivingServiceInternalImpl.this.state
+                        .compareAndSet(expectedState, newState)) {
                     return null;
                 }
                 for (final ArchivedChannel<?> channel : newState.getChannels()
@@ -1005,8 +1129,8 @@ public class ArchivingServiceInternalImpl {
                     if (channelDestructionFuture.isDone()) {
                         // The channel is now destroyed, so we can start the
                         // refresh right away.
-                        refreshChannel(channel.getConfiguration()
-                                .getChannelName());
+                        refreshChannel(
+                                channel.getConfiguration().getChannelName());
                     } else {
                         channelDestructionFuture.addListener(new Runnable() {
                             @Override
@@ -1020,8 +1144,8 @@ public class ArchivingServiceInternalImpl {
                 while (!channelsNeedingRefresh.isEmpty()) {
                     Map.Entry<String, SettableFuture<Void>> channelNameAndFuture;
                     try {
-                        channelNameAndFuture = channelsNeedingRefresh
-                                .entrySet().iterator().next();
+                        channelNameAndFuture = channelsNeedingRefresh.entrySet()
+                                .iterator().next();
                     } catch (NoSuchElementException e) {
                         // If the map is modified concurrently, the map might
                         // suddenly be empty. We simply ignore such an
@@ -1093,8 +1217,8 @@ public class ArchivingServiceInternalImpl {
         for (ArchivedChannel<?> channel : oldState.getChannels().values()) {
             shutdownFutures.add(channel.destroy());
         }
-        return FutureUtils.transformAnyToVoid(Futures
-                .allAsList(shutdownFutures));
+        return FutureUtils
+                .transformAnyToVoid(Futures.allAsList(shutdownFutures));
     }
 
     private ChannelStatus statusForInternalChannel(ArchivedChannel<?> channel) {
@@ -1161,8 +1285,8 @@ public class ArchivingServiceInternalImpl {
                 channelState = ChannelStatus.State.INITIALIZING;
                 break;
             default:
-                throw new RuntimeException("Unhandled case: "
-                        + channel.getState());
+                throw new RuntimeException(
+                        "Unhandled case: " + channel.getState());
             }
         }
         String errorMessage = (error == null) ? null

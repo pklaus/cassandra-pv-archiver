@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -53,6 +53,7 @@ import com.datastax.driver.core.UDTValue;
 import com.datastax.driver.core.UserType;
 import com.datastax.driver.core.schemabuilder.CreateType;
 import com.datastax.driver.core.schemabuilder.SchemaBuilder;
+import com.datastax.driver.core.schemabuilder.UDTType;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.base.Charsets;
 
@@ -1657,46 +1658,46 @@ public class ChannelAccessSampleValueAccess {
      *            type for the CQL storage shall be returned.
      * @return user-defined CQL type for storing samples of the specified type.
      */
-    UserType getColumnType(ChannelAccessSampleType sampleType) {
+    UDTType getColumnType(ChannelAccessSampleType sampleType) {
         switch (sampleType) {
         case AGGREGATED_SCALAR_CHAR:
-            return aggregatedScalarChar;
+            return SchemaBuilder.frozen(UDT_AGGREGATED_SCALAR_CHAR);
         case AGGREGATED_SCALAR_DOUBLE:
-            return aggregatedScalarDouble;
+            return SchemaBuilder.frozen(UDT_AGGREGATED_SCALAR_DOUBLE);
         case AGGREGATED_SCALAR_FLOAT:
-            return aggregatedScalarFloat;
+            return SchemaBuilder.frozen(UDT_AGGREGATED_SCALAR_FLOAT);
         case AGGREGATED_SCALAR_LONG:
-            return aggregatedScalarLong;
+            return SchemaBuilder.frozen(UDT_AGGREGATED_SCALAR_LONG);
         case AGGREGATED_SCALAR_SHORT:
-            return aggregatedScalarShort;
+            return SchemaBuilder.frozen(UDT_AGGREGATED_SCALAR_SHORT);
         case ARRAY_CHAR:
-            return arrayChar;
+            return SchemaBuilder.frozen(UDT_ARRAY_CHAR);
         case ARRAY_DOUBLE:
-            return arrayDouble;
+            return SchemaBuilder.frozen(UDT_ARRAY_DOUBLE);
         case ARRAY_ENUM:
-            return arrayEnum;
+            return SchemaBuilder.frozen(UDT_ARRAY_ENUM);
         case ARRAY_FLOAT:
-            return arrayFloat;
+            return SchemaBuilder.frozen(UDT_ARRAY_FLOAT);
         case ARRAY_LONG:
-            return arrayLong;
+            return SchemaBuilder.frozen(UDT_ARRAY_LONG);
         case ARRAY_SHORT:
-            return arrayShort;
+            return SchemaBuilder.frozen(UDT_ARRAY_SHORT);
         case ARRAY_STRING:
-            return arrayString;
+            return SchemaBuilder.frozen(UDT_ARRAY_STRING);
         case SCALAR_CHAR:
-            return scalarChar;
+            return SchemaBuilder.frozen(UDT_SCALAR_CHAR);
         case SCALAR_DOUBLE:
-            return scalarDouble;
+            return SchemaBuilder.frozen(UDT_SCALAR_DOUBLE);
         case SCALAR_ENUM:
-            return scalarEnum;
+            return SchemaBuilder.frozen(UDT_SCALAR_ENUM);
         case SCALAR_FLOAT:
-            return scalarFloat;
+            return SchemaBuilder.frozen(UDT_SCALAR_FLOAT);
         case SCALAR_LONG:
-            return scalarLong;
+            return SchemaBuilder.frozen(UDT_SCALAR_LONG);
         case SCALAR_SHORT:
-            return scalarShort;
+            return SchemaBuilder.frozen(UDT_SCALAR_SHORT);
         case SCALAR_STRING:
-            return scalarString;
+            return SchemaBuilder.frozen(UDT_SCALAR_STRING);
         default:
             throw new RuntimeException("Unhandled sample type: " + sampleType);
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -10,6 +10,7 @@
 package com.aquenos.cassandra.pvarchiver.server.spring;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 import com.aquenos.cassandra.pvarchiver.controlsystem.ControlSystemSupport;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO;
@@ -17,11 +18,39 @@ import com.google.common.base.Preconditions;
 
 /**
  * <p>
- * Configuration properties that control throttling of statements that are
- * executed by the Cassandra database. These properties allow to specify how
- * many statements are executed concurrently, thus providing a protection
- * against overloading the database cluster. This object is injected with
- * properties that have the <code>throttling.*</code> prefix.
+ * Configuration properties that control throttling of operations. Throttling is
+ * needed in order to avoid exhausting system resources or overloading the
+ * Cassandra database cluster. This object is injected with properties that have
+ * the <code>throttling.*</code> prefix.
+ * </p>
+ * 
+ * <p>
+ * At the moment, throttling options are provided for two areas of operation:
+ * </p>
+ * 
+ * <p>
+ * Concurrently executed Cassandra statements: Processing statements causes load
+ * on the database cluster. When processing too many statements in parallel,
+ * this can lead to a situation in which statements take so long to be processed
+ * that they time out. This can be avoided by limiting the number of statements
+ * that are executed concurrently. The limits can be set separately for two
+ * areas: statements that read or write samples (such statements are used by the
+ * control-system supports) and statements that deal with sample meta-data (such
+ * statements are used by the <code>ChannelMetaDataDAO</code>.
+ * </p>
+ * 
+ * <p>
+ * Sample decimation: When adding a decimation level to a lot of channels that
+ * already have a lot of raw samples, generating the decimated samples can
+ * consume a lot of resources because this process involves reading all the
+ * source (raw) samples. In particular, due to the fact that samples are read
+ * from the database in pages, a lot of memory might be consumed for samples
+ * that have been read from the database, but have not been processed yet. This
+ * can lead to a situation in which the decimation process consumes all
+ * available heap memory and triggers an <code>OutOfMemoryError</code>. By
+ * limiting the number of samples that may be kept in memory and delaying the
+ * reading of samples for other channels until some of the samples in memory
+ * have been processed, the amount of memory used can be limited.
  * </p>
  * 
  * <p>
@@ -40,6 +69,8 @@ public class ThrottlingProperties {
     private int maxConcurrentChannelMetaDataWriteStatements;
     private int maxConcurrentControlSystemSupportReadStatements;
     private int maxConcurrentControlSystemSupportWriteStatements;
+    @NestedConfigurationProperty
+    private SampleDecimationThrottlingProperties sampleDecimation;
 
     /**
      * Creates a properties object, initializing all properties with their
@@ -50,6 +81,7 @@ public class ThrottlingProperties {
         this.maxConcurrentChannelMetaDataWriteStatements = 16;
         this.maxConcurrentControlSystemSupportReadStatements = 128;
         this.maxConcurrentControlSystemSupportWriteStatements = 512;
+        this.sampleDecimation = new SampleDecimationThrottlingProperties();
     }
 
     /**
@@ -204,6 +236,33 @@ public class ThrottlingProperties {
                         maxConcurrentControlSystemSupportWriteStatements > 0,
                         "The maxConcurrentControlSystemSupportWriteStatements parameter must be greater than zero.");
         this.maxConcurrentControlSystemSupportWriteStatements = maxConcurrentControlSystemSupportWriteStatements;
+    }
+
+    /**
+     * Returns the configuration properties that control the sample decimation
+     * process.
+     * 
+     * @return configuration properties for throttling the sample decimation
+     *         process.
+     */
+    public SampleDecimationThrottlingProperties getSampleDecimation() {
+        return sampleDecimation;
+    }
+
+    
+    /**
+     * Sets the configuration properties that control the sample decimation
+     * process.
+     * 
+     * @param sampleDecimation
+     *            configuration properties for throttling the sample decimation
+     *            process.
+     */
+    public void setSampleDecimation(
+            SampleDecimationThrottlingProperties sampleDecimation) {
+        Preconditions.checkNotNull(sampleDecimation,
+                "The sample decimation throttling properties must not be null.");
+        this.sampleDecimation = sampleDecimation;
     }
 
 }

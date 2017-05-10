@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -62,27 +62,36 @@ public class ClusterServersDAOImpl implements ApplicationEventPublisherAware,
                 + COLUMN_INTER_NODE_COMMUNICATION_URL + ", "
                 + COLUMN_LAST_ONLINE_TIME + ") VALUES ("
                 + GLOBAL_CLUSTER_ID_STRING + ", ?, ?, ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture createServer(UUID serverId, String serverName,
                 String interNodeCommunicationUrl, Date lastOnlineTime);
 
         @Query("SELECT * FROM " + TABLE + " WHERE " + COLUMN_CLUSTER_ID + " = "
                 + GLOBAL_CLUSTER_ID_STRING + ";")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getAllServers();
 
+        // When specifying Integer.MAX_VALUE as the fetch size, paging is
+        // disabled in the Cassandra driver. This means that once the result set
+        // is returned, all rows can be read without blocking. As this query
+        // will return at most a single row, there is no disadvantage in
+        // disabling paging.
         @Query("SELECT * FROM " + TABLE + " WHERE " + COLUMN_CLUSTER_ID + " = "
                 + GLOBAL_CLUSTER_ID_STRING + " AND " + COLUMN_SERVER_ID
                 + " = ?;")
-        @QueryParameters(fetchSize = Integer.MAX_VALUE)
+        @QueryParameters(fetchSize = Integer.MAX_VALUE, idempotent = true)
         ResultSetFuture getServer(UUID serverId);
 
         @Query("DELETE FROM " + TABLE + " WHERE " + COLUMN_CLUSTER_ID + " = "
                 + GLOBAL_CLUSTER_ID_STRING + " AND " + COLUMN_SERVER_ID
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture removeServer(UUID serverId);
 
         @Query("INSERT INTO " + TABLE + " (" + COLUMN_CLUSTER_ID + ", "
                 + COLUMN_SERVER_ID + ", " + COLUMN_LAST_ONLINE_TIME
                 + ") VALUES (" + GLOBAL_CLUSTER_ID_STRING + ", ?, ?);")
+        @QueryParameters(idempotent = true)
         ResultSetFuture updateServerLastOnlineTime(UUID serverId,
                 Date lastOnlineTime);
 

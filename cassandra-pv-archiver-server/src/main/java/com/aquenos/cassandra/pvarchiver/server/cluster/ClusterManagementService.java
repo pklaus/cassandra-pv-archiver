@@ -20,11 +20,13 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.SystemUtils;
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -169,12 +171,20 @@ public class ClusterManagementService implements
         // early and in particular avoids application events to be sent too
         // early.
 
+        // We use daemon threads because we do not want any of our threads to
+        // stop the JVM from shutting down.
+        ThreadFactory scheduledExecutorThreadFactory = new BasicThreadFactory.Builder()
+                .daemon(true)
+                .namingPattern(
+                        "cluster-management-service-scheduled-executor-thread-%d")
+                .build();
         // We use our own executor service. This way, we can be sure that other
         // tasks do not block our tasks from executing. We use two threads
         // because we are executing the update method in this executor and if it
         // blocked (which is unlikely but could happen), this would stop the
         // watch-dog from running as planned if there was only one thread.
-        scheduledExecutorService = new ScheduledThreadPoolExecutor(2);
+        scheduledExecutorService = new ScheduledThreadPoolExecutor(2,
+                scheduledExecutorThreadFactory);
 
         // We have to create the clock skew monitor and schedule periodical
         // processing. The clock skew monitor tries to monitor clock skew in the

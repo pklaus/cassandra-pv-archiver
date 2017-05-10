@@ -27,7 +27,6 @@ import com.aquenos.cassandra.pvarchiver.controlsystem.ControlSystemSupport;
 import com.aquenos.cassandra.pvarchiver.controlsystem.Sample;
 import com.aquenos.cassandra.pvarchiver.controlsystem.SampleBucketId;
 import com.aquenos.cassandra.pvarchiver.controlsystem.SampleWithSizeEstimate;
-import com.aquenos.cassandra.pvarchiver.server.archiving.ArchiveAccessService;
 import com.aquenos.cassandra.pvarchiver.server.controlsystem.ControlSystemSupportRegistry;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO.ChannelConfiguration;
@@ -92,7 +91,7 @@ class ArchivedChannel<SampleType extends Sample> {
      */
     protected final Log log = LogFactory.getLog(getClass());
 
-    private final ArchiveAccessService archiveAccessService;
+    private final ThrottledArchiveAccessService throttledArchiveAccessService;
     private final ArchivingServiceInternalImpl archivingService;
     private final ChannelMetaDataDAO channelMetaDataDAO;
     private final ChannelConfiguration configuration;
@@ -159,7 +158,7 @@ class ArchivedChannel<SampleType extends Sample> {
      * @param pendingOperation
      *            pending operation that was found in the database for this
      *            channel or <code>null</code> if there is no pending operation.
-     * @param archiveAccessService
+     * @param throttledArchiveAccessService
      *            archive access service used for reading samples. This service
      *            is used when generating decimated samples (if there is at
      *            least one decimation level storing decimated samples).
@@ -187,14 +186,14 @@ class ArchivedChannel<SampleType extends Sample> {
      */
     ArchivedChannel(ChannelConfiguration configuration,
             ChannelOperation pendingOperation,
-            ArchiveAccessService archiveAccessService,
+            ThrottledArchiveAccessService throttledArchiveAccessService,
             ArchivingServiceInternalImpl archivingService,
             ChannelMetaDataDAO channelMetaDataDAO,
             ControlSystemSupportRegistry controlSystemSupportRegistry,
             ExecutorService poolExecutor,
             ScheduledExecutorService scheduledExecutor, UUID thisServerId) {
         assert (configuration != null);
-        assert (archiveAccessService != null);
+        assert (throttledArchiveAccessService != null);
         assert (archivingService != null);
         assert (channelMetaDataDAO != null);
         assert (controlSystemSupportRegistry != null);
@@ -203,7 +202,7 @@ class ArchivedChannel<SampleType extends Sample> {
         assert (thisServerId != null);
         this.configuration = configuration;
         this.pendingOperationOnInit = pendingOperation;
-        this.archiveAccessService = archiveAccessService;
+        this.throttledArchiveAccessService = throttledArchiveAccessService;
         this.archivingService = archivingService;
         this.channelMetaDataDAO = channelMetaDataDAO;
         this.controlSystemSupportRegistry = controlSystemSupportRegistry;
@@ -267,9 +266,8 @@ class ArchivedChannel<SampleType extends Sample> {
         // callbacks that we use later in this method.
         if (state.equals(ArchivedChannelState.DESTROYED)
                 || destructionRequested) {
-            return Futures
-                    .immediateFailedFuture(new IllegalStateException(
-                            "Destruction of the channel was requested before the create sample-bucket operation could finish."));
+            return Futures.immediateFailedFuture(new IllegalStateException(
+                    "Destruction of the channel was requested before the create sample-bucket operation could finish."));
         }
         // If one or more operations to create a new sample bucket is already in
         // progress, we wait for this operation to finish. In theory, we could
@@ -304,15 +302,13 @@ class ArchivedChannel<SampleType extends Sample> {
         final String channelName = configuration.getChannelName();
         StringBuilder operationDataBuilder = new StringBuilder();
         operationDataBuilder.append("{ decimationLevel: \"");
-        operationDataBuilder.append(decimationLevel
-                .getDecimationPeriodSeconds());
+        operationDataBuilder
+                .append(decimationLevel.getDecimationPeriodSeconds());
         operationDataBuilder.append("\", bucketStartTime: \"");
         operationDataBuilder.append(newBucketStartTime);
         operationDataBuilder.append("\" }, ");
         ListenableFuture<Pair<Boolean, UUID>> createPendingOperationFuture = channelMetaDataDAO
-                .createPendingChannelOperationRelaxed(
-                        thisServerId,
-                        channelName,
+                .createPendingChannelOperationRelaxed(thisServerId, channelName,
                         operationId,
                         PendingChannelOperationConstants.OPERATION_CREATE_SAMPLE_BUCKET,
                         operationDataBuilder.toString(),
@@ -361,9 +357,9 @@ class ArchivedChannel<SampleType extends Sample> {
                 // Our next actions do not depend on whether we could remove the
                 // pending operation successfully. Therefore, we can convert to
                 // void.
-                return FutureUtils.transformAnyToVoid(channelMetaDataDAO
-                        .deletePendingChannelOperation(thisServerId,
-                                channelName, operationId));
+                return FutureUtils.transformAnyToVoid(
+                        channelMetaDataDAO.deletePendingChannelOperation(
+                                thisServerId, channelName, operationId));
             }
         };
         // We do not use the same-thread executor for our transformation because
@@ -720,24 +716,19 @@ class ArchivedChannel<SampleType extends Sample> {
             // then.
             if (pendingOperationOnInit.getOperationType().equals(
                     PendingChannelOperationConstants.OPERATION_PROTECTIVE)) {
-                scheduledExecutor
-                        .schedule(
-                                new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        archivingService
-                                                .refreshChannel(pendingOperationOnInit
-                                                        .getChannelName());
-                                    }
-                                },
-                                PendingChannelOperationConstants.PROTECTIVE_PENDING_OPERATION_TTL_SECONDS + 1L,
-                                TimeUnit.SECONDS);
+                scheduledExecutor.schedule(new Runnable() {
+                    @Override
+                    public void run() {
+                        archivingService.refreshChannel(
+                                pendingOperationOnInit.getChannelName());
+                    }
+                }, PendingChannelOperationConstants.PROTECTIVE_PENDING_OPERATION_TTL_SECONDS
+                        + 1L, TimeUnit.SECONDS);
             }
             return destroyWithException(new IllegalStateException(
                     "The channel cannot be initialized because an operation of type \""
-                            + StringEscapeUtils
-                                    .escapeJava(pendingOperationOnInit
-                                            .getOperationType())
+                            + StringEscapeUtils.escapeJava(
+                                    pendingOperationOnInit.getOperationType())
                             + "\" is pending."));
         }
         // Even if the channel is not enabled, we need the control-system
@@ -752,10 +743,10 @@ class ArchivedChannel<SampleType extends Sample> {
                 .getControlSystemSupport(configuration.getControlSystemType());
         controlSystemSupport = uncheckedControlSystemSupport;
         if (controlSystemSupport == null) {
-            return destroyWithException(new IllegalArgumentException(
-                    "Control system support \""
-                            + StringEscapeUtils.escapeJava(configuration
-                                    .getControlSystemType())
+            return destroyWithException(
+                    new IllegalArgumentException("Control system support \""
+                            + StringEscapeUtils.escapeJava(
+                                    configuration.getControlSystemType())
                             + "\" could not be found."));
         }
         // For each decimation level that exists for the channel, we have to
@@ -781,12 +772,13 @@ class ArchivedChannel<SampleType extends Sample> {
                         configuration.getDecimationLevelToRetentionPeriod()
                                 .get(decimationPeriod),
                         decimationLevelPeriodAndCurrentBucketStartTime
-                                .getValue(), archivingService, this,
-                        channelMetaDataDAO, poolExecutor, scheduledExecutor,
-                        thisServerId);
+                                .getValue(),
+                        archivingService, this, channelMetaDataDAO,
+                        poolExecutor, scheduledExecutor, thisServerId);
             } else {
                 for (int possibleSourceDecimationPeriod : configuration
-                        .getDecimationLevelToCurrentBucketStartTime().keySet()) {
+                        .getDecimationLevelToCurrentBucketStartTime()
+                        .keySet()) {
                     // We want to use the decimation level with the greatest
                     // decimation period that is less than the decimation period
                     // of the target decimation level and that is an integer
@@ -802,14 +794,15 @@ class ArchivedChannel<SampleType extends Sample> {
                 // The current bucket start time is never null. If there is no
                 // bucket yet, it is minus one.
                 decimationLevel = new ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>(
-                        decimationPeriod, configuration
-                                .getDecimationLevelToRetentionPeriod().get(
-                                        decimationPeriod),
+                        decimationPeriod,
+                        configuration.getDecimationLevelToRetentionPeriod()
+                                .get(decimationPeriod),
                         sourceDecimationPeriod,
                         decimationLevelPeriodAndCurrentBucketStartTime
-                                .getValue(), archiveAccessService,
-                        archivingService, this, channelMetaDataDAO,
-                        poolExecutor, scheduledExecutor, thisServerId);
+                                .getValue(),
+                        throttledArchiveAccessService, archivingService, this,
+                        channelMetaDataDAO, poolExecutor, scheduledExecutor,
+                        thisServerId);
             }
             decimationLevels.put(
                     decimationLevelPeriodAndCurrentBucketStartTime.getKey(),
@@ -827,7 +820,8 @@ class ArchivedChannel<SampleType extends Sample> {
                 .values()) {
             // The raw decimation level does not have any source
             // decimation-levels, so we can skip it.
-            if (decimationLevel.getDecimationPeriodSeconds() == RAW_SAMPLES_DECIMATION_PERIOD) {
+            if (decimationLevel
+                    .getDecimationPeriodSeconds() == RAW_SAMPLES_DECIMATION_PERIOD) {
                 continue;
             }
             ArchivedChannelDecimatedSamplesDecimationLevel<SampleType> decimatedSamplesDecimationLevel = (ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>) decimationLevel;
@@ -842,22 +836,25 @@ class ArchivedChannel<SampleType extends Sample> {
         if (configuration.isEnabled()) {
             try {
                 Long currentBucketStartTime = configuration
-                        .getDecimationLevelToCurrentBucketStartTime().get(
-                                RAW_SAMPLES_DECIMATION_PERIOD);
+                        .getDecimationLevelToCurrentBucketStartTime()
+                        .get(RAW_SAMPLES_DECIMATION_PERIOD);
                 // If createChannel throws an exception (it should not), the
                 // surrounding try-catch block will catch this exception and put
                 // the channel into an error state.
                 final ListenableFuture<? extends ControlSystemChannel> controlSystemChannelFuture = controlSystemSupport
-                        .createChannel(
-                                configuration.getChannelName(),
+                        .createChannel(configuration.getChannelName(),
                                 configuration.getOptions(),
-                                (currentBucketStartTime != null && currentBucketStartTime >= 0L) ? new SampleBucketId(
-                                        configuration.getChannelDataId(),
-                                        RAW_SAMPLES_DECIMATION_PERIOD,
-                                        currentBucketStartTime) : null,
+                                (currentBucketStartTime != null
+                                        && currentBucketStartTime >= 0L)
+                                                ? new SampleBucketId(
+                                                        configuration
+                                                                .getChannelDataId(),
+                                                        RAW_SAMPLES_DECIMATION_PERIOD,
+                                                        currentBucketStartTime)
+                                                : null,
                                 ((ArchivedChannelRawSamplesDecimationLevel<SampleType>) decimationLevels
                                         .get(RAW_SAMPLES_DECIMATION_PERIOD))
-                                        .getSampleListener());
+                                                .getSampleListener());
                 // createChannel should not return null either.
                 if (controlSystemChannelFuture == null) {
                     throw new IllegalArgumentException(
@@ -880,13 +877,15 @@ class ArchivedChannel<SampleType extends Sample> {
                             initializationFuture = null;
                             try {
                                 ControlSystemChannel controlSystemChannel = FutureUtils
-                                        .getUnchecked(controlSystemChannelFuture);
+                                        .getUnchecked(
+                                                controlSystemChannelFuture);
                                 if (controlSystemChannel == null) {
                                     throw new IllegalArgumentException(
                                             "The control-system support returnd null when requested to create the channel.");
                                 }
                                 try {
-                                    initializeWithControlSystemSupport(controlSystemChannel);
+                                    initializeWithControlSystemSupport(
+                                            controlSystemChannel);
                                 } finally {
                                     localInitializationFuture.set(null);
                                 }
@@ -902,8 +901,7 @@ class ArchivedChannel<SampleType extends Sample> {
                                 if (destructionRequested) {
                                     destroyInternalDuringInitialization();
                                 } else {
-                                    FutureUtils.forward(
-                                            destroyWithException(t),
+                                    FutureUtils.forward(destroyWithException(t),
                                             localInitializationFuture);
                                 }
                             }
@@ -917,8 +915,8 @@ class ArchivedChannel<SampleType extends Sample> {
         } else {
             try {
                 Long currentBucketStartTime = configuration
-                        .getDecimationLevelToCurrentBucketStartTime().get(
-                                RAW_SAMPLES_DECIMATION_PERIOD);
+                        .getDecimationLevelToCurrentBucketStartTime()
+                        .get(RAW_SAMPLES_DECIMATION_PERIOD);
                 // If generateChannelDisabledSample throws an exception (it
                 // should not), the surrounding try-catch block will catch this
                 // exception and put the channel into an error state.
@@ -926,10 +924,14 @@ class ArchivedChannel<SampleType extends Sample> {
                         .generateChannelDisabledSample(
                                 configuration.getChannelName(),
                                 configuration.getOptions(),
-                                (currentBucketStartTime != null && currentBucketStartTime >= 0L) ? new SampleBucketId(
-                                        configuration.getChannelDataId(),
-                                        RAW_SAMPLES_DECIMATION_PERIOD,
-                                        currentBucketStartTime) : null);
+                                (currentBucketStartTime != null
+                                        && currentBucketStartTime >= 0L)
+                                                ? new SampleBucketId(
+                                                        configuration
+                                                                .getChannelDataId(),
+                                                        RAW_SAMPLES_DECIMATION_PERIOD,
+                                                        currentBucketStartTime)
+                                                : null);
                 // generateChannelDisabledSample should not return null either.
                 if (disabledChannelSampleFuture == null) {
                     throw new IllegalArgumentException(
@@ -952,7 +954,8 @@ class ArchivedChannel<SampleType extends Sample> {
                             initializationFuture = null;
                             try {
                                 SampleWithSizeEstimate<SampleType> sampleWithSizeEstimate = FutureUtils
-                                        .getUnchecked(disabledChannelSampleFuture);
+                                        .getUnchecked(
+                                                disabledChannelSampleFuture);
                                 try {
                                     initializeWithControlSystemSupport(null);
                                     if (sampleWithSizeEstimate != null) {
@@ -973,7 +976,8 @@ class ArchivedChannel<SampleType extends Sample> {
                                                         sampleWithSizeEstimate
                                                                 .getEstimatedSampleSize());
                                         archivingService
-                                                .addChannelDecimationLevelToWriteProcessingQueue(rawDecimationLevel);
+                                                .addChannelDecimationLevelToWriteProcessingQueue(
+                                                        rawDecimationLevel);
                                     }
                                 } finally {
                                     localInitializationFuture.set(null);
@@ -990,8 +994,7 @@ class ArchivedChannel<SampleType extends Sample> {
                                 if (destructionRequested) {
                                     destroyInternalDuringInitialization();
                                 } else {
-                                    FutureUtils.forward(
-                                            destroyWithException(t),
+                                    FutureUtils.forward(destroyWithException(t),
                                             localInitializationFuture);
                                 }
                             }
@@ -1154,12 +1157,10 @@ class ArchivedChannel<SampleType extends Sample> {
                     // If the destroy method throws an exception, this should
                     // not keep us from destroying other channels.
                     log.error(
-                            "Destruction of channel \""
-                                    + StringEscapeUtils
-                                            .escapeJava(configuration
-                                                    .getChannelName()
-                                                    + "\" failed: "
-                                                    + e.getMessage()), e);
+                            "Destruction of channel \"" + StringEscapeUtils
+                                    .escapeJava(configuration.getChannelName()
+                                            + "\" failed: " + e.getMessage()),
+                            e);
                 }
             }
             controlSystemChannel = null;
@@ -1181,12 +1182,10 @@ class ArchivedChannel<SampleType extends Sample> {
             } catch (Throwable e) {
                 // If the destroy method throws an exception, this should
                 // not keep us from destroying other channels.
-                log.error(
-                        "Destruction of channel \""
-                                + StringEscapeUtils.escapeJava(configuration
-                                        .getChannelName()
-                                        + "\" failed: "
-                                        + e.getMessage()), e);
+                log.error("Destruction of channel \"" + StringEscapeUtils
+                        .escapeJava(configuration.getChannelName()
+                                + "\" failed: " + e.getMessage()),
+                        e);
             }
         }
         controlSystemChannel = null;
@@ -1221,7 +1220,8 @@ class ArchivedChannel<SampleType extends Sample> {
         Random random = new Random();
         for (final ArchivedChannelDecimationLevel<SampleType> decimationLevel : decimationLevels
                 .values()) {
-            if (decimationLevel.getDecimationPeriodSeconds() != RAW_SAMPLES_DECIMATION_PERIOD) {
+            if (decimationLevel
+                    .getDecimationPeriodSeconds() != RAW_SAMPLES_DECIMATION_PERIOD) {
                 ((ArchivedChannelDecimatedSamplesDecimationLevel<SampleType>) decimationLevel)
                         .scheduleGenerateDecimatedSamples();
             }

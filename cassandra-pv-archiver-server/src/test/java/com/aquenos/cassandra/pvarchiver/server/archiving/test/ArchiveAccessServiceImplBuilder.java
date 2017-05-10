@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -19,6 +19,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 
 import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.apache.commons.lang3.tuple.Pair;
 
 import com.aquenos.cassandra.pvarchiver.controlsystem.ControlSystemSupport;
 import com.aquenos.cassandra.pvarchiver.controlsystem.Sample;
@@ -253,6 +254,22 @@ public class ArchiveAccessServiceImplBuilder {
      *         configuration of this builder.
      */
     public ArchiveAccessServiceImpl build() {
+        return buildWithControlSystemSupport().getLeft();
+    }
+
+    /**
+     * Builds an instance of the {@link ArchiveAccessServiceImpl} that uses stub
+     * implementations of {@link ControlSystemSupportRegistry},
+     * {@link ChannelInformationCache} and {@link ChannelMetaDataDAO}. These
+     * stub implementations are initialized in a way that they provide the
+     * decimation levels, sample buckets, and samples that have been added to
+     * this builder.
+     * 
+     * @return {@link ArchiveAccessServiceImpl} instance initialized from the
+     *         configuration of this builder and the corresponding
+     *         {@link ControlSystemSupport}.
+     */
+    public Pair<ArchiveAccessServiceImpl, ControlSystemSupport<Sample>> buildWithControlSystemSupport() {
         Map<SampleBucketId, Collection<Sample>> sampleBuckets = new HashMap<SampleBucketId, Collection<Sample>>();
         Map<Integer, NavigableMap<Long, Long>> sampleBucketInformationMap = new HashMap<Integer, NavigableMap<Long, Long>>();
         for (DecimationLevelBuilder decimationLevelBuilder : decimationLevelBuilders
@@ -279,7 +296,8 @@ public class ArchiveAccessServiceImplBuilder {
                 sampleBuckets);
         ChannelInformation channelInformation = new ChannelInformation(
                 channelDataId, channelName, controlSystemSupport.getId(),
-                ImmutableSet.copyOf(decimationLevelBuilders.keySet()), serverId);
+                ImmutableSet.copyOf(decimationLevelBuilders.keySet()),
+                serverId);
         ChannelInformationCache channelInformationCache = new ChannelInformationCacheStubImpl(
                 channelInformation);
         ChannelMetaDataDAO channelMetaDataDAO = new ChannelMetaDataDAOSampleBucketStubImpl(
@@ -292,7 +310,7 @@ public class ArchiveAccessServiceImplBuilder {
         archiveAccessService.setChannelMetaDataDAO(channelMetaDataDAO);
         archiveAccessService
                 .setControlSystemSupportRegistry(controlSystemSupportRegistry);
-        return archiveAccessService;
+        return Pair.of(archiveAccessService, controlSystemSupport);
     }
 
     /**

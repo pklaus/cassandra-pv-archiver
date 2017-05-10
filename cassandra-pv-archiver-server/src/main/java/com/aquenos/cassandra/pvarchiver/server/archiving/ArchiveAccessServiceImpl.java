@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -10,6 +10,7 @@
 package com.aquenos.cassandra.pvarchiver.server.archiving;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.concurrent.Callable;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.aquenos.cassandra.pvarchiver.common.AbstractObjectResultSet;
 import com.aquenos.cassandra.pvarchiver.common.ObjectResultSet;
+import com.aquenos.cassandra.pvarchiver.common.SizedIterator;
 import com.aquenos.cassandra.pvarchiver.controlsystem.ControlSystemSupport;
 import com.aquenos.cassandra.pvarchiver.controlsystem.Sample;
 import com.aquenos.cassandra.pvarchiver.server.controlsystem.ControlSystemSupportRegistry;
@@ -42,19 +44,78 @@ import com.google.common.util.concurrent.ListenableFuture;
 public class ArchiveAccessServiceImpl implements ArchiveAccessService {
 
     /**
+     * Sized iterator that iterates over a collection and removes its elements.
+     * This iterator only works if the iterator provided by the collection
+     * implements the <code>remove()</code> method.
+     * 
+     * @author Sebastian Marsching
+     *
+     * @param <E>
+     *            the type of elements returned by this iterator.
+     */
+    private static class ConsumingSizedCollectionIterator<E>
+            implements SizedIterator<E> {
+
+        private final Collection<E> collection;
+        private final Iterator<E> iterator;
+
+        public ConsumingSizedCollectionIterator(Collection<E> collection) {
+            this.collection = collection;
+            this.iterator = this.collection.iterator();
+        }
+
+        @Override
+        public boolean hasNext() {
+            return iterator.hasNext();
+        }
+
+        @Override
+        public E next() {
+            E element = iterator.next();
+            iterator.remove();
+            return element;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int remainingCount() {
+            return collection.size();
+        }
+
+    }
+
+    /**
+     * <p>
      * Result set containing samples. This implementation is internally used
      * when a query for samples is made. It takes care of dispatching the right
      * queries to the underlying database and coordinating between the layer
      * managing sample buckets and the control-system adapter in charge of
      * storing the actual samples.
+     * </p>
+     * 
+     * <p>
+     * The only entry-point into this class is its {@link #fetchNextPage()}
+     * method. Therefore we can skip synchronization logic, even when
+     * transforming futures: When the future's <code>get()</code> method is
+     * called, the code internally uses a mutex that ensures that the code using
+     * the result sees all changes that have been made by transformation
+     * functions. The code calling <code>fetchNextPage</code> only calls that
+     * method again after getting the result from a future previously returned
+     * by that method. This means that <code>fetchNextPage</code> will also see
+     * all changes made by a transformation function.
+     * </p>
      * 
      * @author Sebastian Marsching
      *
      * @param <SampleType>
      *            type of the samples that are contained in this sample set.
      */
-    private class SampleResultSet<SampleType extends Sample> extends
-            AbstractObjectResultSet<SampleType> {
+    private class SampleResultSet<SampleType extends Sample>
+            extends AbstractObjectResultSet<SampleType> {
 
         /**
          * Logger for this object.
@@ -111,8 +172,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 try {
                     return callable.call();
                 } catch (Exception e) {
-                    throw new RuntimeException("Unexpected exception: "
-                            + e.getMessage(), e);
+                    throw new RuntimeException(
+                            "Unexpected exception: " + e.getMessage(), e);
                 }
             }
             switch (phase) {
@@ -136,20 +197,17 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
         private ListenableFuture<Iterator<SampleType>> firstBucketFindBucket() {
             phase = SampleSetPhase.FIRST_BUCKET_FIND_BUCKET;
             if (firstSampleBucketResultSet == null) {
-                return Futures
-                        .transform(
-                                channelMetaDataDAO
-                                        .getSampleBucketsOlderThanInReverseOrder(
-                                                channelName, decimationLevel,
-                                                lowerTimeStampLimit, 1),
-                                new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleBucketInformation> input) {
-                                        firstSampleBucketResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(channelMetaDataDAO
+                        .getSampleBucketsOlderThanInReverseOrder(channelName,
+                                decimationLevel, lowerTimeStampLimit, 1),
+                        new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleBucketInformation> input) {
+                                firstSampleBucketResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (firstSampleBucketResultSet.getAvailableWithoutFetching() == 0
@@ -171,7 +229,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
             if (firstSampleBucket == null) {
                 return proceedWithRegularBucketsFindSamples(null);
             }
-            if (lowerTimeStampLimitMode.equals(TimeStampLimitMode.AT_OR_BEFORE)) {
+            if (lowerTimeStampLimitMode
+                    .equals(TimeStampLimitMode.AT_OR_BEFORE)) {
                 return proceedWithFirstBucketFindFirstSample();
             }
             return proceedWithRegularBucketsFindSamples(firstSampleBucket);
@@ -190,34 +249,30 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     // If getSamplesInReverseOrder throws an exception (it
                     // should not) we can only fail the whole operation.
                     log.error(
-                            "The \""
-                                    + controlSystemSupport.getId()
+                            "The \"" + controlSystemSupport.getId()
                                     + "\" control-system support's getSamples method threw an exception.",
                             t);
                     return Futures.immediateFailedFuture(t);
                 }
-                return Futures
-                        .transform(
-                                future,
-                                new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleType> input) {
-                                        if (input == null) {
-                                            log.error("The \""
-                                                    + controlSystemSupport
-                                                            .getId()
-                                                    + "\" control-system support's getSamplesInReverseOrder returned a future that provided a null result-set.");
-                                            // Throwing an exception is okay
-                                            // because transform will translate
-                                            // this to a failed future.
-                                            throw new NullPointerException(
-                                                    "The control-system support's getSamplesInReverseOrder method provided a null result-set.");
-                                        }
-                                        firstSampleResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(future,
+                        new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleType> input) {
+                                if (input == null) {
+                                    log.error("The \""
+                                            + controlSystemSupport.getId()
+                                            + "\" control-system support's getSamplesInReverseOrder returned a future that provided a null result-set.");
+                                    // Throwing an exception is okay
+                                    // because transform will translate
+                                    // this to a failed future.
+                                    throw new NullPointerException(
+                                            "The control-system support's getSamplesInReverseOrder method provided a null result-set.");
+                                }
+                                firstSampleResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (firstSampleResultSet.getAvailableWithoutFetching() == 0
@@ -242,9 +297,11 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 if (currentBucketStartTime <= 0L) {
                     // There cannot be an older bucket, therefore we can
                     // continue with the bucket that we have.
-                    return proceedWithRegularBucketsFindSamples(firstSampleBucket);
+                    return proceedWithRegularBucketsFindSamples(
+                            firstSampleBucket);
                 } else {
-                    return proceedWithFirstBucketFindBucket(currentBucketStartTime - 1L);
+                    return proceedWithFirstBucketFindBucket(
+                            currentBucketStartTime - 1L);
                 }
             }
             return returnSamples(firstSampleResultSet,
@@ -252,7 +309,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                         @Override
                         public ListenableFuture<Iterator<SampleType>> call()
                                 throws Exception {
-                            return proceedWithRegularBucketsFindSamples(firstSampleBucket);
+                            return proceedWithRegularBucketsFindSamples(
+                                    firstSampleBucket);
                         }
                     });
         }
@@ -265,7 +323,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 if (regularSampleBucket != null) {
                     // We are only interested in buckets that are newer than the
                     // last bucket that we already used.
-                    if (regularSampleBucket.getBucketEndTime() == Long.MAX_VALUE) {
+                    if (regularSampleBucket
+                            .getBucketEndTime() == Long.MAX_VALUE) {
                         // There cannot be any more buckets, thus we are done.
                         return Futures.immediateFuture(null);
                     }
@@ -275,19 +334,18 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 if (lowerLimit > upperTimeStampLimit) {
                     return proceedWithLastBucketFindLastSample(null);
                 }
-                return Futures
-                        .transform(
-                                channelMetaDataDAO.getSampleBucketsInInterval(
-                                        channelName, decimationLevel,
-                                        lowerLimit, upperTimeStampLimit),
-                                new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleBucketInformation> input) {
-                                        regularSampleBucketResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(
+                        channelMetaDataDAO.getSampleBucketsInInterval(
+                                channelName, decimationLevel, lowerLimit,
+                                upperTimeStampLimit),
+                        new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleBucketInformation> input) {
+                                regularSampleBucketResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (regularSampleBucketResultSet.getAvailableWithoutFetching() == 0
@@ -301,7 +359,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                             }
                         });
             }
-            if (regularSampleBucketResultSet.getAvailableWithoutFetching() == 0) {
+            if (regularSampleBucketResultSet
+                    .getAvailableWithoutFetching() == 0) {
                 // There are no more regular sample buckets. Therefore, we can
                 // continue with finding the last sample.
                 return proceedWithLastBucketFindLastSample(regularSampleBucket);
@@ -321,7 +380,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     // There is no sense in looking for samples because we will
                     // not be able to find any. Therefore, we can directly
                     // proceed with finding the last sample.
-                    return proceedWithLastBucketFindLastSample(regularSampleBucket);
+                    return proceedWithLastBucketFindLastSample(
+                            regularSampleBucket);
                 }
                 if (lowerLimit > regularSampleBucket.getBucketEndTime()) {
                     // The current bucket does not contain any more samples,
@@ -343,34 +403,30 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     // If getSamples throws an exception (it should not) we can
                     // only fail the whole operation.
                     log.error(
-                            "The \""
-                                    + controlSystemSupport.getId()
+                            "The \"" + controlSystemSupport.getId()
                                     + "\" control-system support's getSamples method threw an exception.",
                             t);
                     return Futures.immediateFailedFuture(t);
                 }
-                return Futures
-                        .transform(
-                                future,
-                                new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleType> input) {
-                                        if (input == null) {
-                                            log.error("The \""
-                                                    + controlSystemSupport
-                                                            .getId()
-                                                    + "\" control-system support's getSamples returned a future that provided a null result-set.");
-                                            // Throwing an exception is okay
-                                            // because transform will translate
-                                            // this to a failed future.
-                                            throw new NullPointerException(
-                                                    "The control-system support's getSamples method provided a null result-set.");
-                                        }
-                                        regularBucketSampleResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(future,
+                        new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleType> input) {
+                                if (input == null) {
+                                    log.error("The \""
+                                            + controlSystemSupport.getId()
+                                            + "\" control-system support's getSamples returned a future that provided a null result-set.");
+                                    // Throwing an exception is okay
+                                    // because transform will translate
+                                    // this to a failed future.
+                                    throw new NullPointerException(
+                                            "The control-system support's getSamples method provided a null result-set.");
+                                }
+                                regularBucketSampleResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (regularBucketSampleResultSet.getAvailableWithoutFetching() == 0
@@ -384,13 +440,16 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                             }
                         });
             }
-            if (regularBucketSampleResultSet.getAvailableWithoutFetching() == 0) {
+            if (regularBucketSampleResultSet
+                    .getAvailableWithoutFetching() == 0) {
                 // There are no more samples in the bucket, thus we have to
                 // continue with the next bucket.
-                if (regularSampleBucket.getBucketEndTime() >= upperTimeStampLimit) {
+                if (regularSampleBucket
+                        .getBucketEndTime() >= upperTimeStampLimit) {
                     // There are no more regular samples to be found, thus we
                     // can directly continue with finding the last sample.
-                    return proceedWithLastBucketFindLastSample(regularSampleBucket);
+                    return proceedWithLastBucketFindLastSample(
+                            regularSampleBucket);
                 }
                 // We do not want to reset the state but continue with the list
                 // of sample buckets that we already have, thus we call
@@ -420,19 +479,17 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     lowerLimit = Math.max(lowerLimit,
                             lastSampleBucket.getBucketEndTime() + 1L);
                 }
-                return Futures
-                        .transform(
-                                channelMetaDataDAO.getSampleBucketsNewerThan(
-                                        channelName, decimationLevel,
-                                        lowerLimit, 1),
-                                new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleBucketInformation> input) {
-                                        lastSampleBucketResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(
+                        channelMetaDataDAO.getSampleBucketsNewerThan(
+                                channelName, decimationLevel, lowerLimit, 1),
+                        new Function<ObjectResultSet<SampleBucketInformation>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleBucketInformation> input) {
+                                lastSampleBucketResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (lastSampleBucketResultSet.getAvailableWithoutFetching() == 0
@@ -483,40 +540,35 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     // If getSamples throws an exception (it should not) we can
                     // only fail the whole operation.
                     log.error(
-                            "The \""
-                                    + controlSystemSupport.getId()
+                            "The \"" + controlSystemSupport.getId()
                                     + "\" control-system support's getSamples method threw an exception.",
                             t);
                     return Futures.immediateFailedFuture(t);
                 }
-                return Futures
-                        .transform(
-                                future,
-                                new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
-                                    @Override
-                                    public Iterator<SampleType> apply(
-                                            ObjectResultSet<SampleType> input) {
-                                        if (input == null) {
-                                            log.error("The \""
-                                                    + controlSystemSupport
-                                                            .getId()
-                                                    + "\" control-system support's getSamples returned a future that provided a null result-set.");
-                                            // Throwing an exception is okay
-                                            // because transform will translate
-                                            // this to a failed future.
-                                            throw new NullPointerException(
-                                                    "The control-system support's getSamples method provided a null result-set.");
-                                        }
-                                        lastSampleResultSet = input;
-                                        return Collections.emptyIterator();
-                                    }
-                                });
+                return Futures.transform(future,
+                        new Function<ObjectResultSet<SampleType>, Iterator<SampleType>>() {
+                            @Override
+                            public Iterator<SampleType> apply(
+                                    ObjectResultSet<SampleType> input) {
+                                if (input == null) {
+                                    log.error("The \""
+                                            + controlSystemSupport.getId()
+                                            + "\" control-system support's getSamples returned a future that provided a null result-set.");
+                                    // Throwing an exception is okay
+                                    // because transform will translate
+                                    // this to a failed future.
+                                    throw new NullPointerException(
+                                            "The control-system support's getSamples method provided a null result-set.");
+                                }
+                                lastSampleResultSet = input;
+                                return Collections.emptyIterator();
+                            }
+                        });
             }
             // We might have to wait for more data being available.
             if (lastSampleResultSet.getAvailableWithoutFetching() == 0
                     && !lastSampleResultSet.isFullyFetched()) {
-                return Futures.transform(
-                        lastSampleResultSet.fetchMoreResults(),
+                return Futures.transform(lastSampleResultSet.fetchMoreResults(),
                         new Function<Void, Iterator<SampleType>>() {
                             @Override
                             public Iterator<SampleType> apply(Void input) {
@@ -598,9 +650,18 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
             int available = sampleResultSet.getAvailableWithoutFetching();
             if (available == 0) {
                 runOnNextCall = nextAction;
-                return Futures.<Iterator<SampleType>> immediateFuture(Iterators
-                        .<SampleType> emptyIterator());
+                return Futures.<Iterator<SampleType>> immediateFuture(
+                        Iterators.<SampleType> emptyIterator());
             } else {
+                // Getting all samples now and copying them to a new list looks
+                // a bit wasteful. However, the fetchNextPage() method may be
+                // called before the iterator returned by a previous call has
+                // been consumed completely. As fetchNextPage() needs to know
+                // the lastSampleTimeStamp, we have to inspect all samples in
+                // the result set before running fetchNextPage() again. The
+                // easiest way to achieve this is inspecting all samples now.
+                // The data for the samples has already been fetched anyway, so
+                // we only add the cost of the copy operation.
                 ArrayList<SampleType> samples = new ArrayList<SampleType>(
                         available);
                 for (int i = 0; i < available; ++i) {
@@ -626,7 +687,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 } else {
                     runOnNextCall = nextAction;
                 }
-                return Futures.immediateFuture(samples.iterator());
+                return Futures.<Iterator<SampleType>> immediateFuture(
+                        new ConsumingSizedCollectionIterator<>(samples));
             }
         }
 
@@ -696,7 +758,8 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
             String channelName, final int decimationLevel,
             long lowerTimeStampLimit,
             TimeStampLimitMode lowerTimeStampLimitMode,
-            long upperTimeStampLimit, TimeStampLimitMode upperTimeStampLimitMode) {
+            long upperTimeStampLimit,
+            TimeStampLimitMode upperTimeStampLimitMode) {
         try {
             Preconditions.checkNotNull(channelName,
                     "The channelName must not be null.");
@@ -706,9 +769,9 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     "The upperTimeStampLimitMode must not be null.");
             Preconditions.checkArgument(lowerTimeStampLimit >= 0L,
                     "The lowerTimeStampLimit must not be negative.");
-            Preconditions
-                    .checkArgument(upperTimeStampLimit >= lowerTimeStampLimit,
-                            "The upper time-stamp limit must be greater than or equal to the lower limit.");
+            Preconditions.checkArgument(
+                    upperTimeStampLimit >= lowerTimeStampLimit,
+                    "The upper time-stamp limit must be greater than or equal to the lower limit.");
             ChannelInformation channelInformation = channelInformationCache
                     .getChannel(channelName);
             if (channelInformation == null) {
@@ -724,16 +787,16 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                 throw new IllegalArgumentException("The channel \""
                         + StringEscapeUtils.escapeJava(channelName)
                         + "\" uses the control-system \""
-                        + StringEscapeUtils.escapeJava(channelInformation
-                                .getControlSystemType())
+                        + StringEscapeUtils.escapeJava(
+                                channelInformation.getControlSystemType())
                         + "\" which is not available.");
             }
-            if (!channelInformation.getDecimationLevels().contains(
-                    decimationLevel)) {
+            if (!channelInformation.getDecimationLevels()
+                    .contains(decimationLevel)) {
                 // The specified decimation level does not exist, so there is no
                 // sense in checking for samples.
-                return Futures
-                        .<ObjectResultSet<Sample>> immediateFuture(new AbstractObjectResultSet<Sample>() {
+                return Futures.<ObjectResultSet<Sample>> immediateFuture(
+                        new AbstractObjectResultSet<Sample>() {
                             @Override
                             protected ListenableFuture<Iterator<Sample>> fetchNextPage() {
                                 return Futures.immediateFuture(null);
@@ -768,28 +831,26 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     "The controlSystemSupport must not be null.");
             Preconditions.checkArgument(lowerTimeStampLimit >= 0L,
                     "The lowerTimeStampLimit must not be negative.");
-            Preconditions
-                    .checkArgument(upperTimeStampLimit >= lowerTimeStampLimit,
-                            "The upper time-stamp limit must be greater than or equal to the lower limit.");
-            Preconditions
-                    .checkArgument(
-                            channelConfiguration.getControlSystemType().equals(
-                                    controlSystemSupport.getId()),
-                            "The channel's control-system type (\""
-                                    + StringEscapeUtils
-                                            .escapeJava(channelConfiguration
-                                                    .getControlSystemType())
-                                    + "\") must match the control-system support's type (\""
-                                    + StringEscapeUtils
-                                            .escapeJava(controlSystemSupport
-                                                    .getId()) + "\").");
+            Preconditions.checkArgument(
+                    upperTimeStampLimit >= lowerTimeStampLimit,
+                    "The upper time-stamp limit must be greater than or equal to the lower limit.");
+            Preconditions.checkArgument(
+                    channelConfiguration.getControlSystemType()
+                            .equals(controlSystemSupport.getId()),
+                    "The channel's control-system type (\""
+                            + StringEscapeUtils.escapeJava(
+                                    channelConfiguration.getControlSystemType())
+                            + "\") must match the control-system support's type (\""
+                            + StringEscapeUtils.escapeJava(
+                                    controlSystemSupport.getId())
+                            + "\").");
             if (!channelConfiguration
-                    .getDecimationLevelToCurrentBucketStartTime().containsKey(
-                            decimationLevel)) {
+                    .getDecimationLevelToCurrentBucketStartTime()
+                    .containsKey(decimationLevel)) {
                 // The specified decimation level does not exist, so there is no
                 // sense in checking for samples.
-                return Futures
-                        .<ObjectResultSet<SampleType>> immediateFuture(new AbstractObjectResultSet<SampleType>() {
+                return Futures.<ObjectResultSet<SampleType>> immediateFuture(
+                        new AbstractObjectResultSet<SampleType>() {
                             @Override
                             protected ListenableFuture<Iterator<SampleType>> fetchNextPage() {
                                 return Futures.immediateFuture(null);
@@ -824,27 +885,25 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
                     "The controlSystemSupport must not be null.");
             Preconditions.checkArgument(lowerTimeStampLimit >= 0L,
                     "The lowerTimeStampLimit must not be negative.");
-            Preconditions
-                    .checkArgument(upperTimeStampLimit >= lowerTimeStampLimit,
-                            "The upper time-stamp limit must be greater than or equal to the lower limit.");
-            Preconditions
-                    .checkArgument(
-                            channelInformation.getControlSystemType().equals(
-                                    controlSystemSupport.getId()),
-                            "The channel's control-system type (\""
-                                    + StringEscapeUtils
-                                            .escapeJava(channelInformation
-                                                    .getControlSystemType())
-                                    + "\") must match the control-system support's type (\""
-                                    + StringEscapeUtils
-                                            .escapeJava(controlSystemSupport
-                                                    .getId()) + "\").");
-            if (!channelInformation.getDecimationLevels().contains(
-                    decimationLevel)) {
+            Preconditions.checkArgument(
+                    upperTimeStampLimit >= lowerTimeStampLimit,
+                    "The upper time-stamp limit must be greater than or equal to the lower limit.");
+            Preconditions.checkArgument(
+                    channelInformation.getControlSystemType()
+                            .equals(controlSystemSupport.getId()),
+                    "The channel's control-system type (\""
+                            + StringEscapeUtils.escapeJava(
+                                    channelInformation.getControlSystemType())
+                            + "\") must match the control-system support's type (\""
+                            + StringEscapeUtils.escapeJava(
+                                    controlSystemSupport.getId())
+                            + "\").");
+            if (!channelInformation.getDecimationLevels()
+                    .contains(decimationLevel)) {
                 // The specified decimation level does not exist, so there is no
                 // sense in checking for samples.
-                return Futures
-                        .<ObjectResultSet<SampleType>> immediateFuture(new AbstractObjectResultSet<SampleType>() {
+                return Futures.<ObjectResultSet<SampleType>> immediateFuture(
+                        new AbstractObjectResultSet<SampleType>() {
                             @Override
                             protected ListenableFuture<Iterator<SampleType>> fetchNextPage() {
                                 return Futures.immediateFuture(null);
@@ -868,9 +927,9 @@ public class ArchiveAccessServiceImpl implements ArchiveAccessService {
             TimeStampLimitMode upperTimeStampLimitMode,
             final ControlSystemSupport<SampleType> controlSystemSupport) {
         try {
-            return Futures
-                    .<ObjectResultSet<SampleType>> immediateFuture(new SampleResultSet<SampleType>(
-                            channelName, decimationLevel, lowerTimeStampLimit,
+            return Futures.<ObjectResultSet<SampleType>> immediateFuture(
+                    new SampleResultSet<SampleType>(channelName,
+                            decimationLevel, lowerTimeStampLimit,
                             lowerTimeStampLimitMode, upperTimeStampLimit,
                             upperTimeStampLimitMode, controlSystemSupport));
         } catch (Throwable t) {
