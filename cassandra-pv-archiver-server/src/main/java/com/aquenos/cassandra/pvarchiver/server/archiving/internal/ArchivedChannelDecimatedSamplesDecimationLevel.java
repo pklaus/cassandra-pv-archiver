@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -14,11 +14,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import com.aquenos.cassandra.pvarchiver.common.ObjectResultSet;
 import com.aquenos.cassandra.pvarchiver.controlsystem.Sample;
 import com.aquenos.cassandra.pvarchiver.controlsystem.SampleDecimator;
-import com.aquenos.cassandra.pvarchiver.server.archiving.ArchiveAccessService;
 import com.aquenos.cassandra.pvarchiver.server.archiving.TimeStampLimitMode;
+import com.aquenos.cassandra.pvarchiver.server.archiving.internal.ThrottledArchiveAccessService.SkippableObjectResultSet;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -61,19 +60,21 @@ import com.google.common.util.concurrent.SettableFuture;
 class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         extends ArchivedChannelDecimationLevel<SampleType> {
 
-    private final ArchiveAccessService archiveAccessService;
     private final long decimationPeriodNanoseconds;
     private SettableFuture<Void> generateDecimatedSamplesProcessSourceSampleFuture;
-    private Runnable generateDecimatedSamplesProcessSourceSampleRunnable;
     private boolean generateDecimatedSamplesScheduled;
+    private boolean initialProcessingOfTargetDecimationLevelsFinished;
     private SampleType lastSourceSample;
     private boolean nextDecimatedSampleTimeStampRangeExceeded;
+    private Runnable onWriteQueueEmptyRunnable;
     private SampleDecimator<SampleType> sampleDecimator;
     private ArchivedChannelDecimationLevel<SampleType> sourceDecimationLevel;
     private final int sourceDecimationPeriodSeconds;
     private boolean sourceSampleQueryComplete;
+    private boolean sourceSampleQueryStarted;
     private TimeBoundedQueue<SampleType> sourceSampleQueue = new TimeBoundedQueue<SampleType>(
             MAX_QUEUE_TIME_MILLISECONDS);
+    private final ThrottledArchiveAccessService throttledArchiveAccessService;
     private boolean waitingForAsynchronousDecimationOperation;
 
     /**
@@ -102,7 +103,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
      *            the number of nanoseconds since epoch). If this decimation
      *            level does not have any sample buckets yet, this number must
      *            be minus one. Must not be less than minus one.
-     * @param archiveAccessService
+     * @param throttledArchiveAccessService
      *            archive access service that is used for reading already
      *            written samples when generating decimated samples.
      * @param archivingService
@@ -128,7 +129,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     ArchivedChannelDecimatedSamplesDecimationLevel(int decimationPeriodSeconds,
             int retentionPeriodSeconds, int sourceDecimationPeriodSeconds,
             long currentBucketStartTime,
-            ArchiveAccessService archiveAccessService,
+            ThrottledArchiveAccessService throttledArchiveAccessService,
             ArchivingServiceInternalImpl archivingService,
             ArchivedChannel<SampleType> channel,
             ChannelMetaDataDAO channelMetaDataDAO, ExecutorService poolExecutor,
@@ -149,11 +150,11 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         // period is zero because raw samples are used as the source.
         assert (sourceDecimationPeriodSeconds == 0 || (decimationPeriodSeconds
                 % sourceDecimationPeriodSeconds == 0));
-        assert (archiveAccessService != null);
+        assert (throttledArchiveAccessService != null);
         this.decimationPeriodNanoseconds = decimationPeriodSeconds
                 * 1000000000L;
         this.sourceDecimationPeriodSeconds = sourceDecimationPeriodSeconds;
-        this.archiveAccessService = archiveAccessService;
+        this.throttledArchiveAccessService = throttledArchiveAccessService;
     }
 
     /**
@@ -204,8 +205,9 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         // If the runnable has been registered, we schedule it for execution and
         // unregister it so that it will not be run again. If it needs to be run
         // again, it will automatically be registered again when it is run.
-        Runnable runnable = generateDecimatedSamplesProcessSourceSampleRunnable;
-        generateDecimatedSamplesProcessSourceSampleRunnable = null;
+        Runnable runnable;
+        runnable = onWriteQueueEmptyRunnable;
+        onWriteQueueEmptyRunnable = null;
         if (runnable != null) {
             poolExecutor.execute(runnable);
         }
@@ -233,6 +235,16 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     protected void processSourceSample(SampleType sample) {
         assert (Thread.holdsLock(channel));
         assert (sample != null);
+        // If the query for source samples has not even been started yet, there
+        // is no need to start queuing samples from the source decimation level.
+        // These samples will be returned as part of the query. Not actually
+        // queuing them saves memory in a situation where starting the query
+        // is delayed significantly (typically because we are waiting for one of
+        // the target decimation levels to be finished with its source sample
+        // query).
+        if (!sourceSampleQueryStarted) {
+            return;
+        }
         sourceSampleQueue.add(sample);
         generateDecimatedSamples();
     }
@@ -528,7 +540,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     }
 
     private void generateDecimatedSamplesProcessQueryResults(
-            final ObjectResultSet<SampleType> resultSet) {
+            final SkippableObjectResultSet<SampleType> resultSet) {
         // We need to know whether the first sample has already been processed.
         // If it has not, we have to check that the first sample returned by the
         // query is the last source sample (if there is a last source sample).
@@ -540,127 +552,161 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     }
 
     private void generateDecimatedSamplesProcessQueryResults(
-            final ObjectResultSet<SampleType> resultSet,
+            final SkippableObjectResultSet<SampleType> resultSet,
             boolean processedFirstSample) {
         assert (Thread.holdsLock(channel));
         assert (resultSet != null);
-        // Processing samples from the database might take a long time when
-        // there are a lot of source samples to be processed. For this reason we
-        // periodically check whether the channel has been destroyed so that we
-        // do not waste resources on generating decimated samples that are not
-        // going to be written anyway.
-        if (channel.getState().equals(ArchivedChannelState.DESTROYED)) {
-            return;
-        }
-        SampleType nextSourceSample = null;
-        // When making the query, we choose the limits appropriately, so we can
-        // expect that we will only get source samples that we can actually use.
-        // We process all samples from the result set until we either have to
-        // fetch more samples (involving network I/O that we do not want to
-        // perform while holding the lock) or the allowed time-stamp range has
-        // been exceeded. We have to check this flag after each iteration
-        // because it might be set by the called method.
-        int samplesProcessed = 0;
-        while (resultSet.getAvailableWithoutFetching() > 0
-                && !nextDecimatedSampleTimeStampRangeExceeded) {
-            // After processing 100 samples, we return and schedule this method
-            // for another execution. This way, the lock on the channel is
-            // released for a moment and other threads waiting on this lock (in
-            // particular the write thread) have a chance of running.
-            if (samplesProcessed == 100) {
-                poolExecutor.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        synchronized (channel) {
-                            // We can always use true for the
-                            // processedFirstSample flag because this callback
-                            // is only triggered after a certain number of
-                            // samples have been written.
-                            generateDecimatedSamplesProcessQueryResults(
-                                    resultSet, true);
-                        }
-                    }
-                });
+        boolean retainResultSet = false;
+        try {
+            // Processing samples from the database might take a long time when
+            // there are a lot of source samples to be processed. For this
+            // reason we periodically check whether the channel has been
+            // destroyed so that we do not waste resources on generating
+            // decimated samples that are not going to be written anyway.
+            if (channel.getState().equals(ArchivedChannelState.DESTROYED)) {
                 return;
             }
-            ++samplesProcessed;
-            nextSourceSample = resultSet.one();
-            if (!processedFirstSample) {
-                if (lastSourceSample != null && nextSourceSample
-                        .getTimeStamp() > lastSourceSample.getTimeStamp()) {
-                    // There is a gap in the samples. This can only happen if
-                    // source samples are not processed quickly enough and are
-                    // deleted fast than we can process them. Such a situation
-                    // can only occur if the source samples are written at an
-                    // incredibly high rate and have a very short retention
-                    // period. This is a very improbable scenario, but we still
-                    // should handle it correctly. By resetting the sample
-                    // decimator, we ensure that the we will not create a
-                    // decimated sample for which we do not have data,
-                    // incorrectly using a much older sample.
-                    // Stopping the removal of sample buckets while we are
-                    // reading source samples is not sufficient to mitigate this
-                    // scenario because source samples might be deleted between
-                    // processing a query from the queue and starting a query
-                    // because the queue has overflowed.
-                    sampleDecimator = null;
+            SampleType nextSourceSample = null;
+            // When making the query, we choose the limits appropriately, so we
+            // can expect that we will only get source samples that we can
+            // actually use.
+            // We process all samples from the result set until we either have
+            // to fetch more samples (involving network I/O that we do not want
+            // to perform while holding the lock) or the allowed time-stamp
+            // range has been exceeded. We have to check this flag after each
+            // iteration because it might be set by the called method.
+            int samplesProcessed = 0;
+            while (resultSet.getAvailableWithoutFetching() > 0
+                    && !nextDecimatedSampleTimeStampRangeExceeded) {
+                // After processing 100 samples, we return and schedule this
+                // method for another execution. This way, the lock on the
+                // channel is released for a moment and other threads waiting on
+                // this lock (in particular the write thread) have a chance of
+                // running.
+                if (samplesProcessed == 100) {
+                    // We register a runnable that is going to be run when the
+                    // queue is empty again.
+                    onWriteQueueEmptyRunnable = new Runnable() {
+                        @Override
+                        public void run() {
+                            synchronized (channel) {
+                                // We can always use true for the
+                                // processedFirstSample flag because this
+                                // callback is only triggered after a certain
+                                // number of samples have been written.
+                                generateDecimatedSamplesProcessQueryResults(
+                                        resultSet, true);
+                            }
+                        }
+                    };
+                    retainResultSet = true;
+                    // We are going to use the result set in the future, so we
+                    // have to retain the samples remaining in the result set.
+                    retainResultSet = true;
+                    return;
                 }
-                processedFirstSample = true;
+                ++samplesProcessed;
+                nextSourceSample = resultSet.one();
+                if (!processedFirstSample) {
+                    if (lastSourceSample != null && nextSourceSample
+                            .getTimeStamp() > lastSourceSample.getTimeStamp()) {
+                        // There is a gap in the samples. This can only happen
+                        // if source samples are not processed quickly enough
+                        // and are deleted fast than we can process them. Such a
+                        // situation can only occur if the source samples are
+                        // written at an incredibly high rate and have a very
+                        // short retention period. This is a very improbable
+                        // scenario, but we still should handle it correctly. By
+                        // resetting the sample decimator, we ensure that the we
+                        // will not create a decimated sample for which we do
+                        // not have data, incorrectly using a much older sample.
+                        // Stopping the removal of sample buckets while we are
+                        // reading source samples is not sufficient to mitigate
+                        // this scenario because source samples might be deleted
+                        // between processing a query from the queue and
+                        // starting a query because the queue has overflowed.
+                        sampleDecimator = null;
+                    }
+                    processedFirstSample = true;
+                }
+                ListenableFuture<Void> processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
+                        nextSourceSample);
+                // If the operation finished synchronously (the default), the
+                // return value is null. Otherwise, we call this method again
+                // when the asynchronous operation has finished.
+                if (processSourceSampleFuture != null) {
+                    processSourceSampleFuture.addListener(new Runnable() {
+                        @Override
+                        public void run() {
+                            synchronized (channel) {
+                                generateDecimatedSamplesProcessQueryResults(
+                                        resultSet, true);
+                            }
+                        }
+                    }, poolExecutor);
+                    // We are going to use the result set in the future, so we
+                    // have to retain the samples remaining in the result set.
+                    retainResultSet = true;
+                    return;
+                }
             }
-            ListenableFuture<Void> processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
-                    nextSourceSample);
-            // If the operation finished synchronously (the default), the return
-            // value is null. Otherwise, we call this method again when the
-            // asynchronous operation has finished.
-            if (processSourceSampleFuture != null) {
-                processSourceSampleFuture.addListener(new Runnable() {
+            // If we broke the loop because the time-stamp range has been
+            // exceeded, we do not want to do anything else and simply return.
+            if (nextDecimatedSampleTimeStampRangeExceeded) {
+                return;
+            }
+            // There might be more samples that we can fetch.
+            if (!resultSet.isFullyFetched()) {
+                final ListenableFuture<Void> future = resultSet
+                        .fetchMoreResults();
+                // We use the poolExecutor for running our callback because
+                // acquiring a mutex in a callback processed by the same-thread
+                // executor is not a good idea.
+                final boolean finalProcessedFirstSample = processedFirstSample;
+                future.addListener(new Runnable() {
                     @Override
                     public void run() {
                         synchronized (channel) {
-                            generateDecimatedSamplesProcessQueryResults(
-                                    resultSet, true);
+                            try {
+                                FutureUtils.getUnchecked(future);
+                                generateDecimatedSamplesProcessQueryResults(
+                                        resultSet, finalProcessedFirstSample);
+                            } catch (Throwable t) {
+                                // The asynchronous operation is finished, so
+                                // the decimation process can be run again.
+                                waitingForAsynchronousDecimationOperation = false;
+                                generateDecimatedSamplesReschedule();
+                            }
                         }
                     }
                 }, poolExecutor);
+                // We are going to use the result set in the future, so we have
+                // to retain the samples remaining in the result set.
+                retainResultSet = true;
                 return;
             }
+            // The asynchronous operation is finished, so we have to reset the
+            // flag to indicate that decimation process may be started again.
+            waitingForAsynchronousDecimationOperation = false;
+            // We received all the data from the query. This means that we can
+            // set the complete flag.
+            sourceSampleQueryComplete = true;
+            // After we finished processing the samples from the query, we want
+            // to delegate back to the primary method because there might be
+            // samples in the queue.
+            generateDecimatedSamples();
+        } finally {
+            // If the result set is not needed any longer (because no
+            // asynchronous operation using it has been scheduled), we want to
+            // release any samples that might still be remaining. Eventually,
+            // the garbage collection would take care of this, but as we limit
+            // the number of samples that may be concurrently loaded into
+            // memory, other operations might not be started until this happens
+            // and garbage collection runs are inherently unpredictable.
+            if (!retainResultSet) {
+                resultSet.skipRemaining();
+            }
         }
-        // There might be more samples that we can fetch.
-        if (!resultSet.isFullyFetched()) {
-            final ListenableFuture<Void> future = resultSet.fetchMoreResults();
-            // We use the poolExecutor for running our callback because
-            // acquiring a mutex in a callback processed by the same-thread
-            // executor is not a good idea.
-            final boolean finalProcessedFirstSample = processedFirstSample;
-            future.addListener(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (channel) {
-                        try {
-                            FutureUtils.getUnchecked(future);
-                            generateDecimatedSamplesProcessQueryResults(
-                                    resultSet, finalProcessedFirstSample);
-                        } catch (Throwable t) {
-                            // The asynchronous operation is finished, so the
-                            // decimation process can be run again.
-                            waitingForAsynchronousDecimationOperation = false;
-                            generateDecimatedSamplesReschedule();
-                        }
-                    }
-                }
-            }, poolExecutor);
-            return;
-        }
-        // The asynchronous operation is finished, so we have to reset the flag
-        // to indicate that decimation process may be started again.
-        waitingForAsynchronousDecimationOperation = false;
-        // We received all the data from the query. This means that we can set
-        // the complete flag.
-        sourceSampleQueryComplete = true;
-        // After we finished processing the samples from the query, we want to
-        // delegate back to the primary method because there might be samples in
-        // the queue.
-        generateDecimatedSamples();
     }
 
     private ListenableFuture<Void> generateDecimatedSamplesProcessSourceSample(
@@ -818,7 +864,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             if (!firstIteration && getWriteQueueSize() >= 100) {
                 // We register a runnable that is going to be run when the queue
                 // is empty again.
-                generateDecimatedSamplesProcessSourceSampleRunnable = new Runnable() {
+                onWriteQueueEmptyRunnable = new Runnable() {
                     @Override
                     public void run() {
                         synchronized (channel) {
@@ -1048,11 +1094,60 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             }), 1000L, TimeUnit.MILLISECONDS);
             return;
         }
-        final ListenableFuture<? extends ObjectResultSet<SampleType>> future = archiveAccessService
+        // If this is the first time that a source sample query is started, we
+        // want to delay the query until all target decimation levels have
+        // completed their source sample queries.
+        // As soon as we start generating decimated samples, these will be
+        // pushed into the target decimation levels. However, the target
+        // decimation levels will not process them until they are finished with
+        // the samples from their queries. For this reason, it makes sense to
+        // process target decimation levels first and source decimation levels
+        // later.
+        if (!initialProcessingOfTargetDecimationLevelsFinished) {
+            for (ArchivedChannelDecimatedSamplesDecimationLevel<SampleType> targetDecimationLevel : targetDecimationLevels) {
+                // The sourceSampleQueryComplete flag might change back to false
+                // after the initial processing has finished. However, this can
+                // only happen when new source samples are sent to the
+                // decimation level. We know that this will not happen before we
+                // have set initialProcessingOfTargetDecimationLevelsFinished
+                // because this is the source decimation level and we will not
+                // generate any samples before
+                // initialProcessingOfTargetDecimationLevelsFinished has been
+                // set.
+                if (!targetDecimationLevel.isSourceSampleQueryComplete()) {
+                    // We try again after a delay. This delay is longer than
+                    // when waiting for the deletion of samples to have finished
+                    // because it might actually take some time until all target
+                    // decimation levels have been processed.
+                    scheduledExecutor
+                            .schedule(runWithPoolExecutor(new Runnable() {
+                                @Override
+                                public void run() {
+                                    synchronized (channel) {
+                                        generateDecimatedSamplesStartQuery(
+                                                lowerTimeStampLimit,
+                                                lowerTimeStampLimitMode,
+                                                upperTimeStampLimit,
+                                                upperTimeStampLimitMode);
+                                    }
+                                }
+                            }), 2500L, TimeUnit.MILLISECONDS);
+                    return;
+                }
+            }
+            initialProcessingOfTargetDecimationLevelsFinished = true;
+        }
+        final ListenableFuture<? extends SkippableObjectResultSet<SampleType>> future = throttledArchiveAccessService
                 .getSamples(channelConfiguration, sourceDecimationPeriodSeconds,
                         lowerTimeStampLimit, lowerTimeStampLimitMode,
                         upperTimeStampLimit, upperTimeStampLimitMode,
                         channel.getControlSystemSupport());
+        // From this point on, any sample written to the source decimation level
+        // might not be present in the query results, so we have to start
+        // storing them in the source sample queue. If this is not the first
+        // query, this flag might already have been set, but setting it again
+        // does not hurt.
+        sourceSampleQueryStarted = true;
         // We clear the complete flag. This ensures that we will know when we
         // did not process all samples that would usually be returned by the
         // query. This flag is set when the last sample that is a result of the

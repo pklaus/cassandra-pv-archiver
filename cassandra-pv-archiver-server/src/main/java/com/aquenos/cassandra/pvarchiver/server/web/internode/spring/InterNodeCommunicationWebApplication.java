@@ -126,10 +126,8 @@ public class InterNodeCommunicationWebApplication {
         public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
             // We cannot set the timeout on a per request basis because we
             // return ListenableFutures instead of DeferredResults.
-            // TODO Make the timeout configurable. This should probably be the
-            // same timeout as the one used for the
-            // AsyncClientHttpRequestFactory.
-            configurer.setDefaultTimeout(900000L);
+            configurer.setDefaultTimeout(
+                    serverProperties.getInterNodeCommunicationRequestTimeout());
         }
 
         @Override
@@ -176,6 +174,20 @@ public class InterNodeCommunicationWebApplication {
                                 DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
                                 true);
             }
+        }
+
+        private ServerProperties serverProperties;
+
+        /**
+         * Sets the server properties used by this configuration. Typically,
+         * this method is called by the container.
+         * 
+         * @param serverProperties
+         *            server properties to be used by this configuration.
+         */
+        @Autowired
+        public void setServerProperties(ServerProperties serverProperties) {
+            this.serverProperties = serverProperties;
         }
 
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -66,6 +66,7 @@ import com.aquenos.cassandra.pvarchiver.server.database.ClusterServersDAOImpl;
 import com.aquenos.cassandra.pvarchiver.server.database.ClusterServersDAOInitializedEvent;
 import com.aquenos.cassandra.pvarchiver.server.internode.InterNodeCommunicationService;
 import com.aquenos.cassandra.pvarchiver.server.spring.ServerProperties;
+import com.aquenos.cassandra.pvarchiver.server.spring.ThrottlingProperties;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.aquenos.cassandra.pvarchiver.tests.EmbeddedCassandraServer;
 import com.datastax.driver.core.Cluster;
@@ -491,6 +492,7 @@ public class ArchiveServerIntegrationTest {
     private static ConcurrentHashMap<SampleBucketId, TestSampleBucket> sampleBuckets = new ConcurrentHashMap<SampleBucketId, TestSampleBucket>();
     private static ConcurrentHashMap<String, SampleListener<TestSample>> sampleListeners = new ConcurrentHashMap<String, SampleListener<TestSample>>();
     private static ServerProperties serverProperties;
+    private static ThrottlingProperties throttlingProperties;
 
     /**
      * Prepares the components that are needed for running the tests. In
@@ -561,6 +563,7 @@ public class ArchiveServerIntegrationTest {
         serverProperties = new ServerProperties();
         serverProperties.setUuid(SERVER_UUID.toString());
         serverProperties.afterPropertiesSet();
+        throttlingProperties = new ThrottlingProperties();
         clusterManagementService = new ClusterManagementService();
         clusterManagementService
                 .setApplicationEventPublisher(applicationEventPublisher);
@@ -592,6 +595,7 @@ public class ArchiveServerIntegrationTest {
         archivingService
                 .setControlSystemSupportRegistry(controlSystemSupportRegistry);
         archivingService.setServerProperties(serverProperties);
+        archivingService.setThrottlingProperties(throttlingProperties);
         archivingService.afterPropertiesSet();
         archiveConfigurationService = new ArchiveConfigurationService();
         archiveConfigurationService.setArchivingService(archivingService);

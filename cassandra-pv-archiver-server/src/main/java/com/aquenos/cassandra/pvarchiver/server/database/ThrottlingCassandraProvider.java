@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -9,12 +9,17 @@
 
 package com.aquenos.cassandra.pvarchiver.server.database;
 
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
+
+import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
 import org.springframework.jmx.export.annotation.ManagedAttribute;
 import org.springframework.jmx.export.annotation.ManagedResource;
+import org.springframework.jmx.export.naming.SelfNaming;
 
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.datastax.driver.core.Cluster;
@@ -53,10 +58,12 @@ import com.google.common.util.concurrent.ListenableFuture;
  * @author Sebastian Marsching
  */
 @ManagedResource(description = "provides a throttling Cassandra session")
-public class ThrottlingCassandraProvider implements
-        ApplicationEventPublisherAware, CassandraProvider, InitializingBean {
+public class ThrottlingCassandraProvider
+        implements ApplicationEventPublisherAware, BeanNameAware,
+        CassandraProvider, InitializingBean, SelfNaming {
 
     private ApplicationEventPublisher applicationEventPublisher;
+    private String beanName;
     private CassandraProvider cassandraProvider;
     private int maxConcurrentReadStatements = Integer.MAX_VALUE;
     private int maxConcurrentWriteStatements = Integer.MAX_VALUE;
@@ -122,6 +129,28 @@ public class ThrottlingCassandraProvider implements
     @ManagedAttribute(description = "maximum number of write statements that are executed concurrently")
     public int getMaxConcurrentWriteStatements() {
         return maxConcurrentWriteStatements;
+    }
+
+    @Override
+    public ObjectName getObjectName() throws MalformedObjectNameException {
+        String instanceName = beanName.endsWith("CassandraProvider")
+                ? beanName.substring(0,
+                        beanName.length() - "CassandraProvider".length())
+                : beanName;
+        instanceName.toUpperCase();
+        if (!Character.isUpperCase(instanceName.codePointAt(0))) {
+            int upperCaseCodePoint = Character
+                    .toUpperCase(instanceName.codePointAt(0));
+            instanceName = new StringBuilder()
+                    .appendCodePoint(upperCaseCodePoint)
+                    .append(instanceName.subSequence(
+                            Character.charCount(upperCaseCodePoint),
+                            instanceName.length()))
+                    .toString();
+        }
+        return ObjectName.getInstance(
+                "com.aquenos.cassandra.pvarchiver.server:type=ThrottlingCassandraProvider,name="
+                        + instanceName);
     }
 
     /**
@@ -265,10 +294,14 @@ public class ThrottlingCassandraProvider implements
     @Override
     public void setApplicationEventPublisher(
             ApplicationEventPublisher applicationEventPublisher) {
-        Preconditions
-                .checkState(sessionFuture == null,
-                        "This property must not be changed after calling afterPropertiesSet().");
+        Preconditions.checkState(sessionFuture == null,
+                "This property must not be changed after calling afterPropertiesSet().");
         this.applicationEventPublisher = applicationEventPublisher;
+    }
+
+    @Override
+    public void setBeanName(String beanName) {
+        this.beanName = beanName;
     }
 
     /**
@@ -287,9 +320,8 @@ public class ThrottlingCassandraProvider implements
      *             {@link #afterPropertiesSet()} has been called).
      */
     public void setCassandraProvider(CassandraProvider cassandraProvider) {
-        Preconditions
-                .checkState(sessionFuture == null,
-                        "This property must not be changed after calling afterPropertiesSet().");
+        Preconditions.checkState(sessionFuture == null,
+                "This property must not be changed after calling afterPropertiesSet().");
         this.cassandraProvider = cassandraProvider;
     }
 
@@ -311,10 +343,10 @@ public class ThrottlingCassandraProvider implements
      *             if this object has already been initialized (
      *             {@link #afterPropertiesSet()} has been called).
      */
-    public void setMaxConcurrentReadStatements(int maxConcurrentReadStatements) {
-        Preconditions
-                .checkState(sessionFuture == null,
-                        "This property must not be changed after calling afterPropertiesSet().");
+    public void setMaxConcurrentReadStatements(
+            int maxConcurrentReadStatements) {
+        Preconditions.checkState(sessionFuture == null,
+                "This property must not be changed after calling afterPropertiesSet().");
         this.maxConcurrentReadStatements = maxConcurrentReadStatements;
     }
 
@@ -335,10 +367,10 @@ public class ThrottlingCassandraProvider implements
      *             if this object has already been initialized (
      *             {@link #afterPropertiesSet()} has been called).
      */
-    public void setMaxConcurrentWriteStatements(int maxConcurrentWriteStatements) {
-        Preconditions
-                .checkState(sessionFuture == null,
-                        "This property must not be changed after calling afterPropertiesSet().");
+    public void setMaxConcurrentWriteStatements(
+            int maxConcurrentWriteStatements) {
+        Preconditions.checkState(sessionFuture == null,
+                "This property must not be changed after calling afterPropertiesSet().");
         this.maxConcurrentWriteStatements = maxConcurrentWriteStatements;
     }
 

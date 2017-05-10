@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -9,6 +9,7 @@
 
 package com.aquenos.cassandra.pvarchiver.server.database;
 
+import java.util.LinkedList;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -35,13 +36,26 @@ import com.datastax.driver.mapping.annotations.Query;
 import com.datastax.driver.mapping.annotations.QueryParameters;
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 /**
+ * <p>
  * Implementation of a data access object for storing generic pieces of
  * information. This object encapsulates the logic for accessing the
  * <code>generic_data_store</code> table in the Apache Cassandra database.
+ * </p>
+ * 
+ * <p>
+ * <em>Implementation note:</em> As the
+ * {@link #createItem(UUID, String, String)} has to use a
+ * light-weight-transaction (LWT) to guarantee atomicity and isolation, all
+ * operations have to use LWTs because mixing LWT and non-LWT operations on the
+ * same data is not safe in Cassandra (see
+ * <a href="http://stackoverflow.com/questions/36359301/">this Q&amp;A on
+ * StackOverflow</a>).
+ * </p>
  * 
  * @author Sebastian Marsching
  */
@@ -60,35 +74,41 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         @Query("INSERT INTO " + TABLE + " (" + COLUMN_COMPONENT_ID + ", "
                 + COLUMN_ITEM_KEY + ", " + COLUMN_ITEM_VALUE
                 + ") VALUES (?, ?, ?) IF NOT EXISTS;")
+        @QueryParameters(idempotent = false)
         ResultSetFuture createItemIfNotExists(UUID componentId, String key,
                 String value);
 
-        @Query("INSERT INTO " + TABLE + " (" + COLUMN_COMPONENT_ID + ", "
-                + COLUMN_ITEM_KEY + ", " + COLUMN_ITEM_VALUE
-                + ") VALUES (?, ?, ?);")
-        ResultSetFuture createOrUpdateItem(UUID componentId, String key,
-                String value);
-
         @Query("SELECT * FROM " + TABLE + " WHERE " + COLUMN_COMPONENT_ID
                 + " = ?;")
+        @QueryParameters(idempotent = true)
         ResultSetFuture getAllItems(UUID componentId);
 
+        // When specifying Integer.MAX_VALUE as the fetch size, paging is
+        // disabled in the Cassandra driver. This means that once the result set
+        // is returned, all rows can be read without blocking. As this query
+        // will return at most a single row, there is no disadvantage in
+        // disabling paging.
         @Query("SELECT * FROM " + TABLE + " WHERE " + COLUMN_COMPONENT_ID
                 + " = ? AND " + COLUMN_ITEM_KEY + " = ?;")
-        @QueryParameters(fetchSize = Integer.MAX_VALUE)
+        @QueryParameters(fetchSize = Integer.MAX_VALUE, idempotent = true)
         ResultSetFuture getItem(UUID componentId, String key);
 
         @Query("DELETE FROM " + TABLE + " WHERE " + COLUMN_COMPONENT_ID
-                + " = ?;")
-        ResultSetFuture removeAllItems(UUID componentId);
+                + " = ? AND " + COLUMN_ITEM_KEY + " = ? IF EXISTS;")
+        @QueryParameters(idempotent = false)
+        ResultSetFuture removeItemIfExists(UUID componentId, String key);
 
-        @Query("DELETE FROM " + TABLE + " WHERE " + COLUMN_COMPONENT_ID
-                + " = ? AND " + COLUMN_ITEM_KEY + " = ?;")
-        ResultSetFuture removeItem(UUID componentId, String key);
+        @Query("UPDATE " + TABLE + " SET " + COLUMN_ITEM_VALUE + " = ? WHERE "
+                + COLUMN_COMPONENT_ID + " = ? AND " + COLUMN_ITEM_KEY
+                + " = ? IF EXISTS;")
+        @QueryParameters(idempotent = false)
+        ResultSetFuture updateItemIfExists(String newValue, UUID componentId,
+                String key);
 
         @Query("UPDATE " + TABLE + " SET " + COLUMN_ITEM_VALUE + " = ? WHERE "
                 + COLUMN_COMPONENT_ID + " = ? AND " + COLUMN_ITEM_KEY
                 + " = ? IF " + COLUMN_ITEM_VALUE + " = ?;")
+        @QueryParameters(idempotent = false)
         ResultSetFuture updateItemIfValueMatches(String newValue,
                 UUID componentId, String key, String oldValue);
 
@@ -215,8 +235,8 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         try {
             createTable();
             createAccessor();
-            applicationEventPublisher
-                    .publishEvent(new GenericDataStoreDAOInitializedEvent(this));
+            applicationEventPublisher.publishEvent(
+                    new GenericDataStoreDAOInitializedEvent(this));
         } catch (Throwable t) {
             log.error(
                     "The initialization of the GenericDataStoreDAO failed. Most likely, this is caused by the database being temporarily unavailable. The next initialization attempt is going to be made the next time the connection to the database is reestablished.",
@@ -260,8 +280,8 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
     }
 
     @Override
-    public ListenableFuture<Void> createOrUpdateItem(UUID componentId,
-            String key, String value) {
+    public ListenableFuture<Void> createOrUpdateItem(final UUID componentId,
+            final String key, final String value) {
         // We wrap the whole method body in a try-catch block, because we want
         // to avoid this method throwing an exception directly. Instead, we
         // return a future that throws the exception. This way, the calling code
@@ -269,8 +289,45 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         // with exceptions from both this method and the returned future.
         try {
             checkInitialized();
-            return FutureUtils.transformAnyToVoid(accessor.createOrUpdateItem(
-                    componentId, key, value));
+            return Futures.transform(
+                    accessor.createItemIfNotExists(componentId, key, value),
+                    new AsyncFunction<ResultSet, Void>() {
+                        @Override
+                        public ListenableFuture<Void> apply(ResultSet input)
+                                throws Exception {
+                            if (input.wasApplied()) {
+                                return Futures.immediateFuture(null);
+                            } else {
+                                return Futures.transform(
+                                        // If the item already exists, we have
+                                        // to update it instead of creating it.
+                                        accessor.updateItemIfExists(value,
+                                                componentId, key),
+                                        new AsyncFunction<ResultSet, Void>() {
+                                            @Override
+                                            public ListenableFuture<Void> apply(
+                                                    ResultSet input)
+                                                    throws Exception {
+                                                if (input.wasApplied()) {
+                                                    return Futures
+                                                            .immediateFuture(
+                                                                    null);
+                                                } else {
+                                                    // The update might fail
+                                                    // because the item has been
+                                                    // removed in the meantime.
+                                                    // In this case we simply
+                                                    // try to create the item
+                                                    // again.
+                                                    return createOrUpdateItem(
+                                                            componentId, key,
+                                                            value);
+                                                }
+                                            }
+                                        });
+                            }
+                        }
+                    });
         } catch (Exception e) {
             // We do not catch errors, because they typically indicate a very
             // severe exception and it is possible that trying to wrap them in
@@ -280,7 +337,7 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
     }
 
     @Override
-    public ListenableFuture<Void> deleteAllItems(UUID componentId) {
+    public ListenableFuture<Void> deleteAllItems(final UUID componentId) {
         // We wrap the whole method body in a try-catch block, because we want
         // to avoid this method throwing an exception directly. Instead, we
         // return a future that throws the exception. This way, the calling code
@@ -288,8 +345,30 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         // with exceptions from both this method and the returned future.
         try {
             checkInitialized();
-            return FutureUtils.transformAnyToVoid(accessor
-                    .removeAllItems(componentId));
+            // We cannot delete all items in a single query that is an LWT at
+            // the same time: LWTs have to be restricted to a single row (the
+            // complete primary key has to be specified, specifying the
+            // partition key is not sufficient).
+            // It is not really important that we use an LWT for the delete
+            // operation, but mixing LWT and non-LWT operations on the same data
+            // is unsafe, so we have to use an LWT here, even though we do not
+            // require atomicity or isolation.
+            return Futures.transform(accessor.getAllItems(componentId),
+                    new AsyncFunction<ResultSet, Void>() {
+                        @Override
+                        public ListenableFuture<Void> apply(ResultSet input)
+                                throws Exception {
+                            LinkedList<ListenableFuture<ResultSet>> removeFutures = new LinkedList<>();
+                            for (Row row : input) {
+                                String key = row.getString(COLUMN_ITEM_KEY);
+                                ListenableFuture<ResultSet> removeFuture = accessor
+                                        .removeItemIfExists(componentId, key);
+                                removeFutures.add(removeFuture);
+                            }
+                            return FutureUtils.transformAnyToVoid(
+                                    Futures.allAsList(removeFutures));
+                        }
+                    });
         } catch (Exception e) {
             // We do not catch errors, because they typically indicate a very
             // severe exception and it is possible that trying to wrap them in
@@ -307,8 +386,8 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         // with exceptions from both this method and the returned future.
         try {
             checkInitialized();
-            return FutureUtils.transformAnyToVoid(accessor.removeItem(
-                    componentId, key));
+            return FutureUtils.transformAnyToVoid(
+                    accessor.removeItemIfExists(componentId, key));
         } catch (Exception e) {
             // We do not catch errors, because they typically indicate a very
             // severe exception and it is possible that trying to wrap them in
@@ -333,22 +412,25 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
                         public Iterable<? extends DataItem> apply(
                                 ResultSet input) {
                             final int componentIdIndex = input
-                                    .getColumnDefinitions().getIndexOf(
-                                            COLUMN_COMPONENT_ID);
+                                    .getColumnDefinitions()
+                                    .getIndexOf(COLUMN_COMPONENT_ID);
                             final int itemKeyIndex = input
-                                    .getColumnDefinitions().getIndexOf(
-                                            COLUMN_ITEM_KEY);
+                                    .getColumnDefinitions()
+                                    .getIndexOf(COLUMN_ITEM_KEY);
                             final int itemValueIndex = input
-                                    .getColumnDefinitions().getIndexOf(
-                                            COLUMN_ITEM_VALUE);
+                                    .getColumnDefinitions()
+                                    .getIndexOf(COLUMN_ITEM_VALUE);
                             return Iterables.transform(input,
                                     new Function<Row, DataItem>() {
                                         @Override
                                         public DataItem apply(Row input) {
                                             return new DataItem(
-                                                    input.getUUID(componentIdIndex),
-                                                    input.getString(itemKeyIndex),
-                                                    input.getString(itemValueIndex));
+                                                    input.getUUID(
+                                                            componentIdIndex),
+                                                    input.getString(
+                                                            itemKeyIndex),
+                                                    input.getString(
+                                                            itemValueIndex));
                                         }
                                     });
                         }
@@ -379,10 +461,10 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
                             if (row == null) {
                                 return null;
                             }
-                            return new DataItem(row
-                                    .getUUID(COLUMN_COMPONENT_ID), row
-                                    .getString(COLUMN_ITEM_KEY), row
-                                    .getString(COLUMN_ITEM_VALUE));
+                            return new DataItem(
+                                    row.getUUID(COLUMN_COMPONENT_ID),
+                                    row.getString(COLUMN_ITEM_KEY),
+                                    row.getString(COLUMN_ITEM_VALUE));
                         }
                     });
         } catch (Exception e) {
@@ -408,8 +490,9 @@ public class GenericDataStoreDAOImpl implements ApplicationEventPublisherAware,
         // with exceptions from both this method and the returned future.
         try {
             checkInitialized();
-            return Futures.transform(accessor.updateItemIfValueMatches(
-                    newValue, componentId, key, oldValue),
+            return Futures.transform(
+                    accessor.updateItemIfValueMatches(newValue, componentId,
+                            key, oldValue),
                     new Function<ResultSet, Pair<Boolean, String>>() {
                         @Override
                         public Pair<Boolean, String> apply(ResultSet input) {

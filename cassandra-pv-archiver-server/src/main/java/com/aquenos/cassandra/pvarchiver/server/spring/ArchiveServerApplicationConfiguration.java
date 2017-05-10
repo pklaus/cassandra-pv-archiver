@@ -156,8 +156,8 @@ public class ArchiveServerApplicationConfiguration {
         // quickly and a longer one for requests that might take a lot of time.
         // However, connections might get reused for different requests and we
         // can only set the timeout on the socket / connection level.
-        // TODO Make the timeout configurable.
-        factory.setReadTimeout(900000);
+        factory.setReadTimeout(
+                serverProperties().getInterNodeCommunicationRequestTimeout());
         return factory;
     }
 
@@ -336,6 +336,19 @@ public class ArchiveServerApplicationConfiguration {
         InterNodeCommunicationServiceImpl interNodeCommunicationService = new InterNodeCommunicationServiceImpl();
         interNodeCommunicationService.setAsyncRestTemplate(asyncRestTemplate);
         return interNodeCommunicationService;
+    }
+
+    /**
+     * Creates the server properties. The server properties specify the
+     * configuration options used by the server components and the
+     * {@link #asyncClientHttpRequestFactory()}. This method only creates the
+     * object. The actual property values are injected by the Spring container.
+     * 
+     * @return throttling configuration properties.
+     */
+    @Bean
+    public ServerProperties serverProperties() {
+        return new ServerProperties();
     }
 
     /**

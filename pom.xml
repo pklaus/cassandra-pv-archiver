@@ -6,7 +6,7 @@
 
   <groupId>com.aquenos.cassandra.pvarchiver</groupId>
   <artifactId>cassandra-pv-archiver</artifactId>
-  <version>3.1.3</version>
+  <version>3.2.0</version>
 
   <packaging>pom</packaging>
 
@@ -47,29 +47,29 @@
     <apache.commons.logging.version>1.2</apache.commons.logging.version>
     <bootstrap.version>3.3.7-1</bootstrap.version>
     <cassandraunit.version>2.2.2.1</cassandraunit.version>
-    <datastax.cassandra.driver.javadoc.version>3.1</datastax.cassandra.driver.javadoc.version>
-    <datastax.cassandra.driver.version>3.1.4</datastax.cassandra.driver.version>
+    <datastax.cassandra.driver.javadoc.version>3.2</datastax.cassandra.driver.javadoc.version>
+    <datastax.cassandra.driver.version>3.2.0</datastax.cassandra.driver.version>
     <font.awesome.version>4.7.0</font.awesome.version>
     <guava.version>16.0.1</guava.version>
     <jackie.version>1.0.3</jackie.version>
     <jackson.javadoc.version>2.8</jackson.javadoc.version>
-    <jackson.version>2.8.7</jackson.version>
+    <jackson.version>2.8.8</jackson.version>
     <java.ee.javadoc.version>7</java.ee.javadoc.version>
     <javax.inject.version>1</javax.inject.version>
     <jna.version>4.4.0</jna.version>
     <jquery.datatables.version>1.10.13</jquery.datatables.version>
     <jquery.version>3.2.0</jquery.version>
     <lz4.version>1.3.0</lz4.version>
-    <okhttp3.version>3.6.0</okhttp3.version>
+    <okhttp3.version>3.7.0</okhttp3.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <snappy.version>1.1.2.6</snappy.version>
-    <spring.version>4.3.7.RELEASE</spring.version>
-    <spring.boot.version>1.5.2.RELEASE</spring.boot.version>
+    <spring.version>4.3.8.RELEASE</spring.version>
+    <spring.boot.version>1.5.3.RELEASE</spring.boot.version>
     <spring.security.version>4.2.2.RELEASE</spring.security.version>
-    <thymeleaf.version>3.0.3.RELEASE</thymeleaf.version>
+    <thymeleaf.version>3.0.6.RELEASE</thymeleaf.version>
     <thymeleaf.extras.springsecurity.version>3.0.2.RELEASE</thymeleaf.extras.springsecurity.version>
     <thymeleaf.layout.dialect.version>2.2.1</thymeleaf.layout.dialect.version>
-    <tomcat.version>8.5.12</tomcat.version>
+    <tomcat.version>8.5.14</tomcat.version>
   </properties>
 
   <dependencyManagement>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -120,7 +120,8 @@ public class ControlSystemSupportRegistryBean implements
         }, new Executor() {
             @Override
             public void execute(Runnable command) {
-                Thread thread = new Thread(command);
+                Thread thread = new Thread(command,
+                        "initialize-control-system-supports");
                 thread.setDaemon(true);
                 thread.start();
             }

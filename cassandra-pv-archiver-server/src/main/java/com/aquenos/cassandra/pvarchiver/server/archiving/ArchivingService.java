@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -12,11 +12,17 @@ package com.aquenos.cassandra.pvarchiver.server.archiving;
 import java.util.List;
 import java.util.UUID;
 
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
+
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
+import org.springframework.jmx.export.annotation.ManagedAttribute;
+import org.springframework.jmx.export.annotation.ManagedResource;
+import org.springframework.jmx.export.naming.SelfNaming;
 
 import com.aquenos.cassandra.pvarchiver.server.archiving.internal.ArchivingServiceInternalImpl;
 import com.aquenos.cassandra.pvarchiver.server.cluster.ClusterManagementService;
@@ -25,6 +31,7 @@ import com.aquenos.cassandra.pvarchiver.server.controlsystem.ControlSystemSuppor
 import com.aquenos.cassandra.pvarchiver.server.database.CassandraProvider;
 import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO;
 import com.aquenos.cassandra.pvarchiver.server.spring.ServerProperties;
+import com.aquenos.cassandra.pvarchiver.server.spring.ThrottlingProperties;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
 
@@ -37,8 +44,9 @@ import com.google.common.util.concurrent.ListenableFuture;
  * 
  * @author Sebastian Marsching
  */
+@ManagedResource(description = "handles archiving operations")
 public class ArchivingService implements DisposableBean, InitializingBean,
-        SmartInitializingSingleton {
+        SelfNaming, SmartInitializingSingleton {
 
     private ArchiveAccessService archiveAccessService;
     private CassandraProvider cassandraProvider;
@@ -47,6 +55,7 @@ public class ArchivingService implements DisposableBean, InitializingBean,
     private ControlSystemSupportRegistry controlSystemSupportRegistry;
     private ArchivingServiceInternalImpl internalImpl;
     private ServerProperties serverProperties;
+    private ThrottlingProperties throttlingProperties;
 
     @Override
     public void afterPropertiesSet() throws Exception {
@@ -60,10 +69,12 @@ public class ArchivingService implements DisposableBean, InitializingBean,
         Preconditions.checkState(clusterManagementService != null);
         Preconditions.checkState(controlSystemSupportRegistry != null);
         Preconditions.checkState(serverProperties != null);
+        Preconditions.checkState(throttlingProperties != null);
         UUID thisServerId = serverProperties.getUuid();
         internalImpl = new ArchivingServiceInternalImpl(archiveAccessService,
                 cassandraProvider, channelMetaDataDAO,
-                controlSystemSupportRegistry, thisServerId);
+                controlSystemSupportRegistry, throttlingProperties,
+                thisServerId);
     }
 
     @Override
@@ -83,10 +94,15 @@ public class ArchivingService implements DisposableBean, InitializingBean,
 
     @Override
     public void destroy() throws Exception {
-        Preconditions
-                .checkState(internalImpl != null,
-                        "The destroy() method must be called after calling afterPropertiesSet().");
+        Preconditions.checkState(internalImpl != null,
+                "The destroy() method must be called after calling afterPropertiesSet().");
         internalImpl.destroy();
+    }
+
+    @Override
+    public ObjectName getObjectName() throws MalformedObjectNameException {
+        return ObjectName.getInstance(
+                "com.aquenos.cassandra.pvarchiver.server:type=ArchivingService");
     }
 
     /**
@@ -139,6 +155,7 @@ public class ArchivingService implements DisposableBean, InitializingBean,
      * @return number of samples that have been dropped since this archiving
      *         service was started.
      */
+    @ManagedAttribute(description = "number of samples that been dropped since the archiving service was started")
     public long getNumberOfSamplesDropped() {
         return internalImpl.getNumberOfSamplesDropped();
     }
@@ -154,8 +171,114 @@ public class ArchivingService implements DisposableBean, InitializingBean,
      * @return number of samples that have been written since this archiving
      *         service was started.
      */
+    @ManagedAttribute(description = "number of samples that been writen since the archiving service was started")
     public long getNumberOfSamplesWritten() {
         return internalImpl.getNumberOfSamplesWritten();
+    }
+
+    /**
+     * <p>
+     * Returns the number of sample fetch operations that are running currently.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. In this case, the number of fetch
+     * operations that may run concurrently is limited (to the number returned
+     * by {@link #getSamplesDecimationMaxRunningFetchOperations()}).
+     * </p>
+     * 
+     * @return number of sample fetch operations (to generate decimated samples)
+     *         that are currently running.
+     * @see #getSamplesDecimationCurrentSamplesInMemory()
+     * @see #getSamplesDecimationMaxRunningFetchOperations()
+     */
+    @ManagedAttribute(description = "number of sample fetch operations (to generate decimated samples) that are currently running")
+    public int getSamplesDecimationCurrentRunningFetchOperations() {
+        return internalImpl.getSamplesDecimationCurrentRunningFetchOperations();
+    }
+
+    /**
+     * <p>
+     * Returns the number of samples that have been fetched (but not processed
+     * yet). This is the number of samples that is currently kept in memory.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. For performance reasons, samples are
+     * fetched in batches. These samples, that have been fetched, but not
+     * processed yet, consume memory, so that no new fetch operations may be
+     * started if a large number of samples has already been fetched, but not
+     * processed yet. The actual limit is returned by
+     * {@link #getSamplesDecimationMaxSamplesInMemory()}.
+     * </p>
+     * 
+     * @return number of samples that have been fetched (to generate decimated
+     *         samples), but not processed yet.
+     * @see #getSamplesDecimationCurrentRunningFetchOperations()
+     * @see #getSamplesDecimationMaxSamplesInMemory()
+     */
+    @ManagedAttribute(description = "current number of samples that have been fetched (to generate decimated samples), but not processed yet")
+    public int getSamplesDecimationCurrentSamplesInMemory() {
+        return internalImpl.getSamplesDecimationCurrentSamplesInMemory();
+    }
+
+    /**
+     * <p>
+     * Returns the max. number of sample fetch operations that may run
+     * concurrently.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. In this case, the number of fetch
+     * operations that may run concurrently is limited to the number returned by
+     * this method.
+     * </p>
+     * 
+     * @return max. number of sample fetch operations (to generate decimated
+     *         samples) that may run concurrently.
+     * @see #getSamplesDecimationCurrentRunningFetchOperations()
+     * @see #getSamplesDecimationMaxSamplesInMemory()
+     */
+    @ManagedAttribute(description = "max. number of sample fetch operations (to generate decimated samples) that may run concurrently")
+    public int getSamplesDecimationMaxRunningFetchOperations() {
+        return internalImpl.getSamplesDecimationMaxRunningFetchOperations();
+    }
+
+    /**
+     * <p>
+     * Returns the max. number of samples that may concurrently be kept in
+     * memory.
+     * </p>
+     * 
+     * <p>
+     * Usually, decimated samples are generated as new (raw) samples are
+     * written. However, when adding a new decimation level or when restarting
+     * the server, it might be necessary to read samples from the database in
+     * order to generate decimated samples. For performance reasons, samples are
+     * fetched in batches. These samples, that have been fetched, but not
+     * processed yet, consume memory, so that no new fetch operations may be
+     * started if a large number of samples has already been fetched, but not
+     * processed yet. This method returns the number of samples at which this
+     * limit is enforced and no more samples are fetched.
+     * </p>
+     * 
+     * @return max. number of samples that may be fetched (to generate decimated
+     *         samples) into memory concurrently.
+     * @see #getSamplesDecimationCurrentSamplesInMemory()
+     * @see #getSamplesDecimationMaxRunningFetchOperations()
+     */
+    @ManagedAttribute(description = "max. number of samples that may be fetched into memory")
+    public int getSamplesDecimationMaxSamplesInMemory() {
+        return internalImpl.getSamplesDecimationMaxSamplesInMemory();
     }
 
     /**
@@ -297,6 +420,20 @@ public class ArchivingService implements DisposableBean, InitializingBean,
     public void setControlSystemSupportRegistry(
             ControlSystemSupportRegistry controlSystemSupportRegistry) {
         this.controlSystemSupportRegistry = controlSystemSupportRegistry;
+    }
+
+    /**
+     * Sets the configuration properties controlling throttling. These
+     * configuration properties are used to limit resource usage by the sample
+     * decimation process..
+     * 
+     * @param throttlingProperties
+     *            configuration properties controlling throttling.
+     */
+    @Autowired
+    public void setThrottlingProperties(
+            ThrottlingProperties throttlingProperties) {
+        this.throttlingProperties = throttlingProperties;
     }
 
     /**

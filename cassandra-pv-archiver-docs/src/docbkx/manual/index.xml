@@ -778,6 +778,140 @@
         </itemizedlist>
       </section>
     </section>
+
+    <section xml:id="news.version_3.2">
+      <title>Cassandra PV Archiver 3.2</title>
+      <para>
+        The Cassandra PV Archiver 3.2 adds a few new configuration options and
+        updates its dependencies to their respective newest versions.
+        It is compatible with the Cassandra PV Archiver 3.1.x, meaning that it
+        can operate on data stored by the Cassandra PV Archiver 3.1.x and the
+        APIs supported by the Cassandra PV Archiver 3.1.x are fully supported.
+      </para>
+      <para>
+        Due to newly introduced configuration options, configuration files for
+        version 3.2.x are not compatible with version 3.1.x.
+        However, configuration files for version 3.1.x remain compatible with
+        version 3.2.x.
+      </para>
+      <para>
+        The following improvements have been made in this release:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <simpara>
+            The memory consumption when generating decimated samples based on
+            pre-existing source samples has been reduced significantly.
+            This is important when adding new decimation levels to a large
+            number of channels.
+            In earlier versions, the sample decimation process could allocate
+            so much memory that the heap space would be exhausted, resulting in
+            an <exceptionname>OutOfMemoryError</exceptionname>.
+            Two new configuration options have been introduced for controlling
+            the memory consumption of the sample decimation process:
+            <link linkend="server.configuration.throttling.sample_decimation.max_fetched_samples_in_memory"><literal>throttling.sampleDecimation.maxFetchedSamplesInMemory</literal></link>
+            and
+            <link linkend="server.configuration.throttling.sample_decimation.max_running_fetch_operations"><literal>throttling.sampleDecimation.maxRunningFetchOperations</literal></link>.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The implementation of <classname>AbstractObjectResultSet</classname>
+            has been improved in order to avoid unnecessary copy operations.
+            This change should improve the performance when reading samples from
+            the database.
+            In order to profit from this change, control-system supports using
+            <classname>AbstractObjectResultSet</classname> for implementing
+            their sample result sets should change the result set’s
+            <methodname>fetchNextPage()</methodname> method to return a
+            <interfacename>SizedIterator</interfacename> instead of a regular
+            <interfacename>Iterator</interfacename>.
+            This change has already been implemented for the
+            <classname>ResultSetBasedObjectResultSet</classname>, so
+            control-system supports using this class (like the Channel Access
+            control-system support) will automatically profit from this
+            improvement.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The 
+            <link linkend="server.configuration.cassandra.fetch_size"><literal>cassandra.fetchSize</literal></link>
+            option has been introduced in order to control the default fetch
+            size used for queries.
+            Usually, the default fetch size of the Cassandra driver should be
+            fine, but users wanting to fine-tune the fetch size can now do so.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The 
+            <link linkend="server.configuration.server.inter_node_communication_request_timeout"><literal>server.interNodeCommunicationRequestTimeout</literal></link>
+            option has been introduced in order to control the timeout for
+            requests sent from one archiving server to another one.
+            This timeout has been significantly increased in version 3.1.2, but
+            now it is possible to increase it even further if necessary or to
+            choose a shorter timeout if sufficient.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The way how the throttling of statements executed on the Cassandra
+            cluster is handled has been improved.
+            In older versions, the limit for read statements would only apply
+            for the initial execution of a statement.
+            If a statement later fetched more results (because there were more
+            rows than the configured fetch size), this fetch operation would not
+            count towards the limit.
+            Now, a fetch operation is treated like a read statement and fully
+            counts towards the limit.
+            This means that in certain situations it might be possible to
+            slightly raise the limit for read statements.
+          </simpara>
+        </listitem>
+        <listitem>
+          <simpara>
+            The naming scheme for the MBeans exposed via JMX has been changed so
+            that all MBeans of the archiving server are in a single domain.
+            This means that clients using JMX to monitor the archiving server
+            have to be changed to use the new object names.
+            The JMX interface is not considered a public API and thus might
+            again change in future versions.
+          </simpara>
+        </listitem>
+      </itemizedlist>
+      <para>
+        There also was one bug that has been fixed in this release:
+      </para>
+      <itemizedlist>
+        <listitem>
+          <simpara>
+            The way how write operations to the
+            <literal>generic_data_store</literal> table were handled was unsafe
+            because light-weight transactions (LWTs) were mixed with regular
+            updates.
+            This could theoretically lead to invalid data if writes were
+            happening very rapidly or server clocks had an extremely large clock
+            skew.
+            As data is only rarely written to this table (once when the
+            archiving cluster is initialized and every time the administrator’s
+            password is changed), this bug was very unlikely to cause any
+            actual problems. 
+          </simpara>
+        </listitem>
+      </itemizedlist>
+      <para>
+        The Cassandra driver has been updated to version 3.2.0 in this release.
+        That version includes a change to how user-defined types (UDTs) are
+        handled when using the schema builder to create a table.
+        Control-system supports using the schema builder to create a table with
+        UDT columns might have to be changed to use the schema builder’s
+        <methodname>addUDTColumn(…)</methodname> method with a parameter
+        constructed using <literal>SchemaBuilder.frozen(…)</literal> instead of
+        using <methodname>addColumn(…)</methodname> with an instance of
+        <classname>UserType</classname>.
+      </para>
+    </section>
   </chapter>
 
   <chapter xml:id="server">
@@ -1164,6 +1298,33 @@ cassandra:
           </para>
         </section>
 
+        <section xml:id="server.configuration.cassandra.fetch_size">
+          <title>Fetch size</title>
+          <para>
+            The <literal>cassandra.fetchSize</literal> option specifies the
+            default fetch size that is used when reading data from the Cassandra
+            database.
+            The fetch size specifies how many rows are read from the database in
+            a single page.
+            Specifying a larger value typically improves performance when
+            processing a query that returns many rows, but results in more
+            memory usage in both the database server and the client because the
+            full page of rows has to be kept in memory. 
+          </para>
+          <para>
+            The default value is zero, which causes the default fetch size of
+            the Cassandra driver to be used.
+            As of version 3.1.4 of the Cassandra driver, that default fetch size
+            is 5000 rows.
+            If specified, this option has to be set to an integer between 0 and
+            2147483647.
+          </para>
+          <para>
+            The fetch size specified here is only used for queries that do not
+            explicitly specify a fetch size.
+          </para>
+        </section>
+
         <section>
           <title>Use local consistency level</title>
           <para>
@@ -1326,6 +1487,25 @@ cassandra:
             (for example in case of configuration changes).
           </para>
         </section>
+  
+        <section xml:id="server.configuration.server.inter_node_communication_request_timeout">
+          <title>Inter-node communication request timeout</title>
+          <para>
+            The <literal>server.interNodeCommunicationRequestTimeout</literal>
+            option specifies the timeout used for the communication between
+            nodes.
+            The timeout is specified in milliseconds.
+            If chosen too low, complex requests (e.g. a request to modify the
+            configuration of many channels when importing a configuration file)
+            may time out.
+            If chosen too high, requests will take a very long time before
+            timing out in case of a sudden server crash or network disruption.
+          </para>
+          <para>
+            The default value is 900000 milliseconds (15 minutes).
+            Valid values are integer numbers between 1 and 2147483647.
+          </para>
+        </section>
       </section>
 
       <section xml:id="server.configuration.throttling">
@@ -1449,6 +1629,65 @@ cassandra:
             <literal>throttling.maxConcurrentChannelMetaDataWriteStatements</literal>
             options.
             The default value is 512.
+          </para>
+        </section>
+
+        <section xml:id="server.configuration.throttling.sample_decimation.max_fetched_samples_in_memory">
+          <title>
+            Max. number of samples fetched into memory for sample decimation
+          </title>
+          <para>
+            The
+            <literal>throttling.sampleDecimation.maxFetchedSamplesInMemory</literal>
+            configuration option controls how many samples may be fetched into
+            memory when generating decimated samples.
+          </para>
+          <para>
+            The sample decimation process might consume a lot of memory when
+            generating decimated samples from already existing source samples
+            for a lot of channels.
+            The amount of samples that may be fetched into memory is directly
+            connected to memory usage.
+            Each fetched sample occupies about 1 KB of memory (for scalar
+            Channel Access samples), so one million samples are roughly
+            equivalent to 1 GB of memory.
+          </para>
+          <para>
+            As the exact number of samples returned by a fetch operation cannot
+            be known in advance, this threshold might actually be exceeded
+            slightly.
+            The
+            <link linkend="server.configuration.throttling.sample_decimation.max_running_fetch_operations"><literal>maxRunningFetchOperations</literal></link>
+            option can be used to control by how much the threshold may be exceeded.
+          </para>
+          <para>
+            The default value for this option is 1000000 samples.
+          </para>
+        </section>
+
+        <section xml:id="server.configuration.throttling.sample_decimation.max_running_fetch_operations">
+          <title>
+            Max. number of concurrent fetch operations for sample decimation
+          </title>
+          <para>
+            The
+            <literal>throttling.sampleDecimation.maxRunningFetchOperations</literal>
+            configuration option controls how many fetch operations may run in
+            parallel when generating decimated samples.
+          </para>
+          <para>
+            As the exact number of samples returned by a fetch operation cannot
+            be known in advance, the threshold set by the
+            <link linkend="server.configuration.throttling.sample_decimation.max_fetched_samples_in_memory"><literal>maxFetchedSamplesInMemory</literal></link>
+            option might actually be exceeded slightly.
+            This configuration option can be used to control by how much the
+            threshold may be exceeded.
+            The max. number of running fetch operations multiplied by the
+            <link linkend="server.configuration.cassandra.fetch_size">fetch size</link>
+            is the max. number of samples by which the limit might be exceeded.
+          </para>
+          <para>
+            The default value for this option is 20.
           </para>
         </section>
       </section>

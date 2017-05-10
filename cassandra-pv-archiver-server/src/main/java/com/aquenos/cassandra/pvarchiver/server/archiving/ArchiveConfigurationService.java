@@ -347,8 +347,10 @@ public class ArchiveConfigurationService implements DisposableBean,
         thisServerId = serverProperties.getUuid();
         // We use daemon threads because we do not want any of our threads to
         // stop the JVM from shutdown.
-        ThreadFactory daemonThreadFactory = new BasicThreadFactory.Builder()
-                .daemon(true).build();
+        ThreadFactory poolThreadFactory = new BasicThreadFactory.Builder()
+                .daemon(true)
+                .namingPattern("archive-configuration-service-pool-thread-%d")
+                .build();
         // We use the number of available processors divided by two as the
         // number of threads. This is somehow inaccurate (for example, we might
         // create too many threads for processors with hyper threading), but
@@ -374,7 +376,7 @@ public class ArchiveConfigurationService implements DisposableBean,
         // killed anyway).
         poolExecutor = new ThreadPoolExecutor(0, numberOfPoolThreads, 60L,
                 TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
-                daemonThreadFactory, new RejectedExecutionHandler() {
+                poolThreadFactory, new RejectedExecutionHandler() {
                     @Override
                     public void rejectedExecution(Runnable r,
                             ThreadPoolExecutor executor) {

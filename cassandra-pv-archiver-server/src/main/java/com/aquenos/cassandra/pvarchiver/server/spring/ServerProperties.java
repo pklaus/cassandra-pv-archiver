@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 aquenos GmbH.
+ * Copyright 2015-2017 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -33,6 +33,8 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import com.google.common.base.Preconditions;
 
 /**
  * <p>
@@ -70,6 +72,7 @@ public class ServerProperties implements InitializingBean {
     private int adminPort = 4812;
     private int archiveAccessPort = 9812;
     private int interNodeCommunicationPort = 9813;
+    private int interNodeCommunicationRequestTimeout = 900000;
     private UUID uuid;
     private File uuidFile;
 
@@ -119,9 +122,10 @@ public class ServerProperties implements InitializingBean {
         try {
             this.listenAddress = InetAddress.getByName(listenAddress);
         } catch (UnknownHostException e) {
-            throw new IllegalArgumentException("Address \""
-                    + StringEscapeUtils.escapeJava(listenAddress)
-                    + "\" cannot be converted to an InetAddress.", e);
+            throw new IllegalArgumentException(
+                    "Address \"" + StringEscapeUtils.escapeJava(listenAddress)
+                            + "\" cannot be converted to an InetAddress.",
+                    e);
         }
     }
 
@@ -215,6 +219,34 @@ public class ServerProperties implements InitializingBean {
     }
 
     /**
+     * Returns the timeout used for HTTP requests between nodes. The timeout is
+     * specified in milliseconds and is never zero. The default value is 900000
+     * milliseconds (15 minutes).
+     * 
+     * @return request timeout for the inter-node communication (in
+     *         milliseconds).
+     */
+    public int getInterNodeCommunicationRequestTimeout() {
+        return interNodeCommunicationRequestTimeout;
+    }
+
+    /**
+     * Sets the timeout used for HTTP requests between nodes. The timeout is
+     * specified in milliseconds and must be greater than zero. The default
+     * value is 900000 (15 minutes).
+     * 
+     * @param interNodeCommunicationRequestTimeout
+     *            request timeout for the inter-node communication (in
+     *            milliseconds).
+     */
+    public void setInterNodeCommunicationRequestTimeout(
+            int interNodeCommunicationRequestTimeout) {
+        Preconditions.checkArgument(interNodeCommunicationRequestTimeout > 0,
+                "The inter-node communication request timeout must be greater than zero.");
+        this.interNodeCommunicationRequestTimeout = interNodeCommunicationRequestTimeout;
+    }
+
+    /**
      * Returns the UUID identifying this server or <code>null</code> if the UUID
      * has not been set. The UUID must be set in order for a server to operate
      * correctly and must be unique within the whole cluster.
@@ -253,9 +285,8 @@ public class ServerProperties implements InitializingBean {
         try {
             this.uuid = UUID.fromString(uuid);
         } catch (IllegalArgumentException e) {
-            logger.error(
-                    "Cannot set UUID from string \""
-                            + StringEscapeUtils.escapeJava(uuid) + "\".", e);
+            logger.error("Cannot set UUID from string \""
+                    + StringEscapeUtils.escapeJava(uuid) + "\".", e);
             this.uuid = null;
         }
     }
@@ -326,8 +357,8 @@ public class ServerProperties implements InitializingBean {
                             // earlier), but we could not read a line, so there
                             // is nothing we can do.
                             logger.error("Cannot read UUID from file \""
-                                    + StringEscapeUtils.escapeJava(uuidFile
-                                            .getPath())
+                                    + StringEscapeUtils
+                                            .escapeJava(uuidFile.getPath())
                                     + "\": The file has an invalid format.");
                             return;
                         }
