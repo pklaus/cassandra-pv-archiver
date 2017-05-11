@@ -911,6 +911,26 @@
         using <methodname>addColumn(…)</methodname> with an instance of
         <classname>UserType</classname>.
       </para>
+      <section xml:id="news.version_3.2.1">
+        <title>Cassandra PV Archiver 3.2.1</title>
+        <para>
+          Version 3.2.1 is a bugfix release that fixes an issue introduced in
+          the 3.2.0 release.
+        </para>
+        <para>
+          This issue caused the archiving server not to start if the
+          configuration file contained a line for the sample-decimation
+          throttling options, but not any actual options.
+          Unfortunately, the default configuration file provided with the
+          distribution contained such a line so that the archiving server would
+          not start with its default configuration file.
+        </para>
+        <para>
+          Starting with version 3.2.1, the archiving server accepts such a line
+          in the configuration file and thus will work with the unchanged
+          configuration file.
+        </para>
+      </section>
     </section>
   </chapter>
 

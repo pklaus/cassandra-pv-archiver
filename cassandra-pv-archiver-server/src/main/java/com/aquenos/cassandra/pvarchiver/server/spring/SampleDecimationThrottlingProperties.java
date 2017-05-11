@@ -49,6 +49,36 @@ public class SampleDecimationThrottlingProperties {
     private int maxRunningFetchOperations = 20;
 
     /**
+     * Creates new sample decimation throttling properties initialized with the
+     * respective default values.
+     */
+    public SampleDecimationThrottlingProperties() {
+    }
+
+    /**
+     * Creates new sample decimation throttling properties initialized with the
+     * respective default values. This constructor is only provided so that a
+     * YAML file that has a "throttling.sampleDecimation:" line without any
+     * sub-keys is parsed correctly.
+     * 
+     * @param str
+     *            empty string or <code>null</code>.
+     * @throws IllegalArgumentException
+     *             if <code>str</code> is a non-empty string.
+     */
+    public SampleDecimationThrottlingProperties(String str) {
+        this();
+        if (str != null && !str.isEmpty()) {
+            // The exception message might be irritating when calling this
+            // constructor explicitly, but it will most likely be called when
+            // parsing the configuration file and then this message gives an
+            // accurate hint about the cause of the problem.
+            throw new IllegalArgumentException(
+                    "The \"sampleDecimation.throttlingProperties\" expects key-value pairs instead of a string.");
+        }
+    }
+
+    /**
      * <p>
      * Returns the maximum number of samples that may be concurrently fetched
      * into memory when generating decimated samples. When this threshold is
