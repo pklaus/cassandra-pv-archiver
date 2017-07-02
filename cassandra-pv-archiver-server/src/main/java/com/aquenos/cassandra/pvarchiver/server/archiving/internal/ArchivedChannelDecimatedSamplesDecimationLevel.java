@@ -14,6 +14,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.lang3.StringEscapeUtils;
+
 import com.aquenos.cassandra.pvarchiver.controlsystem.Sample;
 import com.aquenos.cassandra.pvarchiver.controlsystem.SampleDecimator;
 import com.aquenos.cassandra.pvarchiver.server.archiving.TimeStampLimitMode;
@@ -61,11 +63,11 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         extends ArchivedChannelDecimationLevel<SampleType> {
 
     private final long decimationPeriodNanoseconds;
+    private boolean fatalErrorOccurred;
     private SettableFuture<Void> generateDecimatedSamplesProcessSourceSampleFuture;
     private boolean generateDecimatedSamplesScheduled;
     private boolean initialProcessingOfTargetDecimationLevelsFinished;
     private SampleType lastSourceSample;
-    private boolean nextDecimatedSampleTimeStampRangeExceeded;
     private Runnable onWriteQueueEmptyRunnable;
     private SampleDecimator<SampleType> sampleDecimator;
     private ArchivedChannelDecimationLevel<SampleType> sourceDecimationLevel;
@@ -267,6 +269,22 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     }
 
     /**
+     * Tells whether the query for source samples has completed. This method
+     * also returns <code>true</code> if the query did not complete, but there
+     * has been a fatal error and thus it will never complete. Basically, this
+     * method tells whether the generation process for this decimation level is
+     * still processing data from the database or has finished this processing
+     * (either successfully or because of a permanent error).
+     * 
+     * @return <code>true</code> if the processing of source samples from the
+     *         database is still running, <code>false</code> if it has finished.
+     */
+    boolean isSourceSampleQueryComplete() {
+        assert (Thread.holdsLock(channel));
+        return sourceSampleQueryComplete;
+    }
+
+    /**
      * <p>
      * Sets the source decimation level for this decimation period. This method
      * is called by the {@link ArchivedChannel} to which this decimation level
@@ -301,9 +319,9 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
     private void generateDecimatedSamples() {
         assert (Thread.holdsLock(channel));
         // If we have exceeded the allowed range of the time-stamp of the new
-        // decimated sample, we do not want to generate any decimated samples
-        // any longer.
-        if (nextDecimatedSampleTimeStampRangeExceeded) {
+        // decimated sample or there has been another permanent error, we do not
+        // want to generate any decimated samples any longer.
+        if (fatalErrorOccurred) {
             // We still want to drain the queue. If we did not drain the queue,
             // there would still not be a memory leak because the queue is
             // bounded. However by draining the queue, we can free this memory
@@ -340,8 +358,15 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                     return;
                 } else {
                     SampleType nextSourceSample = sourceSampleQueue.poll();
-                    ListenableFuture<Void> processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
-                            nextSourceSample);
+                    ListenableFuture<Void> processSourceSampleFuture;
+                    try {
+                        processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
+                                nextSourceSample);
+                    } catch (Throwable t) {
+                        generateDecimatedSamplesProcessSourceSampleHandleError(
+                                t);
+                        return;
+                    }
                     // If the operation finished synchronously (the default),
                     // the return value is null. Otherwise, we call
                     // generateDecimatedSamples() again when the asynchronous
@@ -438,13 +463,16 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 if (getLastSampleTimeStamp() > Long.MAX_VALUE
                         - 2L * decimationPeriodNanoseconds) {
                     // We do not want to generate decimated samples any longer.
-                    nextDecimatedSampleTimeStampRangeExceeded = true;
+                    fatalErrorOccurred = true;
                     // When we stop the decimation process, we want the removal
                     // process for the source decimation level to be able to
                     // run. For this reason, we clear/set the flags that are
                     // important for this process.
                     sourceSampleQueryComplete = true;
                     waitingForAsynchronousDecimationOperation = false;
+                    // We log a warning to inform the user that we are not going
+                    // to generate any more decimated samples.
+                    logTimeStampWarning();
                     return;
                 }
                 nextDecimatedSampleTimeStamp = getLastSampleTimeStamp()
@@ -510,14 +538,18 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         // We verified that we can use the first source sample from the queue.
         // This implies that we can also use the following samples. We can
         // process the samples from the queue until we have either processed all
-        // samples or the allowed time-stamp range has been exceeded. We have to
-        // check this flag after each iteration because it might be set by the
-        // called method.
-        while (!sourceSampleQueue.isEmpty()
-                && !nextDecimatedSampleTimeStampRangeExceeded) {
+        // samples or a fatal error has occurred. We have to check this flag
+        // after each iteration because it might be set by the called method.
+        while (!sourceSampleQueue.isEmpty() && !fatalErrorOccurred) {
             nextSourceSample = sourceSampleQueue.poll();
-            ListenableFuture<Void> processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
-                    nextSourceSample);
+            ListenableFuture<Void> processSourceSampleFuture;
+            try {
+                processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
+                        nextSourceSample);
+            } catch (Throwable t) {
+                generateDecimatedSamplesProcessSourceSampleHandleError(t);
+                break;
+            }
             // If the operation finished synchronously (the default), the return
             // value is null. Otherwise, we call generateDecimatedSamples()
             // again when the asynchronous operation has finished.
@@ -577,7 +609,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             // iteration because it might be set by the called method.
             int samplesProcessed = 0;
             while (resultSet.getAvailableWithoutFetching() > 0
-                    && !nextDecimatedSampleTimeStampRangeExceeded) {
+                    && !fatalErrorOccurred) {
                 // After processing 100 samples, we return and schedule this
                 // method for another execution. This way, the lock on the
                 // channel is released for a moment and other threads waiting on
@@ -594,8 +626,13 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                                 // processedFirstSample flag because this
                                 // callback is only triggered after a certain
                                 // number of samples have been written.
-                                generateDecimatedSamplesProcessQueryResults(
-                                        resultSet, true);
+                                try {
+                                    generateDecimatedSamplesProcessQueryResults(
+                                            resultSet, true);
+                                } catch (Throwable t) {
+                                    generateDecimatedSamplesProcessQueryResultsHandleError(
+                                            t);
+                                }
                             }
                         }
                     };
@@ -629,8 +666,14 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                     }
                     processedFirstSample = true;
                 }
-                ListenableFuture<Void> processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
-                        nextSourceSample);
+                ListenableFuture<Void> processSourceSampleFuture;
+                try {
+                    processSourceSampleFuture = generateDecimatedSamplesProcessSourceSample(
+                            nextSourceSample);
+                } catch (Throwable t) {
+                    generateDecimatedSamplesProcessSourceSampleHandleError(t);
+                    break;
+                }
                 // If the operation finished synchronously (the default), the
                 // return value is null. Otherwise, we call this method again
                 // when the asynchronous operation has finished.
@@ -639,8 +682,13 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                         @Override
                         public void run() {
                             synchronized (channel) {
-                                generateDecimatedSamplesProcessQueryResults(
-                                        resultSet, true);
+                                try {
+                                    generateDecimatedSamplesProcessQueryResults(
+                                            resultSet, true);
+                                } catch (Throwable t) {
+                                    generateDecimatedSamplesProcessQueryResultsHandleError(
+                                            t);
+                                }
                             }
                         }
                     }, poolExecutor);
@@ -651,8 +699,9 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 }
             }
             // If we broke the loop because the time-stamp range has been
-            // exceeded, we do not want to do anything else and simply return.
-            if (nextDecimatedSampleTimeStampRangeExceeded) {
+            // exceeded or any other fatal error occurred, we do not want to do
+            // anything else and simply return.
+            if (fatalErrorOccurred) {
                 return;
             }
             // There might be more samples that we can fetch.
@@ -672,10 +721,8 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                                 generateDecimatedSamplesProcessQueryResults(
                                         resultSet, finalProcessedFirstSample);
                             } catch (Throwable t) {
-                                // The asynchronous operation is finished, so
-                                // the decimation process can be run again.
-                                waitingForAsynchronousDecimationOperation = false;
-                                generateDecimatedSamplesReschedule();
+                                generateDecimatedSamplesProcessQueryResultsHandleError(
+                                        t);
                             }
                         }
                     }
@@ -709,13 +756,31 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
         }
     }
 
+    private void generateDecimatedSamplesProcessQueryResultsHandleError(
+            Throwable t) {
+        assert (Thread.holdsLock(channel));
+        // The asynchronous operation is finished, so the decimation process can
+        // be run again in the future.
+        waitingForAsynchronousDecimationOperation = false;
+        // We write the error message to the log. Most likely, the error is
+        // transient, but it might still be good to know that it occurred.
+        log.error("Error while trying to process source samples for channel \""
+                + StringEscapeUtils
+                        .escapeJava(channelConfiguration.getChannelName())
+                + "\" and decimation level " + decimationPeriodSeconds + ".",
+                t);
+        // We schedule another run because the cause of the problem might be
+        // transient (e.g. the database being temporarily overloaded).
+        generateDecimatedSamplesReschedule();
+    }
+
     private ListenableFuture<Void> generateDecimatedSamplesProcessSourceSample(
             final SampleType sourceSample) {
         assert (Thread.holdsLock(channel));
         assert (sourceSample != null);
-        // This method should not be called after we exceeded the time-stamp
-        // range. If it is, this is an error in the logic of the calling code.
-        assert (!nextDecimatedSampleTimeStampRangeExceeded);
+        // This method should not be called after there has been a fatal error.
+        // If it is, this is an error in the logic of the calling code.
+        assert (!fatalErrorOccurred);
         // If we do not have a sample decimator yet, we have to create one. If
         // we already have a sample decimator but the next source sample is at
         // the start of or before the decimation interval of this decimator, we
@@ -761,13 +826,16 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 // more decimated samples.
                 if (lastDecimatedSampleTimeStamp > Long.MAX_VALUE
                         - 2L * decimationPeriodNanoseconds) {
-                    nextDecimatedSampleTimeStampRangeExceeded = true;
+                    fatalErrorOccurred = true;
                     // When we stop the decimation process, we want the removal
                     // process for the source decimation level to be able to
                     // run. For this reason, we clear/set the flags that are
                     // important for this process.
                     sourceSampleQueryComplete = true;
                     waitingForAsynchronousDecimationOperation = false;
+                    // We log a warning to inform the user that we are not going
+                    // to generate any more decimated samples.
+                    logTimeStampWarning();
                     // We return null to indicate that the operation has already
                     // finished. This is much more efficient that creating an
                     // immediate future.
@@ -796,13 +864,16 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 // more decimated samples.
                 if (lastDecimatedSampleTimeStamp > Long.MAX_VALUE
                         - 2L * decimationPeriodNanoseconds) {
-                    nextDecimatedSampleTimeStampRangeExceeded = true;
+                    fatalErrorOccurred = true;
                     // When we stop the decimation process, we want the removal
                     // process for the source decimation level to be able to
                     // run. For this reason, we clear/set the flags that are
                     // important for this process.
                     sourceSampleQueryComplete = true;
                     waitingForAsynchronousDecimationOperation = false;
+                    // We log a warning to inform the user that we are not going
+                    // to generate any more decimated samples.
+                    logTimeStampWarning();
                     // We return null to indicate that the operation has already
                     // finished. This is much more efficient that creating an
                     // immediate future.
@@ -868,8 +939,13 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                     @Override
                     public void run() {
                         synchronized (channel) {
-                            generateDecimatedSamplesProcessSourceSample(
-                                    sourceSample);
+                            try {
+                                generateDecimatedSamplesProcessSourceSample(
+                                        sourceSample);
+                            } catch (Throwable t) {
+                                generateDecimatedSamplesProcessSourceSampleHandleError(
+                                        t);
+                            }
                         }
                     }
                 };
@@ -931,13 +1007,16 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             if (nextDecimatedSampleTimeStamp > Long.MAX_VALUE
                     - decimationPeriodNanoseconds) {
                 // We do not want to generate decimated samples any longer.
-                nextDecimatedSampleTimeStampRangeExceeded = true;
+                fatalErrorOccurred = true;
                 // When we stop the decimation process, we want the removal
                 // process for the source decimation level to be able to run.
                 // For this reason, we clear/set the flags that are important
                 // for this process.
                 sourceSampleQueryComplete = true;
                 waitingForAsynchronousDecimationOperation = false;
+                // We log a warning to inform the user that we are not going
+                // to generate any more decimated samples.
+                logTimeStampWarning();
                 // We return null to indicate that the operation has already
                 // finished. This is much more efficient that creating an
                 // immediate future. If we have an incomplete future, we have to
@@ -1021,6 +1100,39 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             future.set(null);
         }
         return null;
+    }
+
+    private void generateDecimatedSamplesProcessSourceSampleHandleError(
+            Throwable t) {
+        assert (Thread.holdsLock(channel));
+        // When generateDecimatedSamplesProcessSourceSample(...) throws an
+        // exception it is most likely fatal: This method does not depend on the
+        // availability on any external system, so any error is most likely to
+        // be caused by a bug in the logic.
+        // More importantly, if this method throws an exception, a source sample
+        // has been consumed, but not processed. This means that continuing
+        // would result in this sample being ignored, leading to a decimated
+        // sample that does not account for all source samples.
+        // Instead of failing permanently, we could store the offending sample
+        // and try again later, but it as the logic is essentially stateless,
+        // the same source sample will most likely result in the same exception
+        // until either the source sample or the logic is changed.
+        // For these reasons, stopping the whole decimation process entirely
+        // seems like the most reasonable option. We log a corresponding error
+        // message, so that the user can know that there is a bug that needs
+        // attention.
+        fatalErrorOccurred = true;
+        log.error(
+                "Fatal error while trying to generate a decimated sample for channel \""
+                        + StringEscapeUtils.escapeJava(
+                                channelConfiguration.getChannelName())
+                        + "\" and decimation level " + decimationPeriodSeconds
+                        + ". No more decimated samples will be generated for this channel and decimation level.");
+        // When we stop the decimation process, we want the removal process for
+        // the source decimation level to be able to run. For this reason, we
+        // clear/set the flags that are important for this process.
+        sourceSampleQueryComplete = true;
+        waitingForAsynchronousDecimationOperation = false;
     }
 
     private void generateDecimatedSamplesReschedule() {
@@ -1164,17 +1276,21 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                         generateDecimatedSamplesProcessQueryResults(
                                 FutureUtils.getUnchecked(future));
                     } catch (Throwable t) {
-                        waitingForAsynchronousDecimationOperation = false;
-                        generateDecimatedSamplesReschedule();
+                        generateDecimatedSamplesProcessQueryResultsHandleError(
+                                t);
                     }
                 }
             }
         }, poolExecutor);
     }
 
-    boolean isSourceSampleQueryComplete() {
-        assert (Thread.holdsLock(channel));
-        return sourceSampleQueryComplete;
+    private void logTimeStampWarning() {
+        log.warn(
+                "Max. time-stamp reached while generating decimated samples for channel \""
+                        + StringEscapeUtils.escapeJava(
+                                channelConfiguration.getChannelName())
+                        + "\" and decimation level " + decimationPeriodSeconds
+                        + ". No more decimated samples will be generated for this channel and decimation level.");
     }
 
 }
