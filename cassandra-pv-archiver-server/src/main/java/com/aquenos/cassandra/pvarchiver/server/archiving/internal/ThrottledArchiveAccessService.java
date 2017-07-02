@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -389,6 +390,62 @@ class ThrottledArchiveAccessService {
             if (activeFetchFuture == null || !activeFetchFuture.isDone()) {
                 return;
             }
+            // If the fetch operation failed with an exception, the future will
+            // throw this exception. This means that we have to call the
+            // future's get() method here. If we did not, we would simply try to
+            // fetch again and could end up in an endless loop if the fetch
+            // operation keeps failing for some reason.
+            // We check for the exception here because we need to know whether
+            // there was an error when deciding whether to run another fetch
+            // operation. However, we do not throw the exception here because we
+            // have to clean up first, even if there is an error. The exception
+            // is then thrown later in this method.
+            RuntimeException fetchException = null;
+            try {
+                activeFetchFuture.get();
+            } catch (InterruptedException e) {
+                fetchException = new RuntimeException(
+                        "The thread was interrupted while trying to fetch more samples.",
+                        e);
+            } catch (ExecutionException e) {
+                fetchException = new RuntimeException(
+                        "Fetching more samples failed:", e.getCause());
+            }
+            // If the number of available samples is zero or has not changed, it
+            // is very likely that the last fetch operation returned zero
+            // samples. This can happen because the underlying result-set
+            // implementation might actually return a page of zero samples in
+            // order to indicate that the method for fetching the next page
+            // shall be called again. We cannot handle this situation in the
+            // regular way, because the underlying implementation might actually
+            // already keep these samples in memory, but not consider them as
+            // available (in order to avoid issues with thread-safety). In this
+            // case, the next fetch operation might be postponed significantly
+            // and the memory usage might grow more than expected.
+            // We only try to run another fetch operation if the backing result
+            // set is not fully fetched yet and the last fetch operation did not
+            // fail.
+            int nowAvailable = backingResultSet.getAvailableWithoutFetching();
+            if (fetchException == null && !backingResultSet.isFullyFetched()
+                    && (nowAvailable == 0
+                            || nowAvailable == numberOfRegisteredSamples)) {
+                // As far as the number of concurrent fetch operations is
+                // concerned, the last fetch operation still counts as running,
+                // which is why we can start this one directly, bypassing the
+                // regular queue.
+                try {
+                    activeFetchFuture = new FetchMoreResultsFunction(this)
+                            .apply(null);
+                } catch (Exception e) {
+                    activeFetchFuture = Futures.immediateFailedFuture(e);
+                }
+                // The fetch operation might finish synchronously (actually,
+                // this is the most likely case when the last one did not return
+                // any samples). For this reason, we call this method again so
+                // that an immediately finished future is processed right now.
+                processActiveFetchFutureIfDone();
+                return;
+            }
             updateNumberOfRegisteredSamples();
             // We decrement the fetch operation counter after updating the row
             // counter. This way, a new fetch operation is only started if the
@@ -399,6 +456,13 @@ class ThrottledArchiveAccessService {
             // This method may only be called by the same thread that might also
             // call cleanUp(), so we do not have to acquire the mutex here.
             fetchOperationRunning = false;
+            // If the last fetch operation failed, we now throw the exception.
+            // We do this here so that the active fetch future is cleaned up and
+            // the fetch operation counter is decremented, even if there is an
+            // error.
+            if (fetchException != null) {
+                throw fetchException;
+            }
         }
 
         private void updateNumberOfRegisteredSamples() {
