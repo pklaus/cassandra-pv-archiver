@@ -1217,6 +1217,202 @@ public class ArchiveServerIntegrationTest {
     }
 
     /**
+     * Tests that generating decimated samples works as expected when there are
+     * many source samples.
+     * 
+     * @throws Exception
+     *             if there is an error while running the test.
+     */
+    @Test
+    public void testSampleDecimationWithManySourceSamples() throws Exception {
+        final String channelName = "sampleDecimationWithManySourceSamples";
+        // We create a decimation level with a decimation period of 5 seconds.
+        FutureUtils.getUnchecked(archiveConfigurationService.addChannel(
+                SERVER_UUID, channelName, "test", ImmutableSet.of(0, 5), null,
+                true, ImmutableMap.<String, String> of()));
+        // The channel should be started. This means that we should find an
+        // entry in the channelCreated map. However, it can be a moment before
+        // this happens.
+        long deadline = System.currentTimeMillis() + 10000L;
+        while (System.currentTimeMillis() < deadline) {
+            // We have to wait until the sample listener is available which
+            // might be a bit later than the created flag is set.
+            if (channelCreated.containsKey(channelName)
+                    && sampleListeners.containsKey(channelName)) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        assertTrue(channelCreated.containsKey(channelName));
+        channelCreated.remove(channelName);
+        assertFalse(channelDestroyed.containsKey(channelName));
+        SampleListener<TestSample> sampleListener = sampleListeners
+                .remove(channelName);
+        TestControlSystemChannel channel = channels.remove(channelName);
+        for (long i = 0L; i < 120000L; ++i) {
+            sampleListener.onSampleReceived(channel,
+                    new TestSample(100000000L * i), 100);
+        }
+        // It can take a moment for the samples to be actually written and the
+        // decimated samples to be generated, so we have to wait a bit. We
+        // expect 2398 decimated samples.
+        deadline = System.currentTimeMillis() + 30000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            5, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 2398) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        List<? extends Sample> foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 5,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
+        assertEquals(2398, foundSamples.size());
+        for (int i = 0; i < 2398; ++i) {
+            assertEquals(5L * ONE_BILLION * (i + 1),
+                    foundSamples.get(i).getTimeStamp());
+            // We also want to check that the right samples are used for
+            // building each decimated sample.
+            long[] expectedTimeStamps = new long[50];
+            for (int j = 0; j < 50; ++j) {
+                expectedTimeStamps[j] = 5L * ONE_BILLION * (i + 1)
+                        + 100000000L * j;
+            }
+            verifySourceSampleTimeStamps(foundSamples.get(i),
+                    expectedTimeStamps);
+        }
+        // We update the channel configuration and add an additional decimation
+        // level. With this test, we verify that when adding a new decimation
+        // level, the source samples from the database are used correctly.
+        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(null,
+                channelName, null, ImmutableSet.of(0, 2, 5), null, null, null,
+                null, null, null, null));
+        // The channel should be started. This means that we should find an
+        // entry in the channelCreated map. However, it can be a moment before
+        // this happens.
+        deadline = System.currentTimeMillis() + 10000L;
+        while (System.currentTimeMillis() < deadline) {
+            // We have to wait until the sample listener is available which
+            // might be a bit later than the created flag is set.
+            if (channelCreated.containsKey(channelName)
+                    && sampleListeners.containsKey(channelName)) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        assertTrue(channelDestroyed.containsKey(channelName));
+        channelDestroyed.remove(channelName);
+        assertTrue(channelCreated.containsKey(channelName));
+        channelCreated.remove(channelName);
+        sampleListener = sampleListeners.remove(channelName);
+        channel = channels.remove(channelName);
+        // It can take a moment for the decimated samples to be generated, so we
+        // have to wait a bit. We expect 5998 decimated samples.
+        deadline = System.currentTimeMillis() + 30000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            2, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 5998) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        // Now we check the decimation level with a decimation period of two
+        // seconds.
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 2,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
+        assertEquals(5998, foundSamples.size());
+        for (int i = 0; i < 5998; ++i) {
+            assertEquals(2L * ONE_BILLION * (i + 1),
+                    foundSamples.get(i).getTimeStamp());
+            // We also want to check that the right samples are used for
+            // building each decimated sample.
+            long[] expectedTimeStamps = new long[20];
+            for (int j = 0; j < 20; ++j) {
+                expectedTimeStamps[j] = 2L * ONE_BILLION * (i + 1)
+                        + 100000000L * j;
+            }
+            verifySourceSampleTimeStamps(foundSamples.get(i),
+                    expectedTimeStamps);
+        }
+        // We update the channel configuration and removing the existing
+        // decimation levels and adding a new one with a decimation period of
+        // 300 seconds. This decimation period is so large that certain issues
+        // that only occur when a decimated sample is created from many source
+        // samples are exposed.
+        FutureUtils.getUnchecked(archiveConfigurationService.updateChannel(null,
+                channelName, null, ImmutableSet.of(0, 300), null, null, null,
+                null, null, null, null));
+        // The channel should be started. This means that we should find an
+        // entry in the channelCreated map. However, it can be a moment before
+        // this happens.
+        deadline = System.currentTimeMillis() + 10000L;
+        while (System.currentTimeMillis() < deadline) {
+            // We have to wait until the sample listener is available which
+            // might be a bit later than the created flag is set.
+            if (channelCreated.containsKey(channelName)
+                    && sampleListeners.containsKey(channelName)) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        assertTrue(channelDestroyed.containsKey(channelName));
+        channelDestroyed.remove(channelName);
+        assertTrue(channelCreated.containsKey(channelName));
+        channelCreated.remove(channelName);
+        sampleListener = sampleListeners.remove(channelName);
+        channel = channels.remove(channelName);
+        // It can take a moment for the decimated samples to be generated, so we
+        // have to wait a bit. We expect 38 decimated samples.
+        deadline = System.currentTimeMillis() + 30000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (FutureUtils
+                    .getUnchecked(archiveAccessService.getSamples(channelName,
+                            300, 0L, TimeStampLimitMode.AT_OR_AFTER,
+                            Long.MAX_VALUE, TimeStampLimitMode.AT_OR_BEFORE))
+                    .all().size() >= 38) {
+                break;
+            }
+            Thread.sleep(50L);
+        }
+        // Now we check the newly created decimation level.
+        foundSamples = FutureUtils
+                .getUnchecked(archiveAccessService.getSamples(channelName, 300,
+                        0L, TimeStampLimitMode.AT_OR_AFTER, Long.MAX_VALUE,
+                        TimeStampLimitMode.AT_OR_BEFORE))
+                .all();
+        assertEquals(38, foundSamples.size());
+        for (int i = 0; i < 38; ++i) {
+            assertEquals(300L * ONE_BILLION * (i + 1),
+                    foundSamples.get(i).getTimeStamp());
+            // We also want to check that the right samples are used for
+            // building each decimated sample.
+            long[] expectedTimeStamps = new long[3000];
+            for (int j = 0; j < 3000; ++j) {
+                expectedTimeStamps[j] = 300L * ONE_BILLION * (i + 1)
+                        + 100000000L * j;
+            }
+            verifySourceSampleTimeStamps(foundSamples.get(i),
+                    expectedTimeStamps);
+        }
+        // Finally, we remove the channel so that we do not disturb any other
+        // test. Removing the channel should also remove all sample buckets
+        // (this is checked by another test).
+        FutureUtils.getUnchecked(
+                archiveConfigurationService.removeChannel(null, channelName));
+    }
+
+    /**
      * Tests that generating decimated samples works as expected when source
      * samples are much scarcer than the generated samples. In such a situation,
      * the code will take a different path to limit the memory consumption. We

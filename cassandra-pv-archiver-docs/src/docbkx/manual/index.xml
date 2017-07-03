@@ -1418,14 +1418,44 @@
         <title>Cassandra PV Archiver 3.2.3</title>
         <para>
           Version 3.2.3 is a bugfix release that fixes an issue with
-          the
-          generation of decimated samples.
+          the generation of decimated samples.
         </para>
         <para>
           Due to this issue, the generation of decimated samples
           would permanently stop if there was an error while reading
           source samples from the database.
           The code will now catch such an error and retry periodically.
+        </para>
+      </section>
+      <section xml:id="news.version_3.2.4">
+        <title>Cassandra PV Archiver 3.2.4</title>
+        <para>
+          Version 3.2.4 is a bugfix release that fixes a regression introduced
+          with the 3.2.0 release and improves the initialization logic of the
+          archiving service.
+        </para>
+        <para>
+          The regression would cause the generation process for decimated
+          samples to be brought to a halt when more than 100 source samples were
+          used to generate a single decimated sample.
+          This regression would only affect the generation of decimated samples
+          from source samples in the database (typically when a new decimation
+          level was added).
+          When generating decimated samples as new samples were written, the
+          regression would not be triggered.
+        </para>
+        <para>
+          The initialization logic of the archiving service has been improved so
+          that it will be run again if there is an error while trying to
+          initialize the channels.
+          Before, the initialization would only be attempted again when the
+          server went offline (because the database was unavailable) and then
+          back online.
+          This had the consequence that a very brief database problem (possibly
+          caused by the database being overloaded) might cause the
+          initialization logic to fail without the server going offline,
+          resulting in a server that was online, but did not have any active
+          channels.
         </para>
       </section>
     </section>

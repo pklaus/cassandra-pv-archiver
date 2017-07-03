@@ -616,9 +616,11 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                 // this lock (in particular the write thread) have a chance of
                 // running.
                 if (samplesProcessed == 100) {
-                    // We register a runnable that is going to be run when the
-                    // queue is empty again.
-                    onWriteQueueEmptyRunnable = new Runnable() {
+                    // We simply schedule another run with the pool executor.
+                    // This has the effect that the mutex is released for a
+                    // short moment and thus other threads have a chance to
+                    // acquire it.
+                    poolExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
                             synchronized (channel) {
@@ -635,8 +637,7 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                                 }
                             }
                         }
-                    };
-                    retainResultSet = true;
+                    });
                     // We are going to use the result set in the future, so we
                     // have to retain the samples remaining in the result set.
                     retainResultSet = true;
