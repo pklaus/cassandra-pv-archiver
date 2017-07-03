@@ -1149,6 +1149,12 @@ class ArchivedChannel<SampleType extends Sample> {
             state = ArchivedChannelState.DESTROYED;
             if (error != null) {
                 this.error = error;
+                log.error(
+                        "Channel \""
+                                + StringEscapeUtils.escapeJava(
+                                        configuration.getChannelName())
+                                + "\" has been destroyed because of an exception.",
+                        error);
             }
             if (controlSystemChannel != null) {
                 try {

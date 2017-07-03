@@ -54,6 +54,7 @@ import com.aquenos.cassandra.pvarchiver.server.database.ChannelMetaDataDAO.Chann
 import com.aquenos.cassandra.pvarchiver.server.spring.ThrottlingProperties;
 import com.aquenos.cassandra.pvarchiver.server.util.FutureUtils;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.utils.MoreFutures;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedMap;
@@ -153,8 +154,7 @@ public class ArchivingServiceInternalImpl {
             CassandraProvider cassandraProvider,
             ChannelMetaDataDAO channelMetaDataDAO,
             ControlSystemSupportRegistry controlSystemSupportRegistry,
-            ThrottlingProperties throttlingProperties,
-            UUID thisServerId) {
+            ThrottlingProperties throttlingProperties, UUID thisServerId) {
         Preconditions.checkNotNull(archiveAccessService);
         Preconditions.checkNotNull(cassandraProvider);
         Preconditions.checkNotNull(channelMetaDataDAO);
@@ -636,6 +636,10 @@ public class ArchivingServiceInternalImpl {
                         break;
                     }
                 }
+                // TODO We should maybe try to recover from an error state
+                // automatically. However, we have to think about how we would
+                // recover from other situations causing an error state or how
+                // we can distinguish recoverable from non-recoverable errors.
             }
         }, poolExecutor);
         // We have to destroy the old channel instance before creating a new
@@ -1176,8 +1180,71 @@ public class ArchivingServiceInternalImpl {
         // same-thread executor because the function iterates over the results
         // from the database query and this iteration might block if the results
         // are spread over multiple pages.
-        return Futures.transform(combinedFuture, initializeChannels,
-                poolExecutor);
+        ListenableFuture<Void> initializationFuture = Futures
+                .transform(combinedFuture, initializeChannels, poolExecutor);
+        // If one of the two queries or the transformation that processes the
+        // query results fails, we want to try again after some time. When the
+        // failure is caused by the database being unavailable, the server will
+        // switch back to the offline state. However, if the failure is caused
+        // by a transient problem, the server might never switch offline and
+        // thus the initialization would never be retried if we did not retry it
+        // explicitly.
+        // We use a callback on the future that is the result of the
+        // transformation. This callback will be triggered if one of the queries
+        // or the transformation fails, thus catching all errors.
+        // The transformation should only fail if there is an error before it
+        // changes the state. All actions that happen after the state change
+        // should not result in an exception. In particular,
+        // channel.initialize(), channel.destroy() and refreshChannel(...)
+        // should never throw. Instead, a channel-specific error should result
+        // in only this channel being put into an error state.
+        // Even if some logic error actually caused an exception after the state
+        // change, this would not result in incorrect behavior, because the
+        // initialization logic will not make any changes if the current state
+        // does not match the expected state. This also means that the
+        // initialization logic will not run if the server has gone offline in
+        // the meantime.
+        // We can run in this callback in-thread because we only schedule an
+        // operation with the scheduled executor and this action should not
+        // block.
+        Futures.addCallback(initializationFuture,
+                new MoreFutures.FailureCallback<Void>() {
+                    @Override
+                    public void onFailure(Throwable t) {
+                        // We log the problem. Maybe this information is helpful
+                        // for finding the root of the problem.
+                        log.error(
+                                "Initialization of the archiving service failed. Another initialization attempt has been scheduled.",
+                                t);
+                        // We schedule another initialization attempt in 30
+                        // seconds.
+                        scheduledExecutor.schedule(new Runnable() {
+                            @Override
+                            public void run() {
+                                // If the state has changed in the meantime, we
+                                // stop the initialization attempt now. The
+                                // logic that triggered the state change will
+                                // take care of starting another initialization
+                                // when it is time.
+                                if (state.get() != expectedState) {
+                                    return;
+                                }
+                                // We run the actual initialization logic using
+                                // the poolExecutor. The initialization logic
+                                // might block and we do not want the thread of
+                                // the scheduledExector to be blocked.
+                                poolExecutor.execute(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        initializeChannels(expectedState);
+                                    }
+                                });
+
+                            }
+                        }, 30L, TimeUnit.SECONDS);
+                    }
+                });
+        return initializationFuture;
     }
 
     private void processSampleWriteQueues() {
