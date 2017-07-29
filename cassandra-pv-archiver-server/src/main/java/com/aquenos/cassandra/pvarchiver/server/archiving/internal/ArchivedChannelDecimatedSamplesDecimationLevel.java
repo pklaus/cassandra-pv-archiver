@@ -707,6 +707,48 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
             }
             // There might be more samples that we can fetch.
             if (!resultSet.isFullyFetched()) {
+                // We do not want to fetch more samples if the write queue
+                // already contains a significant number of samples. In this
+                // case, we rather wait for the write queue to be empty again so
+                // that the memory consumption is limited.
+                // This check looks redundant because
+                // generateDecimatedSamplesProcessSourceSample already includes
+                // a similar check, but that check is only triggered when a
+                // single source sample causes the generation of more than one
+                // decimated sample, while the check here will always apply
+                // before fetching more data. This makes sense because usually
+                // generated samples are less dense than decimated samples, so
+                // we only want to wait until the generated samples have been
+                // written when we have no more source samples in memory.
+                if (getWriteQueueSize() >= 100) {
+                    // We register a runnable that is going to be run when the
+                    // queue is empty again.
+                    final boolean finalProcessedFirstSample = processedFirstSample;
+                    onWriteQueueEmptyRunnable = new Runnable() {
+                        @Override
+                        public void run() {
+                            synchronized (channel) {
+                                try {
+                                    waitingForAsynchronousDecimationOperation = false;
+                                    generateDecimatedSamplesProcessQueryResults(
+                                            resultSet,
+                                            finalProcessedFirstSample);
+                                } catch (Throwable t) {
+                                    generateDecimatedSamplesProcessQueryResultsHandleError(
+                                            t);
+                                }
+                            }
+                        }
+                    };
+                    // The generateDecimatedSamples() method must not run until
+                    // the asynchronous operation has finished.
+                    waitingForAsynchronousDecimationOperation = true;
+                    // We are going to use the result set in the future, so we
+                    // have to retain it (which does not cost much anyway,
+                    // because there are currently no samples in memory).
+                    retainResultSet = true;
+                    return;
+                }
                 final ListenableFuture<Void> future = resultSet
                         .fetchMoreResults();
                 // We use the poolExecutor for running our callback because
@@ -941,6 +983,34 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                     public void run() {
                         synchronized (channel) {
                             try {
+                                // If the channel has been destroyed, there is
+                                // no sense in generating more decimated samples
+                                // because they will not be written anyway.
+                                // We do this check here (instead of the start
+                                // of this method) because this method is called
+                                // quite often and checking the channel's state
+                                // every time does not make sense.
+                                if (channel.getState().equals(
+                                        ArchivedChannelState.DESTROYED)) {
+                                    // We complete the future with an exception.
+                                    // At the moment, code using this future
+                                    // will only use listeners that do not use
+                                    // the result of the future, so that it does
+                                    // not matter whether it completes with an
+                                    // exception or successfully. On the other
+                                    // hand, that code will also check whether
+                                    // the channel has been destroyed and will
+                                    // stop.
+                                    // If we add some code in the future that
+                                    // actually depends on the method having
+                                    // finished successfully, completing with an
+                                    // exception might help us discover a bug.
+                                    SettableFuture<Void> future = generateDecimatedSamplesProcessSourceSampleFuture;
+                                    generateDecimatedSamplesProcessSourceSampleFuture = null;
+                                    future.setException(new RuntimeException(
+                                            "The channel was destroyed before the processing of source samples could be finished."));
+                                    return;
+                                }
                                 generateDecimatedSamplesProcessSourceSample(
                                         sourceSample);
                             } catch (Throwable t) {
