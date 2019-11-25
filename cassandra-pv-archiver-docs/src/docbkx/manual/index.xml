@@ -13,6 +13,7 @@
     <copyright>
       <year>2016</year>
       <year>2017</year>
+      <year>2019</year>
       <holder>aquenos GmbH</holder>
     </copyright>
     <author>
@@ -1002,6 +1003,32 @@
           (e.g. when adding a new decimation level) should be significantly
           reduced, resulting in a better performance and potentially avoiding
           memory exhaustion.
+        </para>
+      </section>
+      <section xml:id="news.version_3.2.6">
+        <title>Cassandra PV Archiver 3.2.6</title>
+        <para>
+          Version 3.2.6 is a bugfix release with a few minor fixes.
+        </para>
+        <para>
+          A bug in the Channel Access control-system support that affected the
+          <literal>monitorMask</literal> configuration option has been fixed.
+          Due to this bug, setting the <literal>monitorMask</literal> option
+          would actually change the value of the
+          <literal>metaDataMonitorMask</literal> option and thus there was no
+          way to use a non-default value for the <literal>monitorMask</literal>
+          option.
+        </para>
+        <para>
+          There also was a typo in the post-installation script of the Debian
+          package that could cause the package installation to fail in certain
+          rare circumstances. 
+        </para>
+        <para>
+          A small improvement has been made to the logging of the component that
+          generates decimated samples. Now, the stack trace of an exception will
+          be logged with the error message, making it easier to find the cause
+          of a problem. 
         </para>
       </section>
     </section>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 aquenos GmbH.
+ * Copyright 2016-2019 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -730,7 +730,7 @@ public class ConfigurationOptions {
                 break;
             case OPTION_MONITOR_MASK:
                 if (!StringUtils.isEmpty(optionValue)) {
-                    this.metaDataMonitorMask = parseMonitorMask(optionName,
+                    this.monitorMask = parseMonitorMask(optionName,
                             optionValue);
                 }
                 break;

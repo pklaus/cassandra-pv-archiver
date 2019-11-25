@@ -6,7 +6,7 @@
 
   <groupId>com.aquenos.cassandra.pvarchiver</groupId>
   <artifactId>cassandra-pv-archiver</artifactId>
-  <version>3.2.5</version>
+  <version>3.2.6</version>
 
   <packaging>pom</packaging>
 

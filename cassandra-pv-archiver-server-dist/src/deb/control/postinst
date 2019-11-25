@@ -23,7 +23,7 @@ esac
 deb-systemd-helper unmask cassandra-pv-archiver-server.service >/dev/null || true
 
 if deb-systemd-helper --quiet was-enabled cassandra-pv-archiver-server.service; then
-  deb-systemd-helper enable cassandra-pv-archiver-server.service >/dev/null || true
+  deb-systemd-helper enable cassandra-pv-archiver-server.service >/dev/null || true
   deb-systemd-helper update-state cassandra-pv-archiver-server.service >/dev/null || true
 fi
 
