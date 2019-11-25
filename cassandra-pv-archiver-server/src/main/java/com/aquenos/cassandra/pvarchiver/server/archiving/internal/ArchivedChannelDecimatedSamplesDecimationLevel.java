@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2017 aquenos GmbH.
+ * Copyright 2015-2019 aquenos GmbH.
  * All rights reserved.
  * 
  * This program and the accompanying materials are made available under the 
@@ -1198,7 +1198,8 @@ class ArchivedChannelDecimatedSamplesDecimationLevel<SampleType extends Sample>
                         + StringEscapeUtils.escapeJava(
                                 channelConfiguration.getChannelName())
                         + "\" and decimation level " + decimationPeriodSeconds
-                        + ". No more decimated samples will be generated for this channel and decimation level.");
+                        + ". No more decimated samples will be generated for this channel and decimation level.",
+                t);
         // When we stop the decimation process, we want the removal process for
         // the source decimation level to be able to run. For this reason, we
         // clear/set the flags that are important for this process.
