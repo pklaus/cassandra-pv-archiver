@@ -63,7 +63,7 @@
     <okhttp3.version>3.7.0</okhttp3.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <snappy.version>1.1.2.6</snappy.version>
-    <spring.version>4.3.8.RELEASE</spring.version>
+    <spring.version>4.3.29.RELEASE</spring.version>
     <spring.boot.version>1.5.3.RELEASE</spring.boot.version>
     <spring.security.version>4.2.2.RELEASE</spring.security.version>
     <thymeleaf.version>3.0.6.RELEASE</thymeleaf.version>
